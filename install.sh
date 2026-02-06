@@ -37,12 +37,12 @@ TM_HOME="/home/${TM_USER}"
 TM_RUN_DIR="/var/run/timemachine"
 TM_BACKUP_ROOT="${TM_BACKUP_ROOT:-/backups}"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 # ============================================================
 # HELPERS
