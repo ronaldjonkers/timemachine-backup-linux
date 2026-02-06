@@ -20,6 +20,7 @@
 #   snapshots <host>    List snapshots for a host
 #   ssh-key             Show the SSH public key
 #   setup-web           Setup Nginx + SSL + Auth for external access
+#   update              Update TimeMachine to the latest version
 #   version             Show version
 #
 # Options:
@@ -38,12 +39,12 @@ TM_API_URL="${TM_API_URL:-http://localhost:${TM_API_PORT}}"
 # HELPERS
 # ============================================================
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 _has_curl() { command -v curl &>/dev/null; }
 
@@ -431,7 +432,78 @@ cmd_server_remove() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v0.3.1"
+    echo "TimeMachine Backup v0.6.0"
+}
+
+cmd_update() {
+    local project_root="${SCRIPT_DIR}/.."
+
+    echo "  ${BOLD}TimeMachine Backup — Update${NC}"
+    echo ""
+
+    # Check if git is available
+    if ! command -v git &>/dev/null; then
+        echo "  ${RED}Error:${NC} git is not installed"
+        exit 1
+    fi
+
+    # Check if this is a git repo
+    if [[ ! -d "${project_root}/.git" ]]; then
+        echo "  ${RED}Error:${NC} Not a git repository. Was TimeMachine installed via get.sh?"
+        echo "  Re-install with:"
+        echo "    curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash"
+        exit 1
+    fi
+
+    # Show current version
+    local current_version
+    current_version=$(cd "${project_root}" && git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+    echo "  Current version: ${BOLD}${current_version}${NC}"
+
+    # Pull latest
+    echo "  Fetching latest version..."
+    if ! (cd "${project_root}" && git fetch --tags --quiet 2>/dev/null); then
+        echo "  ${RED}Error:${NC} Could not reach remote repository (offline?)"
+        exit 1
+    fi
+
+    local latest_version
+    latest_version=$(cd "${project_root}" && git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "unknown")
+
+    if [[ "${current_version}" == "${latest_version}" ]]; then
+        echo "  ${GREEN}Already up to date${NC} (${current_version})"
+        return 0
+    fi
+
+    echo "  New version available: ${BOLD}${latest_version}${NC}"
+    echo ""
+
+    # Pull changes
+    if ! (cd "${project_root}" && git pull --quiet 2>/dev/null); then
+        echo "  ${RED}Error:${NC} git pull failed. Check for local changes."
+        exit 1
+    fi
+
+    # Re-set script permissions
+    find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
+
+    # Restart service if running
+    if command -v systemctl &>/dev/null && systemctl is-active timemachine &>/dev/null; then
+        echo "  Restarting timemachine service..."
+        systemctl restart timemachine
+        echo "  ${GREEN}Service restarted${NC}"
+    fi
+
+    echo ""
+    echo "  ${GREEN}Updated successfully:${NC} ${current_version} → ${latest_version}"
+
+    # Show changelog for new version
+    if [[ -f "${project_root}/CHANGELOG.md" ]]; then
+        echo ""
+        echo "  ${BOLD}What's new:${NC}"
+        # Show lines between the latest version header and the next version header
+        sed -n "/^## \[${latest_version#v}\]/,/^## \[/p" "${project_root}/CHANGELOG.md" | head -20 | sed '$d' | sed 's/^/  /'
+    fi
 }
 
 # ============================================================
@@ -456,6 +528,7 @@ usage() {
     echo "  snapshots <host>    List snapshots"
     echo "  ssh-key             Show SSH public key"
     echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
+    echo "  update              Update to the latest version"
     echo "  version             Show version"
     exit 1
 }
@@ -483,6 +556,7 @@ case "${COMMAND}" in
     snapshots)  cmd_snapshots "$@" ;;
     ssh-key)    cmd_ssh_key ;;
     setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
+    update)     cmd_update ;;
     version|-v|--version) cmd_version ;;
     help|--help|-h|"")    usage ;;
     *)          echo "Unknown command: ${COMMAND}"; usage ;;

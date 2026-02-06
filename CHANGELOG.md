@@ -19,14 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DB interval scheduler** — checks every minute, triggers `--db-only` backup when interval elapsed, resets after daily full backup
 - **Web dashboard** — Priority and DB Interval columns in server table, input fields in add server form
 - **API** — `/api/servers` response now includes `priority` and `db_interval` fields
-- **New tests** — Report library (18), priority/db-interval (15), syntax checks (3) — 156 total tests across 9 suites
+- **`tmctl update`** — Update to the latest version with one command. Fetches latest code, shows version diff, restarts service if running, displays changelog excerpt
+- **New tests** — Report library (18), priority/db-interval (15), syntax checks (3), update help (1) — 157 total tests across 9 suites
 
 ### Changed
 - `bin/timemachine.sh` — Accepts and skips `--priority N` and `--db-interval Xh` flags (consumed by scheduler)
 - `bin/daily-runner.sh` — Rewritten: sorts by priority, tracks per-server results via PID file, generates report after run
 - `bin/tmserviced.sh` — Scheduler delegates daily runs to `daily-runner.sh`; DB interval backups send notifications; sources `lib/report.sh`
 - `config/servers.conf.example` — Updated with priority and db-interval examples
-- `install.sh` — Added `server_ask_email()` step to server installation flow
+- `install.sh` — Added `server_ask_email()` step; improved post-install instructions with `tmctl server add` examples, curl one-liner for client install, and `tmctl update` hint
+
+### Fixed
+- Color escape sequences not rendered in installer prompts (use `$'...'` syntax)
 
 ## [0.5.0] - 2026-02-06
 

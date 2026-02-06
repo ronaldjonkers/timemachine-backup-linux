@@ -73,7 +73,7 @@ echo ""
 echo "=== Testing: tmctl version ==="
 
 output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" version 2>&1)
-assert_contains "Version output" "0.3.1" "${output}"
+assert_contains "Version output" "0.6.0" "${output}"
 
 # ============================================================
 # TESTS: SSH KEY
@@ -198,6 +198,7 @@ assert_contains "Help shows restore" "restore" "${output}"
 assert_contains "Help shows server add" "server add" "${output}"
 assert_contains "Help shows server remove" "server remove" "${output}"
 assert_contains "Help shows setup-web" "setup-web" "${output}"
+assert_contains "Help shows update" "update" "${output}"
 
 # ============================================================
 # TESTS: PRIORITY SORTING

@@ -511,6 +511,7 @@ install_server() {
     fi
     echo ""
     echo "  ${CYAN}Run 'tmctl help' for all available commands and options.${NC}"
+    echo "  ${CYAN}Run 'tmctl update' to update to the latest version.${NC}"
     echo ""
 }
 

@@ -65,7 +65,7 @@ timemachine-backup-linux/
 │   ├── exclude.conf               # Global rsync exclude patterns
 │   ├── exclude.example.com.conf   # Per-server exclude example
 │   └── timemachine.service        # Systemd unit file
-├── tests/                         # Test suite (156 tests)
+├── tests/                         # Test suite (157 tests)
 │   ├── run_all_tests.sh           # Test runner
 │   ├── test_common.sh             # Tests for lib/common.sh
 │   ├── test_rsync.sh              # Tests for lib/rsync.sh
@@ -156,6 +156,20 @@ tmctl backup web1.example.com --dry-run
 tmctl status
 ```
 
+## Updating
+
+Update to the latest version on the backup server:
+
+```bash
+tmctl update
+```
+
+This will pull the latest code, restart the service if running, and show what's new. You can also re-run the one-liner:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
+```
+
 ## CLI Tool (`tmctl`)
 
 ```bash
@@ -171,6 +185,7 @@ tmctl server remove <host> # Remove a server
 tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
 tmctl setup-web           # Setup Nginx + SSL + Auth for external dashboard access
+tmctl update              # Update to the latest version
 tmctl version             # Show version
 ```
 
@@ -542,7 +557,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (156 tests across 9 suites)
+# Run all tests (157 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite
