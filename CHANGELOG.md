@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Web dashboard** — Priority and DB Interval columns in server table, input fields in add server form
 - **API** — `/api/servers` response now includes `priority` and `db_interval` fields
 - **`tmctl update`** — Update to the latest version with one command. Fetches latest code, shows version diff, restarts service if running, displays changelog excerpt
-- **New tests** — Report library (18), priority/db-interval (15), syntax checks (3), update help (1) — 157 total tests across 9 suites
+- **`tmctl uninstall`** — Complete removal: stops service, removes systemd/cron/sudoers/symlinks/nginx config/user/install directory. Preserves backup data. Requires sudo and confirmation
+- **New tests** — Report library (18), priority/db-interval (15), syntax checks (3), update/uninstall help (2) — 158 total tests across 9 suites
 
 ### Changed
 - `bin/timemachine.sh` — Accepts and skips `--priority N` and `--db-interval Xh` flags (consumed by scheduler)

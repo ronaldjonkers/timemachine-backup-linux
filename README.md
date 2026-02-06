@@ -65,7 +65,7 @@ timemachine-backup-linux/
 │   ├── exclude.conf               # Global rsync exclude patterns
 │   ├── exclude.example.com.conf   # Per-server exclude example
 │   └── timemachine.service        # Systemd unit file
-├── tests/                         # Test suite (157 tests)
+├── tests/                         # Test suite (158 tests)
 │   ├── run_all_tests.sh           # Test runner
 │   ├── test_common.sh             # Tests for lib/common.sh
 │   ├── test_rsync.sh              # Tests for lib/rsync.sh
@@ -186,6 +186,7 @@ tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
 tmctl setup-web           # Setup Nginx + SSL + Auth for external dashboard access
 tmctl update              # Update to the latest version
+tmctl uninstall           # Remove TimeMachine completely (sudo)
 tmctl version             # Show version
 ```
 
@@ -557,7 +558,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (157 tests across 9 suites)
+# Run all tests (158 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite

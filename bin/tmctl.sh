@@ -21,6 +21,7 @@
 #   ssh-key             Show the SSH public key
 #   setup-web           Setup Nginx + SSL + Auth for external access
 #   update              Update TimeMachine to the latest version
+#   uninstall           Remove TimeMachine completely
 #   version             Show version
 #
 # Options:
@@ -435,6 +436,101 @@ cmd_version() {
     echo "TimeMachine Backup v0.6.0"
 }
 
+cmd_uninstall() {
+    local project_root
+    project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
+
+    echo ""
+    echo "  ${BOLD}TimeMachine Backup — Uninstall${NC}"
+    echo ""
+
+    # Must be root
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "  ${RED}Error:${NC} Must be run as root (use: sudo tmctl uninstall)"
+        exit 1
+    fi
+
+    echo "  ${YELLOW}WARNING: This will remove the TimeMachine service, user, and all configuration.${NC}"
+    echo "  ${YELLOW}Backup data in ${TM_BACKUP_ROOT:-/backups} will NOT be deleted.${NC}"
+    echo ""
+
+    # Confirmation
+    read -r -p "  Type 'yes' to confirm uninstall: " confirm
+    if [[ "${confirm}" != "yes" ]]; then
+        echo "  Aborted."
+        exit 0
+    fi
+
+    echo ""
+
+    # 1. Stop and disable systemd service
+    if command -v systemctl &>/dev/null; then
+        if systemctl is-active timemachine &>/dev/null; then
+            echo "  Stopping timemachine service..."
+            systemctl stop timemachine
+        fi
+        if systemctl is-enabled timemachine &>/dev/null 2>&1; then
+            echo "  Disabling timemachine service..."
+            systemctl disable timemachine 2>/dev/null || true
+        fi
+        rm -f /etc/systemd/system/timemachine.service
+        systemctl daemon-reload 2>/dev/null || true
+        echo "  ${GREEN}✓${NC} Systemd service removed"
+    fi
+
+    # 2. Remove cron jobs
+    rm -f /etc/cron.d/timemachine
+    rm -f /etc/cron.d/timemachine-dump
+    echo "  ${GREEN}✓${NC} Cron jobs removed"
+
+    # 3. Remove sudoers
+    rm -f /etc/sudoers.d/timemachine
+    echo "  ${GREEN}✓${NC} Sudoers rules removed"
+
+    # 4. Remove symlinks
+    rm -f /usr/local/bin/tmctl
+    rm -f /usr/local/bin/timemachine
+    rm -f /usr/local/bin/tm-restore
+    echo "  ${GREEN}✓${NC} Symlinks removed"
+
+    # 5. Remove nginx config (if setup-web was used)
+    if [[ -f /etc/nginx/sites-enabled/timemachine ]]; then
+        rm -f /etc/nginx/sites-enabled/timemachine
+        rm -f /etc/nginx/sites-available/timemachine
+        rm -f /etc/nginx/.timemachine_htpasswd
+        nginx -t &>/dev/null && nginx -s reload &>/dev/null || true
+        echo "  ${GREEN}✓${NC} Nginx configuration removed"
+    fi
+
+    # 6. Remove run/state directory
+    rm -rf /var/run/timemachine
+    echo "  ${GREEN}✓${NC} Runtime directory removed"
+
+    # 7. Remove user (but not backup data)
+    local tm_user="${TM_USER:-timemachine}"
+    if id "${tm_user}" &>/dev/null; then
+        # Kill any remaining processes
+        pkill -u "${tm_user}" 2>/dev/null || true
+        sleep 1
+        userdel -r "${tm_user}" 2>/dev/null || userdel "${tm_user}" 2>/dev/null || true
+        echo "  ${GREEN}✓${NC} User '${tm_user}' removed"
+    fi
+
+    # 8. Remove installation directory
+    if [[ -d "${project_root}" && -f "${project_root}/bin/tmctl.sh" ]]; then
+        echo "  Removing ${project_root}..."
+        rm -rf "${project_root}"
+        echo "  ${GREEN}✓${NC} Installation directory removed"
+    fi
+
+    echo ""
+    echo "  ${GREEN}Uninstall complete.${NC}"
+    echo ""
+    echo "  Backup data was preserved in: ${TM_BACKUP_ROOT:-/backups}"
+    echo "  To also remove backup data:   rm -rf ${TM_BACKUP_ROOT:-/backups}/timemachine"
+    echo ""
+}
+
 cmd_update() {
     local project_root="${SCRIPT_DIR}/.."
 
@@ -529,6 +625,7 @@ usage() {
     echo "  ssh-key             Show SSH public key"
     echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
     echo "  update              Update to the latest version"
+    echo "  uninstall           Remove TimeMachine completely (sudo)"
     echo "  version             Show version"
     exit 1
 }
@@ -557,6 +654,7 @@ case "${COMMAND}" in
     ssh-key)    cmd_ssh_key ;;
     setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
     update)     cmd_update ;;
+    uninstall)  cmd_uninstall ;;
     version|-v|--version) cmd_version ;;
     help|--help|-h|"")    usage ;;
     *)          echo "Unknown command: ${COMMAND}"; usage ;;

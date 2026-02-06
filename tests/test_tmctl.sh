@@ -199,6 +199,7 @@ assert_contains "Help shows server add" "server add" "${output}"
 assert_contains "Help shows server remove" "server remove" "${output}"
 assert_contains "Help shows setup-web" "setup-web" "${output}"
 assert_contains "Help shows update" "update" "${output}"
+assert_contains "Help shows uninstall" "uninstall" "${output}"
 
 # ============================================================
 # TESTS: PRIORITY SORTING
