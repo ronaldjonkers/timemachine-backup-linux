@@ -64,7 +64,7 @@ timemachine-backup-linux/
 │   ├── exclude.conf               # Global rsync exclude patterns
 │   ├── exclude.example.com.conf   # Per-server exclude example
 │   └── timemachine.service        # Systemd unit file
-├── tests/                         # Test suite (123 tests)
+├── tests/                         # Test suite (138 tests)
 │   ├── run_all_tests.sh           # Test runner
 │   ├── test_common.sh             # Tests for lib/common.sh
 │   ├── test_rsync.sh              # Tests for lib/rsync.sh
@@ -165,7 +165,7 @@ tmctl kill <host>         # Kill a running backup
 tmctl restore <host>      # Restore from backup (interactive)
 tmctl logs [host]         # View logs
 tmctl servers             # List configured servers
-tmctl server add <host>   # Add a server (with optional --files-only, --db-only, --no-rotate)
+tmctl server add <host>   # Add a server (--files-only, --db-only, --no-rotate, --priority N, --db-interval Xh)
 tmctl server remove <host> # Remove a server
 tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
@@ -346,6 +346,28 @@ sql/
     └── app.db.sql
 ```
 
+## Server Priority & DB Interval
+
+Servers can be assigned a **priority** (1 = highest, default = 10). During daily backup runs, servers with lower priority numbers are started first:
+
+```bash
+tmctl server add db1.example.com --priority 1          # runs first
+tmctl server add web1.example.com --priority 5         # runs after priority 1
+tmctl server add dev1.example.com --priority 20        # runs last
+tmctl server add staging.example.com                   # default priority 10
+```
+
+For critical databases, you can schedule **extra DB-only backups** throughout the day with `--db-interval`:
+
+```bash
+tmctl server add db1.example.com --priority 1 --db-interval 4h   # DB backup every 4 hours
+tmctl server add db2.example.com --db-interval 2h               # DB backup every 2 hours
+```
+
+The scheduler checks every minute and triggers a `--db-only` backup when the interval has elapsed. This works with all database types (MySQL, PostgreSQL, MongoDB, Redis, SQLite). The daily full backup resets the interval timer.
+
+The daily backup schedule is controlled by `TM_SCHEDULE_HOUR` in `.env` (default: `11`, i.e. 11:00 AM).
+
 ## File Excludes
 
 ### Global Excludes
@@ -487,7 +509,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (123 tests across 9 suites)
+# Run all tests (138 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite

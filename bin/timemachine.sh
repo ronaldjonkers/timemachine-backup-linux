@@ -9,6 +9,8 @@
 #   --files-only     Only backup files (skip database dump)
 #   --db-only        Only backup databases (skip file sync)
 #   --no-rotate      Skip backup rotation after sync
+#   --priority N     Ignored (used by scheduler for ordering)
+#   --db-interval Xh Ignored (used by scheduler for extra DB runs)
 #   --dry-run        Show what would be done without executing
 #   --verbose        Enable debug logging
 #
@@ -57,6 +59,8 @@ while [[ $# -gt 0 ]]; do
         --files-only)  FILES_ONLY=1; shift ;;
         --db-only)     DB_ONLY=1; shift ;;
         --no-rotate)   NO_ROTATE=1; shift ;;
+        --priority)    shift; shift ;;  # consumed by scheduler
+        --db-interval) shift; shift ;;  # consumed by scheduler
         --dry-run)     DRY_RUN=1; shift ;;
         --verbose)     TM_LOG_LEVEL="DEBUG"; shift ;;
         --help|-h)     usage ;;

@@ -149,9 +149,81 @@ kill_backup() {
 # SCHEDULER
 # ============================================================
 
+# Parse --priority N from a server line (default 10)
+_parse_priority() {
+    local line="$1"
+    if echo "${line}" | grep -qo '\-\-priority[[:space:]]\+[0-9]\+'; then
+        echo "${line}" | grep -o '\-\-priority[[:space:]]\+[0-9]\+' | awk '{print $2}'
+    else
+        echo "10"
+    fi
+}
+
+# Parse --db-interval Xh from a server line (returns hours, empty if not set)
+_parse_db_interval() {
+    local line="$1"
+    if echo "${line}" | grep -qo '\-\-db-interval[[:space:]]\+[0-9]\+h'; then
+        echo "${line}" | grep -o '\-\-db-interval[[:space:]]\+[0-9]\+h' | grep -o '[0-9]\+'
+    fi
+}
+
+# Get sorted server lines (by priority, ascending)
+_get_sorted_servers() {
+    local servers_conf="$1"
+    [[ -f "${servers_conf}" ]] || return
+    grep -E '^\s*[^#\s]' "${servers_conf}" | \
+        sed 's/^[[:space:]]*//' | \
+        while IFS= read -r line; do
+            local prio
+            prio=$(_parse_priority "${line}")
+            printf '%03d|%s\n' "${prio}" "${line}"
+        done | sort -t'|' -k1,1n | cut -d'|' -f2-
+}
+
+# Wait until running jobs drop below parallel limit
+_wait_for_slot() {
+    local running
+    running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | wc -l | tr -d ' ')
+    while [[ ${running} -ge ${TM_PARALLEL_JOBS} ]]; do
+        sleep 10
+        running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | wc -l | tr -d ' ')
+    done
+}
+
+# Check and run DB-interval backups for servers that need them
+_check_db_intervals() {
+    local servers_conf="$1"
+    [[ -f "${servers_conf}" ]] || return
+
+    grep -E '^\s*[^#\s]' "${servers_conf}" | \
+        sed 's/^[[:space:]]*//' | while IFS= read -r line; do
+            local interval_hours
+            interval_hours=$(_parse_db_interval "${line}")
+            [[ -z "${interval_hours}" ]] && continue
+
+            local srv_host
+            srv_host=$(echo "${line}" | awk '{print $1}')
+            local last_db_file="${STATE_DIR}/last-db-${srv_host}"
+            local now
+            now=$(date +%s)
+
+            local last_db=0
+            [[ -f "${last_db_file}" ]] && last_db=$(cat "${last_db_file}")
+
+            local interval_secs=$(( interval_hours * 3600 ))
+            local elapsed=$(( now - last_db ))
+
+            if [[ ${elapsed} -ge ${interval_secs} ]]; then
+                tm_log "INFO" "Scheduler: DB interval backup for ${srv_host} (every ${interval_hours}h)"
+                _wait_for_slot
+                run_backup "${srv_host}" --db-only
+                echo "${now}" > "${last_db_file}"
+            fi
+        done
+}
+
 _scheduler_loop() {
     local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
-    local schedule_file="${TM_PROJECT_ROOT}/config/schedule.conf"
     local last_run_file="${STATE_DIR}/last-daily-run"
 
     while true; do
@@ -169,24 +241,34 @@ _scheduler_loop() {
             tm_log "INFO" "Scheduler: triggering daily backup run"
 
             if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
-                if [[ -f "${servers_conf}" ]]; then
-                    grep -E '^\s*[^#\s]' "${servers_conf}" | \
-                        sed 's/^[[:space:]]*//' | while read -r line; do
-                            run_backup ${line}
-                            # Respect parallel limit with simple delay
-                            local running
-                            running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | wc -l | tr -d ' ')
-                            while [[ ${running} -ge ${TM_PARALLEL_JOBS} ]]; do
-                                sleep 10
-                                running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | wc -l | tr -d ' ')
-                            done
-                        done
-                fi
+                # Run servers sorted by priority (lowest number first)
+                _get_sorted_servers "${servers_conf}" | while IFS= read -r line; do
+                    [[ -z "${line}" ]] && continue
+                    _wait_for_slot
+                    run_backup ${line}
+                done
                 echo "${today}" > "${last_run_file}"
+
+                # Reset DB interval timestamps after daily run
+                # (daily run already includes DB backup)
+                local now
+                now=$(date +%s)
+                grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
+                    sed 's/^[[:space:]]*//' | while IFS= read -r line; do
+                        local interval_hours
+                        interval_hours=$(_parse_db_interval "${line}")
+                        [[ -z "${interval_hours}" ]] && continue
+                        local srv_host
+                        srv_host=$(echo "${line}" | awk '{print $1}')
+                        echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
+                    done
             else
                 tm_log "ERROR" "Scheduler: pre-backup check failed"
             fi
         fi
+
+        # Check DB interval backups (runs every minute)
+        _check_db_intervals "${servers_conf}"
 
         sleep 60
     done
@@ -325,8 +407,13 @@ _handle_request() {
                     local srv_opts
                     srv_opts=$(echo "${line}" | cut -d' ' -f2- | sed 's/^[[:space:]]*//')
                     [[ "${srv_opts}" == "${srv_host}" ]] && srv_opts=""
+                    local srv_prio
+                    srv_prio=$(_parse_priority "${line}")
+                    local srv_db_int
+                    srv_db_int=$(_parse_db_interval "${line}")
+                    [[ -z "${srv_db_int}" ]] && srv_db_int="0"
                     [[ ${first} -eq 1 ]] && first=0 || servers+=','
-                    servers+=$(printf '{"hostname":"%s","options":"%s"}' "${srv_host}" "${srv_opts}")
+                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s}' "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}")
                 done < "${servers_conf}"
             fi
             servers+=']'
@@ -484,6 +571,7 @@ _start_http_server() {
 # Export functions for socat subshell
 export -f _handle_request _http_response _get_processes_json
 export -f _register_process _update_process kill_backup run_backup
+export -f _parse_priority _parse_db_interval
 export -f tm_log _tm_log_level_num tm_ensure_dir tm_date_today
 export -f tm_acquire_lock tm_release_lock
 export STATE_DIR TM_RUN_DIR TM_LOG_DIR TM_BACKUP_ROOT TM_PROJECT_ROOT

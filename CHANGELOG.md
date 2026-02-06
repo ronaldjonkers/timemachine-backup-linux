@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-06
+
+### Added
+- **Server priority** — `--priority N` option per server (1=highest, default=10). Servers with lower numbers are backed up first during daily runs
+- **DB interval backups** — `--db-interval Xh` option per server for extra DB-only backups throughout the day (e.g. `--db-interval 4h` = every 4 hours). Works with all DB types (MySQL, PostgreSQL, MongoDB, Redis, SQLite)
+- **Priority sorting** in `daily-runner.sh` and `tmserviced.sh` scheduler — servers processed in priority order
+- **DB interval scheduler** — checks every minute, triggers `--db-only` backup when interval elapsed, resets after daily full backup
+- **Web dashboard** — Priority and DB Interval columns in server table, input fields in add server form
+- **API** — `/api/servers` response now includes `priority` and `db_interval` fields
+- **New tests** — Priority parsing (3), DB interval parsing (3), priority sorting (2), syntax checks (3), server add with priority/db-interval (4) — 138 total tests across 9 suites
+
+### Changed
+- `bin/timemachine.sh` — Accepts and skips `--priority N` and `--db-interval Xh` flags (consumed by scheduler)
+- `bin/daily-runner.sh` — Sorts servers by priority before parallel execution
+- `bin/tmserviced.sh` — Refactored scheduler with `_parse_priority()`, `_parse_db_interval()`, `_get_sorted_servers()`, `_wait_for_slot()`, `_check_db_intervals()`
+- `config/servers.conf.example` — Updated with priority and db-interval examples
+
 ## [0.5.0] - 2026-02-06
 
 ### Added

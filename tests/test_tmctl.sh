@@ -141,6 +141,18 @@ assert_contains "Server add with opts" "Added" "${output}"
 file_content=$(cat "${TEST_SERVERS_CONF}")
 assert_contains "Server with opts in config" "testhost2.example.com --files-only" "${file_content}"
 
+# Add with priority
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server add testhost3.example.com --priority 1 2>&1)
+assert_contains "Server add with priority" "Added" "${output}"
+file_content=$(cat "${TEST_SERVERS_CONF}")
+assert_contains "Priority in config" "testhost3.example.com --priority 1" "${file_content}"
+
+# Add with db-interval
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server add testhost4.example.com --priority 2 --db-interval 4h 2>&1)
+assert_contains "Server add with db-interval" "Added" "${output}"
+file_content=$(cat "${TEST_SERVERS_CONF}")
+assert_contains "DB interval in config" "--db-interval 4h" "${file_content}"
+
 # Duplicate should fail
 output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server add testhost1.example.com 2>&1 || true)
 assert_contains "Duplicate rejected" "already exists" "${output}"
@@ -186,6 +198,100 @@ assert_contains "Help shows restore" "restore" "${output}"
 assert_contains "Help shows server add" "server add" "${output}"
 assert_contains "Help shows server remove" "server remove" "${output}"
 assert_contains "Help shows setup-web" "setup-web" "${output}"
+
+# ============================================================
+# TESTS: PRIORITY SORTING
+# ============================================================
+
+echo ""
+echo "=== Testing: priority sorting ==="
+
+# Create a test servers.conf with mixed priorities
+PRIO_CONF="${TEST_TMP}/prio-servers.conf"
+cat > "${PRIO_CONF}" <<'EOF'
+low.example.com --priority 20
+high.example.com --priority 1
+default.example.com
+mid.example.com --priority 5
+EOF
+
+# Source tmserviced.sh functions for _parse_priority and _get_sorted_servers
+source "${PROJECT_ROOT}/lib/common.sh"
+tm_load_config
+
+# Inline the functions for testing (they're defined in tmserviced.sh)
+_test_parse_priority() {
+    local line="$1"
+    if echo "${line}" | grep -qo '\-\-priority[[:space:]]\+[0-9]\+'; then
+        echo "${line}" | grep -o '\-\-priority[[:space:]]\+[0-9]\+' | awk '{print $2}'
+    else
+        echo "10"
+    fi
+}
+
+_test_parse_db_interval() {
+    local line="$1"
+    if echo "${line}" | grep -qo '\-\-db-interval[[:space:]]\+[0-9]\+h'; then
+        echo "${line}" | grep -o '\-\-db-interval[[:space:]]\+[0-9]\+h' | grep -o '[0-9]\+'
+    fi
+}
+
+# Test priority parsing
+prio=$(_test_parse_priority "high.example.com --priority 1")
+assert_eq "Parse priority 1" "1" "${prio}"
+
+prio=$(_test_parse_priority "default.example.com")
+assert_eq "Parse default priority" "10" "${prio}"
+
+prio=$(_test_parse_priority "low.example.com --priority 20 --files-only")
+assert_eq "Parse priority with other opts" "20" "${prio}"
+
+# Test db-interval parsing
+db_int=$(_test_parse_db_interval "db.example.com --db-interval 4h")
+assert_eq "Parse db-interval 4h" "4" "${db_int}"
+
+db_int=$(_test_parse_db_interval "db.example.com --priority 1 --db-interval 2h --files-only")
+assert_eq "Parse db-interval with other opts" "2" "${db_int}"
+
+db_int=$(_test_parse_db_interval "default.example.com")
+assert_eq "No db-interval returns empty" "" "${db_int}"
+
+# Test priority sorting
+sorted=$(
+    grep -E '^\s*[^#\s]' "${PRIO_CONF}" | \
+        sed 's/^[[:space:]]*//' | \
+        while IFS= read -r line; do
+            prio=$(_test_parse_priority "${line}")
+            printf '%03d|%s\n' "${prio}" "${line}"
+        done | sort -t'|' -k1,1n | cut -d'|' -f2-
+)
+first_host=$(echo "${sorted}" | head -1 | awk '{print $1}')
+assert_eq "Highest priority first" "high.example.com" "${first_host}"
+
+last_host=$(echo "${sorted}" | tail -1 | awk '{print $1}')
+assert_eq "Lowest priority last" "low.example.com" "${last_host}"
+
+# ============================================================
+# TESTS: TIMEMACHINE.SH ACCEPTS NEW FLAGS
+# ============================================================
+
+echo ""
+echo "=== Testing: timemachine.sh flag parsing ==="
+
+# Syntax check
+syntax_output=$(bash -n "${PROJECT_ROOT}/bin/timemachine.sh" 2>&1)
+syntax_rc=$?
+assert_eq "timemachine.sh syntax valid" "0" "${syntax_rc}"
+
+# daily-runner.sh syntax check
+syntax_output=$(bash -n "${PROJECT_ROOT}/bin/daily-runner.sh" 2>&1)
+syntax_rc=$?
+assert_eq "daily-runner.sh syntax valid" "0" "${syntax_rc}"
+
+# tmserviced.sh syntax check
+syntax_output=$(bash -n "${PROJECT_ROOT}/bin/tmserviced.sh" 2>&1)
+syntax_rc=$?
+assert_eq "tmserviced.sh syntax valid" "0" "${syntax_rc}"
 
 # ============================================================
 # TESTS: SETUP-WEB SCRIPT

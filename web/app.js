@@ -127,7 +127,7 @@ async function refreshServers() {
     const countEl = document.getElementById('server-count');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="empty">No servers configured</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No servers configured</td></tr>';
         countEl.textContent = '0';
         return;
     }
@@ -135,9 +135,13 @@ async function refreshServers() {
     countEl.textContent = data.length;
 
     tbody.innerHTML = data.map(srv => {
+        const prio = srv.priority || 10;
+        const dbInt = srv.db_interval ? `${srv.db_interval}h` : '--';
         return `<tr>
             <td><strong>${esc(srv.hostname)}</strong></td>
             <td>${esc(srv.options) || '<em style="color:var(--text-muted)">default</em>'}</td>
+            <td>${prio}</td>
+            <td>${dbInt}</td>
             <td>
                 <button class="btn btn-sm btn-success" onclick="startBackupFor('${esc(srv.hostname)}')">Backup</button>
                 <button class="btn btn-sm" onclick="viewSnapshots('${esc(srv.hostname)}')">Snapshots</button>
@@ -208,17 +212,25 @@ async function killBackup(hostname) {
 
 async function addServer() {
     const hostname = document.getElementById('add-server-hostname').value.trim();
-    const options = document.getElementById('add-server-options').value;
+    let options = document.getElementById('add-server-options').value;
+    const priority = document.getElementById('add-server-priority').value.trim();
+    const dbInterval = document.getElementById('add-server-db-interval').value.trim();
 
     if (!hostname) {
         alert('Please enter a hostname');
         return;
     }
 
+    if (priority) options += ` --priority ${priority}`;
+    if (dbInterval) options += ` --db-interval ${dbInterval}h`;
+    options = options.trim();
+
     const result = await apiPost('/api/servers', { hostname, options });
     if (result && result.status === 'added') {
         document.getElementById('add-server-hostname').value = '';
         document.getElementById('add-server-options').value = '';
+        document.getElementById('add-server-priority').value = '';
+        document.getElementById('add-server-db-interval').value = '';
         refreshServers();
     } else if (result && result.error) {
         alert(result.error);

@@ -56,15 +56,33 @@ if [[ "${JOB_COUNT}" -eq 0 ]]; then
 fi
 
 # ============================================================
-# EXECUTE BACKUPS IN PARALLEL
+# EXECUTE BACKUPS IN PARALLEL (sorted by priority)
 # ============================================================
 
 tm_log "INFO" "Starting daily backups (parallel=${TM_PARALLEL_JOBS})"
 
-# Build job commands from servers.conf
+# Parse --priority N from each line (default 10), sort ascending
 # Each non-comment, non-empty line is: <hostname> [options]
-grep -E '^\s*[^#\s]' "${SERVERS_CONF}" | \
-    sed 's/^[[:space:]]*//' | \
+_get_priority() {
+    local line="$1"
+    if echo "${line}" | grep -qo '\-\-priority[[:space:]]\+[0-9]\+'; then
+        echo "${line}" | grep -o '\-\-priority[[:space:]]\+[0-9]\+' | awk '{print $2}'
+    else
+        echo "10"
+    fi
+}
+
+# Build sorted job list
+SORTED_JOBS=$(
+    grep -E '^\s*[^#\s]' "${SERVERS_CONF}" | \
+        sed 's/^[[:space:]]*//' | \
+        while IFS= read -r line; do
+            prio=$(_get_priority "${line}")
+            printf '%03d|%s\n' "${prio}" "${line}"
+        done | sort -t'|' -k1,1n | cut -d'|' -f2-
+)
+
+echo "${SORTED_JOBS}" | \
     xargs -I{} -P "${TM_PARALLEL_JOBS}" bash -c \
         "\"${SCRIPT_DIR}/timemachine.sh\" {} >> \"${LOGFILE}\" 2>&1"
 

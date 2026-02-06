@@ -368,7 +368,12 @@ cmd_server_add() {
     if [[ -z "${hostname}" ]]; then
         echo "Usage: tmctl server add <hostname> [OPTIONS]"
         echo ""
-        echo "Options: --files-only, --db-only, --no-rotate"
+        echo "Options:"
+        echo "  --files-only      Only backup files (skip database dump)"
+        echo "  --db-only         Only backup databases (skip file sync)"
+        echo "  --no-rotate       Skip backup rotation"
+        echo "  --priority N      Backup priority (1=highest, default=10)"
+        echo "  --db-interval Xh  Extra DB backups every X hours (e.g. 4h)"
         exit 1
     fi
 

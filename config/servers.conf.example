@@ -5,30 +5,38 @@
 # Format: <hostname> [OPTIONS]
 #
 # Options:
-#   --files-only   Only backup files (skip database dump)
-#   --db-only      Only backup databases (skip file sync)
-#   --no-rotate    Skip backup rotation for this host
+#   --files-only      Only backup files (skip database dump)
+#   --db-only         Only backup databases (skip file sync)
+#   --no-rotate       Skip backup rotation for this host
+#   --priority N      Backup priority (1=highest, default=10)
+#                     Servers with lower numbers run first.
+#   --db-interval Xh  Extra DB-only backups every X hours
+#                     (e.g. --db-interval 4h = 6 DB backups/day)
 #
 # Lines starting with # are comments.
 # Blank lines are ignored.
 #
-# This file is executed in parallel by daily-runner.sh.
+# Servers are processed in priority order (lowest number first).
 # The number of parallel jobs is controlled by TM_PARALLEL_JOBS
 # in your .env configuration.
 # ============================================================
 
-# === Critical Production Servers ===
-# web1.example.com
-# db1.example.com
-# app1.example.com
+# === Critical Production Servers (high priority) ===
+# web1.example.com --priority 1
+# db1.example.com --priority 1 --db-interval 4h
+# app1.example.com --priority 2
+
+# === Standard Servers (default priority 10) ===
+# staging1.example.com
+# dev1.example.com --priority 20
 
 # === File-Only Servers (no database) ===
 # relay1.example.com --files-only
 # monitor1.example.com --files-only
 
-# === Database-Only Servers ===
-# db-replica1.example.com --db-only
+# === Database-Only Servers (frequent DB backups) ===
+# db-replica1.example.com --db-only --db-interval 2h --priority 1
 
 # === DNS / Infrastructure ===
-# ns1.example.com --files-only
-# ns2.example.com --files-only
+# ns1.example.com --files-only --priority 5
+# ns2.example.com --files-only --priority 5
