@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-06
+
+### Added
+- **`tmctl setup-web`** — Interactive command to expose the web dashboard securely over HTTPS
+  - Installs and configures **Nginx** as reverse proxy to `localhost:7600`
+  - Obtains **Let's Encrypt SSL** certificate via certbot (with auto-renewal)
+  - Creates **HTTP Basic Auth** credentials (bcrypt via htpasswd)
+  - Configures firewall (ufw/firewalld) for ports 80/443
+  - Binds API to `127.0.0.1` so it's only accessible through nginx
+  - Optional: leave `/api/ssh-key/raw` open (no auth) for automated client installs
+  - Supports non-interactive mode: `--domain`, `--email`, `--user`, `--pass`
+  - `--remove` flag to undo all changes
+- **`bin/setup-web.sh`** — Standalone setup script (also callable via `tmctl setup-web`)
+
 ## [0.4.0] - 2026-02-06
 
 ### Added

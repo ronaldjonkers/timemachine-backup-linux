@@ -64,7 +64,7 @@ timemachine-backup-linux/
 │   ├── exclude.conf               # Global rsync exclude patterns
 │   ├── exclude.example.com.conf   # Per-server exclude example
 │   └── timemachine.service        # Systemd unit file
-├── tests/                         # Test suite (95 tests)
+├── tests/                         # Test suite (123 tests)
 │   ├── run_all_tests.sh           # Test runner
 │   ├── test_common.sh             # Tests for lib/common.sh
 │   ├── test_rsync.sh              # Tests for lib/rsync.sh
@@ -75,6 +75,7 @@ timemachine-backup-linux/
 │   ├── test_excludes.sh           # Tests for exclude system
 │   ├── test_database.sh           # Tests for database support
 │   └── test_shellcheck.sh         # ShellCheck linting
+├── bin/setup-web.sh               # Nginx + SSL + Auth setup for web dashboard
 ├── get.sh                         # Single-line installer (curl | bash)
 ├── install.sh                     # Unified installer (server + client)
 ├── .env.example                   # Configuration template
@@ -168,7 +169,37 @@ tmctl server add <host>   # Add a server (with optional --files-only, --db-only,
 tmctl server remove <host> # Remove a server
 tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
+tmctl setup-web           # Setup Nginx + SSL + Auth for external dashboard access
 tmctl version             # Show version
+```
+
+## Exposing the Dashboard (HTTPS + Auth)
+
+To make the web dashboard securely accessible from the internet:
+
+```bash
+sudo tmctl setup-web
+```
+
+This interactive command will:
+1. Install **Nginx** as a reverse proxy
+2. Obtain a **Let's Encrypt SSL** certificate (via certbot)
+3. Create **HTTP Basic Auth** credentials (bcrypt hashed)
+4. Configure firewall rules (ufw/firewalld)
+5. Bind the API to `127.0.0.1` (only accessible through nginx)
+
+You can also pass options non-interactively:
+
+```bash
+sudo tmctl setup-web --domain tm.example.com --email admin@example.com --user admin --pass secret
+```
+
+The `/api/ssh-key/raw` endpoint can optionally be left open (no auth) for automated client installs.
+
+To remove external access:
+
+```bash
+sudo tmctl setup-web --remove
 ```
 
 ## Restore
@@ -455,7 +486,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (120 tests across 9 suites)
+# Run all tests (123 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite

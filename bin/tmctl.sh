@@ -19,6 +19,7 @@
 #   server remove <host> Remove a server from the backup list
 #   snapshots <host>    List snapshots for a host
 #   ssh-key             Show the SSH public key
+#   setup-web           Setup Nginx + SSL + Auth for external access
 #   version             Show version
 #
 # Options:
@@ -449,6 +450,7 @@ usage() {
     echo "  server remove <host> Remove a server"
     echo "  snapshots <host>    List snapshots"
     echo "  ssh-key             Show SSH public key"
+    echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
     echo "  version             Show version"
     exit 1
 }
@@ -475,6 +477,7 @@ case "${COMMAND}" in
         ;;
     snapshots)  cmd_snapshots "$@" ;;
     ssh-key)    cmd_ssh_key ;;
+    setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
     version|-v|--version) cmd_version ;;
     help|--help|-h|"")    usage ;;
     *)          echo "Unknown command: ${COMMAND}"; usage ;;

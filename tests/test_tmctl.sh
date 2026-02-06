@@ -185,6 +185,22 @@ assert_contains "Help shows backup" "backup" "${output}"
 assert_contains "Help shows restore" "restore" "${output}"
 assert_contains "Help shows server add" "server add" "${output}"
 assert_contains "Help shows server remove" "server remove" "${output}"
+assert_contains "Help shows setup-web" "setup-web" "${output}"
+
+# ============================================================
+# TESTS: SETUP-WEB SCRIPT
+# ============================================================
+
+echo ""
+echo "=== Testing: setup-web.sh ==="
+
+# Syntax check
+syntax_output=$(bash -n "${PROJECT_ROOT}/bin/setup-web.sh" 2>&1)
+syntax_rc=$?
+assert_eq "setup-web.sh syntax valid" "0" "${syntax_rc}"
+
+# Script is executable or at least parseable
+assert_contains "setup-web.sh has shebang" "#!/usr/bin/env bash" "$(head -1 "${PROJECT_ROOT}/bin/setup-web.sh")"
 
 # ============================================================
 # SUMMARY
