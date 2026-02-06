@@ -71,45 +71,31 @@ tm_rsync_backup() {
         rsync_cmd+=" --link-dest=${latest_link}"
     fi
 
-    # Default paths to sync (configurable via TM_BACKUP_PATHS)
-    local default_paths_str="${TM_BACKUP_PATHS:-/etc/,/home/,/root/,/var/spool/cron/,/opt/}"
-    local IFS=','
-    local default_paths=()
-    for p in ${default_paths_str}; do
-        # Ensure trailing slash
-        p="${p%/}/"
-        default_paths+=("${p}")
-    done
-    unset IFS
-
     # Build exclude arguments (global + per-server)
     local exclude_args
     exclude_args=$(_tm_rsync_excludes "${hostname}")
 
     tm_ensure_dir "${target_dir}/files"
 
-    tm_log "INFO" "Starting file backup: ${hostname} -> ${target_dir}/files"
+    # Sync entire filesystem from / — excludes determine what is skipped
+    local source_path="${TM_BACKUP_SOURCE:-/}"
+    source_path="${source_path%/}/"
+
+    tm_log "INFO" "Starting file backup: ${hostname}:${source_path} -> ${target_dir}/files"
 
     local exit_code=0
-    for path in "${default_paths[@]}"; do
-        local dest_subdir="${target_dir}/files${path}"
-        tm_ensure_dir "${dest_subdir}"
-
-        tm_log "DEBUG" "Syncing ${hostname}:${path}"
-
-        eval ${rsync_cmd} ${exclude_args} \
-            "${remote_user}@${hostname}:${path}" \
-            "${dest_subdir}" 2>&1 || {
-                local rc=$?
-                # rsync exit code 24 = "vanished source files" (non-fatal)
-                if [[ ${rc} -eq 24 ]]; then
-                    tm_log "WARN" "Some files vanished during transfer from ${hostname}:${path}"
-                else
-                    tm_log "ERROR" "rsync failed for ${hostname}:${path} (exit code ${rc})"
-                    exit_code=${rc}
-                fi
-            }
-    done
+    eval ${rsync_cmd} ${exclude_args} \
+        "${remote_user}@${hostname}:${source_path}" \
+        "${target_dir}/files/" 2>&1 || {
+            local rc=$?
+            # rsync exit code 24 = "vanished source files" (non-fatal)
+            if [[ ${rc} -eq 24 ]]; then
+                tm_log "WARN" "Some files vanished during transfer from ${hostname}"
+            else
+                tm_log "ERROR" "rsync failed for ${hostname} (exit code ${rc})"
+                exit_code=${rc}
+            fi
+        }
 
     # Update the 'latest' symlink
     if [[ ${exit_code} -eq 0 ]]; then

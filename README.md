@@ -371,14 +371,15 @@ cat > config/exclude.web1.example.com.conf <<EOF
 EOF
 ```
 
-### Configurable Backup Paths
+### Backup Source
 
-By default, these remote paths are backed up: `/etc/`, `/home/`, `/root/`, `/var/spool/cron/`, `/opt/`.
+By default, the entire remote filesystem (`/`) is backed up. The `config/exclude.conf` file determines what is **skipped** (system dirs, caches, DB data dirs, etc.).
 
-Override in `.env`:
+To limit the backup to a specific subtree, override in `.env`:
 
 ```bash
-TM_BACKUP_PATHS="/etc/,/home/,/root/,/var/www/,/opt/,/srv/"
+# Only back up /home/ (not recommended — you'll miss /etc, /opt, etc.)
+TM_BACKUP_SOURCE="/home/"
 ```
 
 ## Web Dashboard
@@ -465,7 +466,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 |---|---|---|
 | `TM_USER` | `timemachine` | Backup user |
 | `TM_BACKUP_ROOT` | `/backups` | Where backups are stored |
-| `TM_BACKUP_PATHS` | `/etc/,/home/,...` | Remote paths to back up |
+| `TM_BACKUP_SOURCE` | `/` | Remote root path to back up (excludes determine what is skipped) |
 | `TM_RETENTION_DAYS` | `7` | Days to keep old backups |
 | `TM_PARALLEL_JOBS` | `5` | Max parallel backup jobs |
 | `TM_SSH_PORT` | `22` | SSH port for connections |

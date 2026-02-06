@@ -118,29 +118,21 @@ assert_not_contains "No server exclude for unknown host" "exclude.nonexistent.ho
 rm -f "${PROJECT_ROOT}/config/exclude.test-server.conf"
 
 # ============================================================
-# TESTS: CONFIGURABLE BACKUP PATHS
+# TESTS: BACKUP SOURCE PATH
 # ============================================================
 
 echo ""
-echo "=== Testing: Configurable Backup Paths ==="
+echo "=== Testing: Backup Source Path ==="
 
-# Test default paths
-export TM_BACKUP_PATHS="/etc/,/home/,/root/,/var/spool/cron/,/opt/"
+# Default should be / (entire filesystem, excludes determine what is skipped)
+assert_eq "Default backup source is /" "/" "${TM_BACKUP_SOURCE:-/}"
 
-# We can't run the full rsync backup without a remote host,
-# but we can verify the paths are parsed correctly
+# Custom source path should be preserved
 output=$(
-    TM_BACKUP_PATHS="/custom/path1,/custom/path2"
-    IFS=','
-    paths=()
-    for p in ${TM_BACKUP_PATHS}; do
-        p="${p%/}/"
-        paths+=("${p}")
-    done
-    echo "${paths[@]}"
+    TM_BACKUP_SOURCE="/home/"
+    echo "${TM_BACKUP_SOURCE}"
 )
-assert_contains "Custom path 1 parsed" "/custom/path1/" "${output}"
-assert_contains "Custom path 2 parsed" "/custom/path2/" "${output}"
+assert_eq "Custom backup source preserved" "/home/" "${output}"
 
 # ============================================================
 # TESTS: EXCLUDE FILE CONTENT

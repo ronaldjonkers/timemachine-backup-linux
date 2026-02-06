@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--remove` flag to undo all changes
 - **`bin/setup-web.sh`** — Standalone setup script (also callable via `tmctl setup-web`)
 
+### Changed
+- **Full-filesystem backup** — Rsync now syncs entire remote filesystem (`/`) instead of individual paths. The `config/exclude.conf` determines what is skipped (system dirs, caches, DB data dirs, etc.). Replaces `TM_BACKUP_PATHS` with `TM_BACKUP_SOURCE=/`
+- `lib/rsync.sh` — Replaced per-path loop with single rsync from `$TM_BACKUP_SOURCE` (default `/`)
+- `lib/common.sh` — `TM_BACKUP_PATHS` replaced by `TM_BACKUP_SOURCE=/`
+- `.env.example` — Updated file backup section to document `TM_BACKUP_SOURCE`
+
 ## [0.4.0] - 2026-02-06
 
 ### Added
