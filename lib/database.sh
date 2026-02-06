@@ -1,88 +1,49 @@
 #!/usr/bin/env bash
 # ============================================================
-# TimeMachine Backup - Database Dump Functions
+# TimeMachine Backup - Database Functions (Server-Side)
 # ============================================================
-# Functions for dumping MySQL/MariaDB databases on remote hosts.
-# These run ON the remote server (deployed via install-client.sh).
+# Functions for triggering and syncing database dumps from
+# remote hosts. The actual dump logic lives in bin/dump_dbs.sh
+# which runs on the client.
+#
+# Supported databases:
+#   - MySQL / MariaDB
+#   - PostgreSQL
+#   - MongoDB
+#   - Redis
+#   - SQLite
 # ============================================================
 
-# Dump all databases on the local machine
-# This function is designed to run on the CLIENT (remote server).
-tm_dump_databases() {
-    local sql_dir="${TM_HOME:-/home/timemachine}/sql"
-    local pw_file="${TM_MYSQL_PW_FILE:-/root/mysql.pw}"
-    local mysql_host="${TM_MYSQL_HOST:-}"
-    local max_retries="${TM_DB_DUMP_RETRIES:-3}"
-    local failed=0
+# Trigger remote database dump via SSH
+# The dump_dbs.sh script on the client auto-detects installed
+# database engines and dumps all databases.
+tm_trigger_remote_dump() {
+    local hostname="$1"
+    local remote_user="${TM_USER}"
 
-    # Create or clean SQL dump directory
-    mkdir -p "${sql_dir}"
-    rm -rf "${sql_dir:?}"/*
+    tm_log "INFO" "Triggering remote database dump on ${hostname}"
 
-    # Read database root password
-    local dbpass
-    dbpass=$(sudo cat "${pw_file}" 2>/dev/null) || true
-    if [[ -z "${dbpass}" ]]; then
-        tm_log "ERROR" "No database root password found at ${pw_file}"
-        return 1
-    fi
+    # Pass database config to the remote script via environment
+    local env_vars=""
+    env_vars+="TM_DB_TYPES='${TM_DB_TYPES}' "
+    env_vars+="TM_MYSQL_PW_FILE='${TM_MYSQL_PW_FILE}' "
+    env_vars+="TM_MYSQL_HOST='${TM_MYSQL_HOST}' "
+    env_vars+="TM_PG_USER='${TM_PG_USER}' "
+    env_vars+="TM_PG_HOST='${TM_PG_HOST}' "
+    env_vars+="TM_MONGO_HOST='${TM_MONGO_HOST}' "
+    env_vars+="TM_MONGO_AUTH_DB='${TM_MONGO_AUTH_DB}' "
+    env_vars+="TM_REDIS_HOST='${TM_REDIS_HOST}' "
+    env_vars+="TM_REDIS_PORT='${TM_REDIS_PORT}' "
+    env_vars+="TM_SQLITE_PATHS='${TM_SQLITE_PATHS}' "
+    env_vars+="TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}' "
 
-    # Build MySQL host option
-    local host_opt=""
-    if [[ -n "${mysql_host}" ]]; then
-        host_opt="-h ${mysql_host}"
-    fi
+    ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
+        -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
+        -o StrictHostKeyChecking=no \
+        "${remote_user}@${hostname}" \
+        "${env_vars} bash /home/${remote_user}/dump_dbs.sh" 2>&1
 
-    # Get list of databases (excluding system databases)
-    local dblist
-    dblist=$(echo 'SHOW DATABASES;' | \
-        mysql --defaults-extra-file=<(printf "[client]\nuser=root\npassword=%s" "${dbpass}") \
-        ${host_opt} 2>/dev/null | \
-        grep -Ev '^(Database|information_schema|performance_schema|sys)$') || {
-            tm_log "ERROR" "Failed to retrieve database list"
-            return 1
-        }
-
-    # Dump each database
-    for db in ${dblist}; do
-        local dumpfile="${sql_dir}/${db}.sql"
-        tm_log "INFO" "Dumping database: ${db}"
-
-        local tries=0
-        local result=1
-        while [[ ${tries} -lt ${max_retries} ]]; do
-            if [[ ${tries} -gt 0 ]]; then
-                tm_log "WARN" "Dump failed for ${db}; retrying (${tries}/${max_retries})..."
-            fi
-
-            mysqldump \
-                --defaults-extra-file=<(printf "[client]\nuser=root\npassword=%s" "${dbpass}") \
-                ${host_opt} \
-                --force --opt --single-transaction \
-                --disable-keys --skip-add-locks \
-                --ignore-table=mysql.event \
-                --routines "${db}" > "${dumpfile}" 2>/dev/null
-
-            result=$?
-            if [[ ${result} -eq 0 ]]; then
-                break
-            fi
-            tries=$((tries + 1))
-        done
-
-        if [[ ${result} -ne 0 ]]; then
-            tm_log "ERROR" "Failed to dump database: ${db} after ${max_retries} attempts"
-            failed=1
-        fi
-    done
-
-    if [[ ${failed} -eq 1 ]]; then
-        tm_log "WARN" "One or more database dumps failed"
-    else
-        tm_log "INFO" "All database dumps completed successfully"
-    fi
-
-    return ${failed}
+    return $?
 }
 
 # Wait for a remote database dump (triggered by cron) to complete

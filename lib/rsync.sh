@@ -24,8 +24,32 @@ _tm_rsync_base_cmd() {
     echo "${cmd}"
 }
 
+# Build exclude arguments for rsync
+# Loads global exclude.conf + per-server exclude.<hostname>.conf
+_tm_rsync_excludes() {
+    local hostname="${1:-}"
+    local script_dir="${TM_INSTALL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+    local global_exclude="${script_dir}/config/exclude.conf"
+    local server_exclude="${script_dir}/config/exclude.${hostname}.conf"
+    local excludes=""
+
+    # Global exclude file
+    if [[ -f "${global_exclude}" ]]; then
+        excludes+=" --exclude-from='${global_exclude}'"
+        tm_log "DEBUG" "Using global excludes: ${global_exclude}"
+    fi
+
+    # Per-server exclude file (additive)
+    if [[ -n "${hostname}" && -f "${server_exclude}" ]]; then
+        excludes+=" --exclude-from='${server_exclude}'"
+        tm_log "DEBUG" "Using server excludes: ${server_exclude}"
+    fi
+
+    echo "${excludes}"
+}
+
 # Sync files from a remote host using rsync with hardlink rotation
-# Usage: tm_rsync_backup <hostname> <remote_paths> <backup_dest>
+# Usage: tm_rsync_backup <hostname> <backup_dest>
 tm_rsync_backup() {
     local hostname="$1"
     local remote_user="${TM_USER}"
@@ -47,27 +71,20 @@ tm_rsync_backup() {
         rsync_cmd+=" --link-dest=${latest_link}"
     fi
 
-    # Default paths to sync
-    local default_paths=(
-        "/etc/"
-        "/home/"
-        "/root/"
-        "/var/spool/cron/"
-        "/opt/"
-    )
+    # Default paths to sync (configurable via TM_BACKUP_PATHS)
+    local default_paths_str="${TM_BACKUP_PATHS:-/etc/,/home/,/root/,/var/spool/cron/,/opt/}"
+    local IFS=','
+    local default_paths=()
+    for p in ${default_paths_str}; do
+        # Ensure trailing slash
+        p="${p%/}/"
+        default_paths+=("${p}")
+    done
+    unset IFS
 
-    # Exclude patterns
-    local excludes=(
-        "--exclude=/proc"
-        "--exclude=/sys"
-        "--exclude=/dev"
-        "--exclude=/tmp"
-        "--exclude=/run"
-        "--exclude=/var/tmp"
-        "--exclude=/var/cache"
-        "--exclude=lost+found"
-        "--exclude=.cache"
-    )
+    # Build exclude arguments (global + per-server)
+    local exclude_args
+    exclude_args=$(_tm_rsync_excludes "${hostname}")
 
     tm_ensure_dir "${target_dir}/files"
 
@@ -80,7 +97,7 @@ tm_rsync_backup() {
 
         tm_log "DEBUG" "Syncing ${hostname}:${path}"
 
-        eval ${rsync_cmd} "${excludes[@]}" \
+        eval ${rsync_cmd} ${exclude_args} \
             "${remote_user}@${hostname}:${path}" \
             "${dest_subdir}" 2>&1 || {
                 local rc=$?

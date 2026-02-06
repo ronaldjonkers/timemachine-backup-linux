@@ -1,6 +1,20 @@
 # TimeMachine Backup for Linux
 
-A robust, rsync-based backup system for Linux servers inspired by macOS Time Machine. Creates rotating daily snapshots with hardlinks for space-efficient, point-in-time recovery. Includes a service daemon with web dashboard, CLI control tool, restore functionality, encryption, and multi-channel notifications.
+A robust, rsync-based backup system for Linux servers inspired by macOS Time Machine. Creates rotating daily snapshots with hardlinks for space-efficient, point-in-time recovery. Includes a service daemon with web dashboard, CLI control tool, restore functionality, multi-database support, encryption, and multi-channel notifications.
+
+## Quick Install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
+```
+
+The installer will ask where to store backups (e.g. `/mnt/backups`). A `timemachine` subdirectory is created automatically with the correct permissions.
+
+To preset the backup directory:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo TM_BACKUP_DIR=/mnt/storage bash
+```
 
 ## Features
 
@@ -8,8 +22,9 @@ A robust, rsync-based backup system for Linux servers inspired by macOS Time Mac
 - **Service daemon** — Runs as a systemd service with built-in scheduler
 - **Web dashboard** — Real-time monitoring UI with process control
 - **CLI control tool (`tmctl`)** — Manage backups, view status, kill processes
-- **Restore** — Selective file/database restore from any snapshot, from server or client
-- **MySQL/MariaDB database dumps** — Automatic remote dumping with retry logic
+- **Restore** — Selective file/database restore from any snapshot
+- **Multi-database support** — MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite with auto-detection
+- **Exclude system** — Global defaults + per-server exclude patterns
 - **Parallel execution** — Back up multiple servers simultaneously
 - **Multi-channel notifications** — Email, HTTP POST webhooks, Slack
 - **Encryption** — GPG-based symmetric or asymmetric backup encryption
@@ -29,12 +44,12 @@ timemachine-backup-linux/
 │   ├── restore.sh                 # Restore from backup snapshots
 │   ├── daily-runner.sh            # Parallel job runner (cron fallback)
 │   ├── daily-jobs-check.sh        # Pre-backup stale process check
-│   ├── dump_dbs.sh                # Database dump (runs on client)
+│   ├── dump_dbs.sh                # Multi-DB dump (runs on client)
 │   └── dump_dbs_wait.sh           # Wait for cron-triggered DB dump
 ├── lib/                           # Shared libraries
 │   ├── common.sh                  # Config, logging, locking, utilities
 │   ├── rsync.sh                   # Rsync sync & rotation functions
-│   ├── database.sh                # Database dump functions
+│   ├── database.sh                # Database trigger & sync functions
 │   ├── notify.sh                  # Multi-channel notifications
 │   └── encrypt.sh                 # GPG encryption/decryption
 ├── web/                           # Dashboard (served by tmserviced)
@@ -45,8 +60,9 @@ timemachine-backup-linux/
 │   ├── servers.conf.example       # Server list template
 │   ├── schedule.conf.example      # Scheduler configuration
 │   ├── exclude.conf               # Global rsync exclude patterns
+│   ├── exclude.example.com.conf   # Per-server exclude example
 │   └── timemachine.service        # Systemd unit file
-├── tests/                         # Test suite (65 tests)
+├── tests/                         # Test suite (95 tests)
 │   ├── run_all_tests.sh           # Test runner
 │   ├── test_common.sh             # Tests for lib/common.sh
 │   ├── test_rsync.sh              # Tests for lib/rsync.sh
@@ -54,7 +70,10 @@ timemachine-backup-linux/
 │   ├── test_encrypt.sh            # Tests for lib/encrypt.sh
 │   ├── test_restore.sh            # Tests for bin/restore.sh
 │   ├── test_tmctl.sh              # Tests for bin/tmctl.sh
+│   ├── test_excludes.sh           # Tests for exclude system
+│   ├── test_database.sh           # Tests for database support
 │   └── test_shellcheck.sh         # ShellCheck linting
+├── get.sh                         # Single-line installer (curl | bash)
 ├── install.sh                     # Server (backup host) installer
 ├── install-client.sh              # Client (remote server) installer
 ├── .env.example                   # Configuration template
@@ -68,7 +87,11 @@ timemachine-backup-linux/
 ### 1. Install the Backup Server
 
 ```bash
-git clone https://github.com/your-org/timemachine-backup-linux.git
+# Single-line install (recommended)
+curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
+
+# Or manual install
+git clone https://github.com/ronaldjonkers/timemachine-backup-linux.git
 cd timemachine-backup-linux
 sudo ./install.sh
 ```
@@ -76,7 +99,8 @@ sudo ./install.sh
 This will:
 - Create the `timemachine` user with SSH keys
 - Install dependencies (rsync, socat, curl, gnupg2)
-- Set up directories, sudoers, and systemd service
+- Ask for the backup storage directory and create `<dir>/timemachine/` with correct permissions
+- Set up sudoers and systemd service
 - Generate `.env` and `config/servers.conf` from templates
 - Create symlinks: `tmctl`, `timemachine`, `tm-restore` in `/usr/local/bin`
 
@@ -103,9 +127,17 @@ The dashboard is now available at `http://<backup-server>:7600`.
 **Automatic** (downloads SSH key from the backup server API):
 
 ```bash
+# Files only
 sudo ./install-client.sh --server backup.example.com
+
+# With database support (auto-detects installed DB engines)
 sudo ./install-client.sh --server backup.example.com --with-db
-sudo ./install-client.sh --server backup.example.com --db-cronjob
+
+# With specific database types
+sudo ./install-client.sh --server backup.example.com --db-type mysql,postgresql
+
+# With autonomous DB dump cronjob
+sudo ./install-client.sh --server backup.example.com --with-db --db-cronjob
 ```
 
 **Manual** (provide SSH key directly):
@@ -165,6 +197,152 @@ tm-restore web1.example.com --dry-run
 
 # Decrypt encrypted backup before restore
 tm-restore web1.example.com --decrypt --target /tmp/restore
+```
+
+## Database Backup
+
+TimeMachine supports automatic backup of all major database engines. The `dump_dbs.sh` script runs on the client server, auto-detects installed databases, and dumps them before the file sync pulls the dumps back.
+
+### Supported Databases
+
+| Engine | Dump Tool | Credential Method |
+|---|---|---|
+| **MySQL / MariaDB** | `mysqldump` | Password file: `/root/mysql.pw` |
+| **PostgreSQL** | `pg_dump` + `pg_dumpall` | Peer auth via `postgres` user (no password needed) |
+| **MongoDB** | `mongodump` | Credentials file: `~timemachine/.mongo_credentials` |
+| **Redis** | `redis-cli BGSAVE` | Password file: `~timemachine/.redis_password` |
+| **SQLite** | `sqlite3 .backup` | No auth (file path based) |
+
+### Configuration
+
+Set `TM_DB_TYPES` in `.env`:
+
+```bash
+# Auto-detect installed engines (default)
+TM_DB_TYPES="auto"
+
+# Or specify explicitly
+TM_DB_TYPES="mysql,postgresql,redis"
+```
+
+### Setting Up Credentials
+
+#### MySQL / MariaDB
+
+```bash
+# On the CLIENT server, create a password file:
+echo 'your_root_password' | sudo tee /root/mysql.pw
+sudo chmod 600 /root/mysql.pw
+```
+
+The dump uses `--defaults-extra-file` with a process substitution, so the password never appears in `ps` output. Dumps are stored per-database in `sql/mysql/<dbname>.sql`.
+
+#### PostgreSQL
+
+PostgreSQL uses **peer authentication** by default — no password needed. The dump runs as the `postgres` system user via `sudo -u postgres pg_dump`.
+
+```bash
+# Verify it works on the client:
+sudo -u postgres psql -c '\l'
+```
+
+If you use password auth or a remote host, configure `~postgres/.pgpass`:
+
+```bash
+# Format: hostname:port:database:username:password
+echo '*:5432:*:postgres:yourpassword' | sudo tee ~postgres/.pgpass
+sudo chmod 600 ~postgres/.pgpass
+sudo chown postgres:postgres ~postgres/.pgpass
+```
+
+Set `TM_PG_HOST` in `.env` if PostgreSQL is on a different host.
+
+Dumps include per-database SQL files in `sql/postgresql/` plus a `_globals.sql` with roles and tablespaces.
+
+#### MongoDB
+
+```bash
+# On the CLIENT server, create a credentials file:
+echo 'admin_user:admin_password' | sudo -u timemachine tee ~timemachine/.mongo_credentials
+sudo chmod 600 ~timemachine/.mongo_credentials
+```
+
+If MongoDB has no authentication enabled, no credentials file is needed. Dumps are stored as BSON in `sql/mongodb/<dbname>/`.
+
+#### Redis
+
+```bash
+# On the CLIENT server, create a password file:
+echo 'your_redis_password' | sudo -u timemachine tee ~timemachine/.redis_password
+sudo chmod 600 ~timemachine/.redis_password
+```
+
+If Redis has no password (`requirepass` not set), no file is needed. The dump copies the RDB snapshot to `sql/redis/dump.rdb`.
+
+#### SQLite
+
+SQLite databases are file-based — just specify their paths:
+
+```bash
+# In .env on the backup server:
+TM_SQLITE_PATHS="/var/lib/app/db.sqlite3,/opt/wiki/data.db"
+```
+
+Dumps use `sqlite3 .backup` (hot-copy safe) with SQL dump fallback. Stored in `sql/sqlite/`.
+
+### Dump Directory Structure
+
+```
+sql/
+├── mysql/
+│   ├── wordpress.sql
+│   └── nextcloud.sql
+├── postgresql/
+│   ├── myapp.sql
+│   ├── analytics.sql
+│   └── _globals.sql
+├── mongodb/
+│   ├── mydb/
+│   └── logs/
+├── redis/
+│   └── dump.rdb
+└── sqlite/
+    └── app.db.sql
+```
+
+## File Excludes
+
+### Global Excludes
+
+Edit `config/exclude.conf` to set patterns excluded from **all** server backups. Default excludes:
+
+```
+/proc, /sys, /dev, /tmp, /run, /var/tmp, /var/cache
+/var/lib/docker, /var/lib/containerd
+lost+found, .cache, .thumbnails
+```
+
+### Per-Server Excludes
+
+Create `config/exclude.<hostname>.conf` for server-specific patterns. These are **additive** to the global excludes:
+
+```bash
+# Example: exclude large uploads from web1.example.com
+cat > config/exclude.web1.example.com.conf <<EOF
+/var/www/uploads
+/var/www/app/node_modules
+/var/www/app/storage/cache
+EOF
+```
+
+### Configurable Backup Paths
+
+By default, these remote paths are backed up: `/etc/`, `/home/`, `/root/`, `/var/spool/cron/`, `/opt/`.
+
+Override in `.env`:
+
+```bash
+TM_BACKUP_PATHS="/etc/,/home/,/root/,/var/www/,/opt/,/srv/"
 ```
 
 ## Web Dashboard
@@ -251,10 +429,15 @@ All settings are in `.env`. See `.env.example` for the full list.
 |---|---|---|
 | `TM_USER` | `timemachine` | Backup user |
 | `TM_BACKUP_ROOT` | `/backups` | Where backups are stored |
+| `TM_BACKUP_PATHS` | `/etc/,/home/,...` | Remote paths to back up |
 | `TM_RETENTION_DAYS` | `7` | Days to keep old backups |
 | `TM_PARALLEL_JOBS` | `5` | Max parallel backup jobs |
 | `TM_SSH_PORT` | `22` | SSH port for connections |
 | `TM_RSYNC_BW_LIMIT` | `0` | Bandwidth limit (KB/s, 0=unlimited) |
+| `TM_DB_TYPES` | `auto` | DB engines: auto, mysql, postgresql, mongodb, redis, sqlite |
+| `TM_MYSQL_PW_FILE` | `/root/mysql.pw` | MySQL password file on client |
+| `TM_PG_USER` | `postgres` | PostgreSQL system user |
+| `TM_SQLITE_PATHS` | *(empty)* | Comma-separated SQLite file paths |
 | `TM_API_PORT` | `7600` | HTTP API / dashboard port |
 | `TM_API_BIND` | `0.0.0.0` | API bind address |
 | `TM_SCHEDULE_HOUR` | `11` | Hour to trigger daily backups |
@@ -266,7 +449,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (65 tests across 7 suites)
+# Run all tests (95 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite
@@ -276,6 +459,8 @@ bash tests/test_notify.sh
 bash tests/test_encrypt.sh
 bash tests/test_restore.sh
 bash tests/test_tmctl.sh
+bash tests/test_excludes.sh
+bash tests/test_database.sh
 
 # Run shellcheck linting (requires shellcheck)
 bash tests/test_shellcheck.sh

@@ -14,7 +14,8 @@
 #   --server <host>     Backup server hostname/IP (auto-downloads SSH key)
 #   --server-port <p>   Backup server API port (default: 7600)
 #   --ssh-key <key>     SSH public key string (manual alternative)
-#   --with-db           Deploy database dump script
+#   --with-db           Deploy database dump script (auto-detect DB engines)
+#   --db-type <types>   Comma-separated DB types: mysql,postgresql,mongodb,redis,sqlite
 #   --db-cronjob        Also install a cron job for DB dumps
 #   --uninstall         Remove timemachine user and config
 #
@@ -63,6 +64,7 @@ SSH_PUBLIC_KEY="${TM_SSH_PUBLIC_KEY:-}"
 BACKUP_SERVER=""
 BACKUP_SERVER_PORT="7600"
 WITH_DB=0
+DB_TYPE="auto"
 DB_CRONJOB=0
 UNINSTALL=0
 
@@ -83,6 +85,11 @@ while [[ $# -gt 0 ]]; do
         --with-db)
             WITH_DB=1
             shift
+            ;;
+        --db-type)
+            WITH_DB=1
+            DB_TYPE="$2"
+            shift 2
             ;;
         --db-cronjob)
             DB_CRONJOB=1
@@ -210,12 +217,37 @@ Defaults:${TM_USER} !tty_tickets
 Defaults:${TM_USER} !requiretty
 ${TM_USER} ALL=NOPASSWD:${rsync_path}, ${cat_path}"
 
-    # Add MySQL commands if database support is requested
+    # Add database commands if database support is requested
     if [[ ${WITH_DB} -eq 1 ]]; then
-        local mysql_path mysqldump_path
-        mysql_path=$(command -v mysql 2>/dev/null || echo "/usr/bin/mysql")
-        mysqldump_path=$(command -v mysqldump 2>/dev/null || echo "/usr/bin/mysqldump")
-        sudoers_content+=", ${mysql_path}, ${mysqldump_path}"
+        # MySQL/MariaDB
+        if command -v mysql &>/dev/null; then
+            sudoers_content+=", $(command -v mysql)"
+        fi
+        if command -v mysqldump &>/dev/null; then
+            sudoers_content+=", $(command -v mysqldump)"
+        fi
+        if command -v mariadb &>/dev/null; then
+            sudoers_content+=", $(command -v mariadb)"
+        fi
+        if command -v mariadb-dump &>/dev/null; then
+            sudoers_content+=", $(command -v mariadb-dump)"
+        fi
+        # PostgreSQL
+        if command -v psql &>/dev/null; then
+            sudoers_content+=", $(command -v psql), $(command -v pg_dump), $(command -v pg_dumpall)"
+        fi
+        # MongoDB
+        if command -v mongodump &>/dev/null; then
+            sudoers_content+=", $(command -v mongodump)"
+        fi
+        # Redis
+        if command -v redis-cli &>/dev/null; then
+            sudoers_content+=", $(command -v redis-cli)"
+        fi
+        # SQLite
+        if command -v sqlite3 &>/dev/null; then
+            sudoers_content+=", $(command -v sqlite3)"
+        fi
     fi
 
     echo "${sudoers_content}" > "${sudoers_file}"

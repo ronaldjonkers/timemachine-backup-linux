@@ -128,6 +128,15 @@ setup_user() {
 setup_directories() {
     info "Setting up directories..."
 
+    # If TM_BACKUP_ROOT doesn't end with /timemachine, create the subdir
+    # This ensures proper ownership isolation
+    if [[ "${TM_BACKUP_ROOT}" != */timemachine ]]; then
+        local parent_dir="${TM_BACKUP_ROOT}"
+        TM_BACKUP_ROOT="${TM_BACKUP_ROOT}/timemachine"
+        mkdir -p "${parent_dir}"
+        info "  ${parent_dir} (parent mount point)"
+    fi
+
     local dirs=(
         "${TM_BACKUP_ROOT}"
         "${TM_RUN_DIR}"
@@ -138,6 +147,7 @@ setup_directories() {
     for dir in "${dirs[@]}"; do
         mkdir -p "${dir}"
         chown "${TM_USER}:${TM_USER}" "${dir}"
+        chmod 750 "${dir}"
         info "  ${dir}"
     done
 }
@@ -155,6 +165,10 @@ setup_config() {
         # Update TM_HOME in .env
         sed -i.bak "s|TM_HOME=.*|TM_HOME=\"${TM_HOME}\"|" "${INSTALL_DIR}/.env" 2>/dev/null || \
         sed -i '' "s|TM_HOME=.*|TM_HOME=\"${TM_HOME}\"|" "${INSTALL_DIR}/.env"
+        rm -f "${INSTALL_DIR}/.env.bak"
+        # Update TM_BACKUP_ROOT in .env
+        sed -i.bak "s|TM_BACKUP_ROOT=.*|TM_BACKUP_ROOT=\"${TM_BACKUP_ROOT}\"|" "${INSTALL_DIR}/.env" 2>/dev/null || \
+        sed -i '' "s|TM_BACKUP_ROOT=.*|TM_BACKUP_ROOT=\"${TM_BACKUP_ROOT}\"|" "${INSTALL_DIR}/.env"
         rm -f "${INSTALL_DIR}/.env.bak"
         info "Created .env from template (edit as needed)"
     else

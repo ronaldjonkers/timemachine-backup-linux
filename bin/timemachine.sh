@@ -132,15 +132,10 @@ main() {
         tm_log "INFO" "Phase 2: Database backup"
 
         # Trigger remote database dump via SSH
-        tm_log "INFO" "Triggering remote database dump on ${HOSTNAME}"
-        ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
-            -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
-            -o StrictHostKeyChecking=no \
-            "${TM_USER}@${HOSTNAME}" \
-            "bash /home/${TM_USER}/dump_dbs.sh" 2>&1 || {
-                tm_log "ERROR" "Remote database dump failed on ${HOSTNAME}"
-                exit_code=1
-            }
+        if ! tm_trigger_remote_dump "${HOSTNAME}"; then
+            tm_log "ERROR" "Remote database dump failed on ${HOSTNAME}"
+            exit_code=1
+        fi
 
         # Sync the SQL dumps back
         if [[ ${exit_code} -eq 0 ]]; then

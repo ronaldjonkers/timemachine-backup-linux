@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-06
+
+### Added
+- **Single-line installer** (`get.sh`) — `curl | bash` install with interactive backup directory selection
+- **Multi-database support** — MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite with auto-detection (`TM_DB_TYPES=auto`)
+- **Per-server exclude files** — `config/exclude.<hostname>.conf` for server-specific rsync exclude patterns (additive to global)
+- **Configurable backup paths** — `TM_BACKUP_PATHS` variable to customize which remote directories to back up
+- **Per-server exclude example** — `config/exclude.example.com.conf` template
+- **Database credential docs** — Complete setup instructions for each DB engine's authentication
+- **New tests** — `test_excludes.sh` (11 tests), `test_database.sh` (19 tests) — 95 total tests across 9 suites
+
+### Changed
+- `install.sh` — Creates `<backup_dir>/timemachine/` subdirectory with correct ownership (750); writes `TM_BACKUP_ROOT` to `.env`
+- `bin/dump_dbs.sh` — Complete rewrite: auto-detects DB engines, supports MySQL, PostgreSQL, MongoDB, Redis, SQLite with per-engine credential handling
+- `lib/database.sh` — New `tm_trigger_remote_dump()` passes all DB config vars to remote `dump_dbs.sh` via SSH environment
+- `lib/rsync.sh` — Replaced hardcoded excludes with file-based system (`_tm_rsync_excludes()`); backup paths now configurable via `TM_BACKUP_PATHS`
+- `lib/common.sh` — Added config defaults for `TM_BACKUP_PATHS`, `TM_INSTALL_DIR`, `TM_DB_TYPES`, `TM_PG_USER`, `TM_PG_HOST`, `TM_MONGO_HOST`, `TM_MONGO_AUTH_DB`, `TM_REDIS_HOST`, `TM_REDIS_PORT`, `TM_SQLITE_PATHS`
+- `install-client.sh` — Added `--db-type` option; sudoers now includes all detected DB tools (mysql, pg_dump, mongodump, redis-cli, sqlite3)
+- `.env.example` — Expanded database section with all DB engine configs and credential documentation
+- `bin/timemachine.sh` — Uses new `tm_trigger_remote_dump()` instead of inline SSH command
+
 ## [0.2.0] - 2026-02-06
 
 ### Added
