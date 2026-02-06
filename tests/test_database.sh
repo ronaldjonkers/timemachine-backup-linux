@@ -72,7 +72,8 @@ export TM_ALERT_ENABLED=false
 export TM_ENCRYPT_ENABLED=false
 export TM_RUN_DIR="${TEST_TMP}/run"
 export TM_DB_TYPES="auto"
-export TM_MYSQL_PW_FILE="/root/mysql.pw"
+export TM_CREDENTIALS_DIR="${TEST_TMP}/.credentials"
+export TM_MYSQL_PW_FILE="${TM_CREDENTIALS_DIR}/mysql.pw"
 export TM_MYSQL_HOST=""
 export TM_PG_USER="postgres"
 export TM_PG_HOST=""
@@ -187,16 +188,19 @@ assert_eq "tm_wait_for_db_dump exists" "0" \
 echo ""
 echo "=== Testing: Credential File Patterns ==="
 
+# Test credentials directory
+assert_eq "Credentials dir in TM_HOME" "${TEST_TMP}/.credentials" "${TM_CREDENTIALS_DIR}"
+
 # Test MySQL password file pattern
-assert_eq "MySQL pw file default" "/root/mysql.pw" "${TM_MYSQL_PW_FILE}"
+assert_contains "MySQL pw in credentials dir" ".credentials/mysql.pw" "${TM_MYSQL_PW_FILE}"
 
 # Test MongoDB credentials file path
-mongo_cred="${TM_HOME}/.mongo_credentials"
-assert_contains "Mongo cred path in TM_HOME" "${TEST_TMP}" "${mongo_cred}"
+mongo_cred="${TM_CREDENTIALS_DIR}/mongodb.conf"
+assert_contains "Mongo cred in credentials dir" ".credentials/mongodb.conf" "${mongo_cred}"
 
 # Test Redis password file path
-redis_pw="${TM_HOME}/.redis_password"
-assert_contains "Redis pw path in TM_HOME" "${TEST_TMP}" "${redis_pw}"
+redis_pw="${TM_CREDENTIALS_DIR}/redis.pw"
+assert_contains "Redis pw in credentials dir" ".credentials/redis.pw" "${redis_pw}"
 
 # ============================================================
 # TESTS: DUMP DIRECTORY STRUCTURE

@@ -73,7 +73,7 @@ echo ""
 echo "=== Testing: tmctl version ==="
 
 output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" version 2>&1)
-assert_contains "Version output" "0.2.0" "${output}"
+assert_contains "Version output" "0.3.1" "${output}"
 
 # ============================================================
 # TESTS: SSH KEY
@@ -113,6 +113,66 @@ assert_contains "Shows process hostname" "test.example.com" "${output}"
 assert_contains "Shows completed status" "completed" "${output}"
 
 # ============================================================
+# TESTS: SERVER ADD / REMOVE
+# ============================================================
+
+echo ""
+echo "=== Testing: tmctl server add/remove ==="
+
+# Create a clean servers.conf for testing
+TEST_SERVERS_CONF="${PROJECT_ROOT}/config/servers.conf"
+ORIG_SERVERS_CONF=""
+if [[ -f "${TEST_SERVERS_CONF}" ]]; then
+    ORIG_SERVERS_CONF=$(cat "${TEST_SERVERS_CONF}")
+fi
+echo "# test" > "${TEST_SERVERS_CONF}"
+
+# Add a server
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server add testhost1.example.com 2>&1)
+assert_contains "Server add output" "Added" "${output}"
+
+# Verify it's in the file
+file_content=$(cat "${TEST_SERVERS_CONF}")
+assert_contains "Server in config" "testhost1.example.com" "${file_content}"
+
+# Add with options
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server add testhost2.example.com --files-only 2>&1)
+assert_contains "Server add with opts" "Added" "${output}"
+file_content=$(cat "${TEST_SERVERS_CONF}")
+assert_contains "Server with opts in config" "testhost2.example.com --files-only" "${file_content}"
+
+# Duplicate should fail
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server add testhost1.example.com 2>&1 || true)
+assert_contains "Duplicate rejected" "already exists" "${output}"
+
+# Remove a server
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server remove testhost1.example.com 2>&1)
+assert_contains "Server remove output" "Removed" "${output}"
+
+# Verify it's gone
+file_content=$(cat "${TEST_SERVERS_CONF}")
+if [[ "${file_content}" != *"testhost1.example.com"* ]]; then
+    echo "  PASS: Server removed from config"
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo "  FAIL: Server still in config after remove"
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# Remove non-existent should fail
+output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" server remove nonexistent.example.com 2>&1 || true)
+assert_contains "Remove non-existent fails" "not found" "${output}"
+
+# Restore original servers.conf
+if [[ -n "${ORIG_SERVERS_CONF}" ]]; then
+    echo "${ORIG_SERVERS_CONF}" > "${TEST_SERVERS_CONF}"
+else
+    rm -f "${TEST_SERVERS_CONF}"
+fi
+
+# ============================================================
 # TESTS: HELP
 # ============================================================
 
@@ -123,6 +183,8 @@ output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" help 2>&1 || true)
 assert_contains "Help shows commands" "Commands:" "${output}"
 assert_contains "Help shows backup" "backup" "${output}"
 assert_contains "Help shows restore" "restore" "${output}"
+assert_contains "Help shows server add" "server add" "${output}"
+assert_contains "Help shows server remove" "server remove" "${output}"
 
 # ============================================================
 # SUMMARY

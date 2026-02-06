@@ -333,6 +333,55 @@ _handle_request() {
             _http_response "200 OK" "application/json" "${servers}"
             ;;
 
+        "POST /api/servers")
+            local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+            # Parse hostname and options from JSON body
+            local new_host new_opts
+            new_host=$(echo "${body}" | grep -o '"hostname":"[^"]*"' | cut -d'"' -f4)
+            new_opts=$(echo "${body}" | grep -o '"options":"[^"]*"' | cut -d'"' -f4)
+
+            if [[ -z "${new_host}" ]]; then
+                _http_response "400 Bad Request" "application/json" \
+                    '{"error":"hostname is required"}'
+            else
+                # Create file if it doesn't exist
+                [[ ! -f "${servers_conf}" ]] && touch "${servers_conf}"
+
+                # Check for duplicates
+                if grep -qE "^\s*${new_host}(\s|$)" "${servers_conf}" 2>/dev/null; then
+                    _http_response "409 Conflict" "application/json" \
+                        "{\"error\":\"Server '${new_host}' already exists\"}"
+                else
+                    local entry="${new_host}"
+                    [[ -n "${new_opts}" ]] && entry="${new_host} ${new_opts}"
+                    echo "${entry}" >> "${servers_conf}"
+                    tm_log "INFO" "API: added server ${new_host}"
+                    _http_response "201 Created" "application/json" \
+                        "{\"status\":\"added\",\"hostname\":\"${new_host}\",\"options\":\"${new_opts}\"}"
+                fi
+            fi
+            ;;
+
+        "DELETE /api/servers/"*)
+            local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+            local target_host="${path#/api/servers/}"
+
+            if [[ ! -f "${servers_conf}" ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    '{"error":"No servers.conf found"}'
+            elif ! grep -qE "^\s*${target_host}(\s|$)" "${servers_conf}" 2>/dev/null; then
+                _http_response "404 Not Found" "application/json" \
+                    "{\"error\":\"Server '${target_host}' not found\"}"
+            else
+                sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}" 2>/dev/null || \
+                sed -i '' "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}"
+                rm -f "${servers_conf}.bak"
+                tm_log "INFO" "API: removed server ${target_host}"
+                _http_response "200 OK" "application/json" \
+                    "{\"status\":\"removed\",\"hostname\":\"${target_host}\"}"
+            fi
+            ;;
+
         "GET /api/ssh-key")
             local pub_key_file="${TM_SSH_KEY}.pub"
             if [[ -f "${pub_key_file}" ]]; then

@@ -669,6 +669,13 @@ client_setup_directories() {
 
     mkdir -p "${TM_HOME}/sql"
     chown "${TM_USER}:${TM_USER}" "${TM_HOME}/sql"
+
+    # Credential storage directory (all DB passwords in one place)
+    local cred_dir="${TM_HOME}/.credentials"
+    mkdir -p "${cred_dir}"
+    chown "${TM_USER}:${TM_USER}" "${cred_dir}"
+    chmod 700 "${cred_dir}"
+    info "  Credentials dir: ${cred_dir}"
 }
 
 # ============================================================

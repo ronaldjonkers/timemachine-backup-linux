@@ -15,6 +15,8 @@
 #   restore <hostname>  Start a restore (passes args to restore.sh)
 #   logs [hostname]     Show logs (all or per host)
 #   servers             List configured servers
+#   server add <host>   Add a server to the backup list
+#   server remove <host> Remove a server from the backup list
 #   snapshots <host>    List snapshots for a host
 #   ssh-key             Show the SSH public key
 #   version             Show version
@@ -54,8 +56,15 @@ _api_get() {
 
 _api_post() {
     local endpoint="$1"
+    local body="${2:-}"
     if _has_curl; then
-        curl -s --connect-timeout 3 -X POST "${TM_API_URL}${endpoint}" 2>/dev/null
+        if [[ -n "${body}" ]]; then
+            curl -s --connect-timeout 3 -X POST \
+                -H "Content-Type: application/json" \
+                -d "${body}" "${TM_API_URL}${endpoint}" 2>/dev/null
+        else
+            curl -s --connect-timeout 3 -X POST "${TM_API_URL}${endpoint}" 2>/dev/null
+        fi
     fi
 }
 
@@ -351,8 +360,72 @@ cmd_ssh_key() {
     fi
 }
 
+cmd_server_add() {
+    local hostname="$1"
+    local opts="${*:2}"
+
+    if [[ -z "${hostname}" ]]; then
+        echo "Usage: tmctl server add <hostname> [OPTIONS]"
+        echo ""
+        echo "Options: --files-only, --db-only, --no-rotate"
+        exit 1
+    fi
+
+    local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+
+    # Create file if it doesn't exist
+    if [[ ! -f "${servers_conf}" ]]; then
+        cp "${TM_PROJECT_ROOT}/config/servers.conf.example" "${servers_conf}" 2>/dev/null || \
+            touch "${servers_conf}"
+    fi
+
+    # Check for duplicates
+    if grep -qE "^\s*${hostname}(\s|$)" "${servers_conf}" 2>/dev/null; then
+        echo -e "${YELLOW}Server '${hostname}' already exists in servers.conf${NC}"
+        return 1
+    fi
+
+    # Append server
+    local entry="${hostname}"
+    [[ -n "${opts}" ]] && entry="${hostname} ${opts}"
+    echo "${entry}" >> "${servers_conf}"
+    echo -e "${GREEN}Added${NC} ${BOLD}${hostname}${NC} to servers.conf"
+
+    # Notify API if running
+    if _service_running; then
+        _api_post "/api/servers" "{\"hostname\":\"${hostname}\",\"options\":\"${opts}\"}" &>/dev/null || true
+    fi
+}
+
+cmd_server_remove() {
+    local hostname="$1"
+
+    if [[ -z "${hostname}" ]]; then
+        echo "Usage: tmctl server remove <hostname>"
+        exit 1
+    fi
+
+    local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+
+    if [[ ! -f "${servers_conf}" ]]; then
+        echo -e "${RED}No servers.conf found${NC}"
+        return 1
+    fi
+
+    if ! grep -qE "^\s*${hostname}(\s|$)" "${servers_conf}" 2>/dev/null; then
+        echo -e "${RED}Server '${hostname}' not found in servers.conf${NC}"
+        return 1
+    fi
+
+    # Remove the line (macOS + Linux compatible sed)
+    sed -i.bak "/^[[:space:]]*${hostname}[[:space:]]*$/d;/^[[:space:]]*${hostname}[[:space:]]/d" "${servers_conf}" 2>/dev/null || \
+    sed -i '' "/^[[:space:]]*${hostname}[[:space:]]*$/d;/^[[:space:]]*${hostname}[[:space:]]/d" "${servers_conf}"
+    rm -f "${servers_conf}.bak"
+    echo -e "${GREEN}Removed${NC} ${BOLD}${hostname}${NC} from servers.conf"
+}
+
 cmd_version() {
-    echo "TimeMachine Backup v0.2.0"
+    echo "TimeMachine Backup v0.3.1"
 }
 
 # ============================================================
@@ -372,6 +445,8 @@ usage() {
     echo "  restore <hostname>  Restore from backup"
     echo "  logs [hostname]     Show logs"
     echo "  servers             List configured servers"
+    echo "  server add <host>   Add a server [OPTIONS]"
+    echo "  server remove <host> Remove a server"
     echo "  snapshots <host>    List snapshots"
     echo "  ssh-key             Show SSH public key"
     echo "  version             Show version"
@@ -389,6 +464,15 @@ case "${COMMAND}" in
     restore)    exec "${SCRIPT_DIR}/restore.sh" "$@" ;;
     logs|log)   cmd_logs "$@" ;;
     servers)    cmd_servers ;;
+    server)
+        SUBCMD="${1:-}"
+        shift 2>/dev/null || true
+        case "${SUBCMD}" in
+            add)    cmd_server_add "$@" ;;
+            remove|rm|del) cmd_server_remove "$@" ;;
+            *)      echo "Usage: tmctl server <add|remove> <hostname>"; exit 1 ;;
+        esac
+        ;;
     snapshots)  cmd_snapshots "$@" ;;
     ssh-key)    cmd_ssh_key ;;
     version|-v|--version) cmd_version ;;

@@ -36,7 +36,8 @@ fi
 TM_USER="${TM_USER:-timemachine}"
 TM_HOME="${TM_HOME:-/home/timemachine}"
 TM_DB_TYPES="${TM_DB_TYPES:-auto}"
-TM_MYSQL_PW_FILE="${TM_MYSQL_PW_FILE:-/root/mysql.pw}"
+TM_CREDENTIALS_DIR="${TM_CREDENTIALS_DIR:-${TM_HOME}/.credentials}"
+TM_MYSQL_PW_FILE="${TM_MYSQL_PW_FILE:-${TM_CREDENTIALS_DIR}/mysql.pw}"
 TM_MYSQL_HOST="${TM_MYSQL_HOST:-}"
 TM_PG_USER="${TM_PG_USER:-postgres}"
 TM_PG_HOST="${TM_PG_HOST:-}"
@@ -320,7 +321,7 @@ dump_mongodb() {
     fi
 
     # Check for credentials file
-    local mongo_cred_file="${TM_HOME}/.mongo_credentials"
+    local mongo_cred_file="${TM_CREDENTIALS_DIR}/mongodb.conf"
     if [[ -f "${mongo_cred_file}" ]]; then
         # File format: username:password
         local mongo_user mongo_pass
@@ -380,7 +381,7 @@ dump_redis() {
     redis_opts+="-p ${TM_REDIS_PORT}"
 
     # Check for password file
-    local redis_pw_file="${TM_HOME}/.redis_password"
+    local redis_pw_file="${TM_CREDENTIALS_DIR}/redis.pw"
     if [[ -f "${redis_pw_file}" ]]; then
         local redis_pass
         redis_pass=$(cat "${redis_pw_file}" 2>/dev/null)

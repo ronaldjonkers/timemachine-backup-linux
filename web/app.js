@@ -20,9 +20,14 @@ async function apiGet(endpoint) {
     }
 }
 
-async function apiPost(endpoint) {
+async function apiPost(endpoint, body) {
     try {
-        const resp = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+        const opts = { method: 'POST' };
+        if (body) {
+            opts.headers = { 'Content-Type': 'application/json' };
+            opts.body = JSON.stringify(body);
+        }
+        const resp = await fetch(`${API_BASE}${endpoint}`, opts);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return await resp.json();
     } catch (e) {
@@ -136,6 +141,7 @@ async function refreshServers() {
             <td>
                 <button class="btn btn-sm btn-success" onclick="startBackupFor('${esc(srv.hostname)}')">Backup</button>
                 <button class="btn btn-sm" onclick="viewSnapshots('${esc(srv.hostname)}')">Snapshots</button>
+                <button class="btn btn-sm btn-danger" onclick="removeServer('${esc(srv.hostname)}')">Remove</button>
             </td>
         </tr>`;
     }).join('');
@@ -198,6 +204,33 @@ async function killBackup(hostname) {
     if (!confirm(`Kill backup for ${hostname}?`)) return;
     await apiDelete(`/api/backup/${hostname}`);
     setTimeout(refreshProcesses, 1000);
+}
+
+async function addServer() {
+    const hostname = document.getElementById('add-server-hostname').value.trim();
+    const options = document.getElementById('add-server-options').value;
+
+    if (!hostname) {
+        alert('Please enter a hostname');
+        return;
+    }
+
+    const result = await apiPost('/api/servers', { hostname, options });
+    if (result && result.status === 'added') {
+        document.getElementById('add-server-hostname').value = '';
+        document.getElementById('add-server-options').value = '';
+        refreshServers();
+    } else if (result && result.error) {
+        alert(result.error);
+    }
+}
+
+async function removeServer(hostname) {
+    if (!confirm(`Remove server ${hostname} from backup list?`)) return;
+    const result = await apiDelete(`/api/servers/${hostname}`);
+    if (result) {
+        refreshServers();
+    }
 }
 
 async function viewSnapshots(hostname) {

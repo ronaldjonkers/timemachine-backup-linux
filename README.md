@@ -164,6 +164,8 @@ tmctl kill <host>         # Kill a running backup
 tmctl restore <host>      # Restore from backup (interactive)
 tmctl logs [host]         # View logs
 tmctl servers             # List configured servers
+tmctl server add <host>   # Add a server (with optional --files-only, --db-only, --no-rotate)
+tmctl server remove <host> # Remove a server
 tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
 tmctl version             # Show version
@@ -206,12 +208,14 @@ TimeMachine supports automatic backup of all major database engines. The `dump_d
 
 ### Supported Databases
 
-| Engine | Dump Tool | Credential Method |
+All database credentials are stored in a single directory: `~timemachine/.credentials/` (mode `700`).
+
+| Engine | Dump Tool | Credential File |
 |---|---|---|
-| **MySQL / MariaDB** | `mysqldump` | Password file: `/root/mysql.pw` |
-| **PostgreSQL** | `pg_dump` + `pg_dumpall` | Peer auth via `postgres` user (no password needed) |
-| **MongoDB** | `mongodump` | Credentials file: `~timemachine/.mongo_credentials` |
-| **Redis** | `redis-cli BGSAVE` | Password file: `~timemachine/.redis_password` |
+| **MySQL / MariaDB** | `mysqldump` | `~/.credentials/mysql.pw` |
+| **PostgreSQL** | `pg_dump` + `pg_dumpall` | Peer auth (or `~/.credentials/pgpass`) |
+| **MongoDB** | `mongodump` | `~/.credentials/mongodb.conf` |
+| **Redis** | `redis-cli BGSAVE` | `~/.credentials/redis.pw` |
 | **SQLite** | `sqlite3 .backup` | No auth (file path based) |
 
 ### Configuration
@@ -232,8 +236,8 @@ TM_DB_TYPES="mysql,postgresql,redis"
 
 ```bash
 # On the CLIENT server, create a password file:
-echo 'your_root_password' | sudo tee /root/mysql.pw
-sudo chmod 600 /root/mysql.pw
+echo 'your_root_password' | sudo tee /home/timemachine/.credentials/mysql.pw
+sudo chmod 600 /home/timemachine/.credentials/mysql.pw
 ```
 
 The dump uses `--defaults-extra-file` with a process substitution, so the password never appears in `ps` output. Dumps are stored per-database in `sql/mysql/<dbname>.sql`.
@@ -264,8 +268,8 @@ Dumps include per-database SQL files in `sql/postgresql/` plus a `_globals.sql` 
 
 ```bash
 # On the CLIENT server, create a credentials file:
-echo 'admin_user:admin_password' | sudo -u timemachine tee ~timemachine/.mongo_credentials
-sudo chmod 600 ~timemachine/.mongo_credentials
+echo 'admin_user:admin_password' | sudo -u timemachine tee ~timemachine/.credentials/mongodb.conf
+sudo chmod 600 ~timemachine/.credentials/mongodb.conf
 ```
 
 If MongoDB has no authentication enabled, no credentials file is needed. Dumps are stored as BSON in `sql/mongodb/<dbname>/`.
@@ -274,8 +278,8 @@ If MongoDB has no authentication enabled, no credentials file is needed. Dumps a
 
 ```bash
 # On the CLIENT server, create a password file:
-echo 'your_redis_password' | sudo -u timemachine tee ~timemachine/.redis_password
-sudo chmod 600 ~timemachine/.redis_password
+echo 'your_redis_password' | sudo -u timemachine tee ~timemachine/.credentials/redis.pw
+sudo chmod 600 ~timemachine/.credentials/redis.pw
 ```
 
 If Redis has no password (`requirepass` not set), no file is needed. The dump copies the RDB snapshot to `sql/redis/dump.rdb`.
@@ -436,7 +440,8 @@ All settings are in `.env`. See `.env.example` for the full list.
 | `TM_SSH_PORT` | `22` | SSH port for connections |
 | `TM_RSYNC_BW_LIMIT` | `0` | Bandwidth limit (KB/s, 0=unlimited) |
 | `TM_DB_TYPES` | `auto` | DB engines: auto, mysql, postgresql, mongodb, redis, sqlite |
-| `TM_MYSQL_PW_FILE` | `/root/mysql.pw` | MySQL password file on client |
+| `TM_CREDENTIALS_DIR` | `~/.credentials` | Credential storage directory on client |
+| `TM_MYSQL_PW_FILE` | `~/.credentials/mysql.pw` | MySQL password file on client |
 | `TM_PG_USER` | `postgres` | PostgreSQL system user |
 | `TM_SQLITE_PATHS` | *(empty)* | Comma-separated SQLite file paths |
 | `TM_API_PORT` | `7600` | HTTP API / dashboard port |
@@ -450,7 +455,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (95 tests across 9 suites)
+# Run all tests (120 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-06
+
+### Added
+- **Server management via CLI** — `tmctl server add <host> [OPTIONS]` and `tmctl server remove <host>` to manage `servers.conf` from the command line
+- **Server management via API** — `POST /api/servers` and `DELETE /api/servers/<host>` endpoints for programmatic server management
+- **Server management via web dashboard** — Add/remove servers directly from the web UI with hostname + options form
+- **Standardized credential storage** — All database credentials now stored in `~timemachine/.credentials/` (mode 700) with consistent file names: `mysql.pw`, `mongodb.conf`, `redis.pw`, `pgpass`
+- **`TM_CREDENTIALS_DIR`** — New config variable for credential storage directory (default: `~timemachine/.credentials/`)
+- **New tests** — Server add/remove (8 tests), credential path validation, help text — 120 total tests across 9 suites
+
+### Changed
+- `bin/dump_dbs.sh` — MySQL password now reads from `$TM_CREDENTIALS_DIR/mysql.pw` (was `/root/mysql.pw`); MongoDB from `$TM_CREDENTIALS_DIR/mongodb.conf` (was `~/.mongo_credentials`); Redis from `$TM_CREDENTIALS_DIR/redis.pw` (was `~/.redis_password`)
+- `lib/common.sh` — Added `TM_CREDENTIALS_DIR` default; `TM_MYSQL_PW_FILE` now defaults to `$TM_CREDENTIALS_DIR/mysql.pw`
+- `.env.example` — Credential storage section with unified documentation for all DB engines
+- `install.sh` — Client mode now creates `~/.credentials/` directory with mode 700
+- `bin/tmctl.sh` — Added `server add`/`server remove` subcommands; updated version to v0.3.1; `_api_post` now supports JSON body
+- `bin/tmserviced.sh` — Added `POST /api/servers` and `DELETE /api/servers/<host>` API routes
+- `web/app.js` — `apiPost` supports JSON body; added `addServer()`/`removeServer()` functions; server table includes Remove button
+- `web/index.html` — Add Server form below server table; version updated
+
 ## [0.3.1] - 2026-02-06
 
 ### Changed
