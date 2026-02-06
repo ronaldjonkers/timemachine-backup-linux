@@ -84,7 +84,7 @@ echo "=== Testing: tmctl ssh-key ==="
 
 output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" ssh-key 2>&1)
 assert_contains "Shows SSH key" "AAAAFAKEKEY" "${output}"
-assert_contains "Shows install hint" "install-client.sh" "${output}"
+assert_contains "Shows install hint" "install.sh client" "${output}"
 
 # ============================================================
 # TESTS: STATUS (service not running)

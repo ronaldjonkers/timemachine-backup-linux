@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-06
+
+### Changed
+- **Unified installer** — Merged `install.sh`, `install-client.sh`, and `get.sh` into one workflow. `install.sh` now interactively asks whether to install as **server** or **client**. `install-client.sh` is removed.
+- `install.sh` — Accepts `server` or `client` as first argument; client mode supports all previous `install-client.sh` options (`--server`, `--ssh-key`, `--with-db`, `--db-type`, `--db-cronjob`, `--uninstall`). Interactive SSH key setup when no key/server provided.
+- `get.sh` — Simplified to clone/update repo and `exec install.sh` with all arguments passed through. Works for both server and client: `curl ... | sudo bash -s -- client --server host`
+- `config/exclude.conf` — Expanded with production-tested defaults: `/backup`, `/Timemachine`, `/media`, `/mnt`, `/net`, `/var/log`, `/var/lib/mysql`, `/var/lib/postgresql`, `/var/lib/mongodb`, `/var/lib/redis`, `/var/lib/lxcfs/`, `/var/named/run-root/`, `varnish_storage.bin`, `node_modules`, `__pycache__`
+- Updated all references from `install-client.sh` to `install.sh client` in `tmctl.sh`, `dump_dbs.sh`, `web/index.html`, `README.md`
+
+### Removed
+- `install-client.sh` — Functionality merged into `install.sh client`
+
 ## [0.3.0] - 2026-02-06
 
 ### Added

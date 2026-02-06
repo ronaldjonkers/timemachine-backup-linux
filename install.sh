@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 # ============================================================
-# TimeMachine Backup - Server Installation Script
+# TimeMachine Backup - Unified Installer
 # ============================================================
-# Installs and configures the TimeMachine backup server.
+# Installs TimeMachine as either a backup SERVER or CLIENT.
 # Safe to run multiple times (idempotent).
 #
 # Usage:
-#   sudo ./install.sh
+#   sudo ./install.sh                          # Interactive mode selection
+#   sudo ./install.sh server                   # Install backup server
+#   sudo ./install.sh client [OPTIONS]         # Install client
+#
+# Client options:
+#   --server <host>     Backup server hostname/IP (auto-downloads SSH key)
+#   --server-port <p>   Backup server API port (default: 7600)
+#   --ssh-key <key>     SSH public key string (manual alternative)
+#   --with-db           Deploy database dump script (auto-detect DB engines)
+#   --db-type <types>   Comma-separated DB types: mysql,postgresql,mongodb,redis,sqlite
+#   --db-cronjob        Also install a cron job for DB dumps
+#   --uninstall         Remove timemachine user and config
+#
+# Single-line install:
+#   curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
 #
 # Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, macOS (dev only)
 # ============================================================
@@ -26,7 +40,9 @@ TM_BACKUP_ROOT="${TM_BACKUP_ROOT:-/backups}"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
 
 # ============================================================
 # HELPERS
@@ -54,11 +70,114 @@ require_root() {
     fi
 }
 
+# Read user input — works both interactively and when piped via curl
+read_input() {
+    local prompt="$1" default="$2" result
+    if [[ -t 0 ]]; then
+        read -r -p "${prompt}" result
+    elif [[ -e /dev/tty ]]; then
+        read -r -p "${prompt}" result < /dev/tty
+    else
+        result=""
+    fi
+    echo "${result:-${default}}"
+}
+
 # ============================================================
-# DEPENDENCY INSTALLATION
+# MODE SELECTION
 # ============================================================
 
-install_dependencies() {
+INSTALL_MODE=""
+SSH_PUBLIC_KEY="${TM_SSH_PUBLIC_KEY:-}"
+BACKUP_SERVER=""
+BACKUP_SERVER_PORT="7600"
+WITH_DB=0
+DB_TYPE="auto"
+DB_CRONJOB=0
+UNINSTALL=0
+
+parse_args() {
+    # First positional argument is the mode
+    if [[ $# -gt 0 && "$1" != --* ]]; then
+        INSTALL_MODE="$1"
+        shift
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --server)
+                BACKUP_SERVER="$2"
+                shift 2
+                ;;
+            --server-port)
+                BACKUP_SERVER_PORT="$2"
+                shift 2
+                ;;
+            --ssh-key)
+                SSH_PUBLIC_KEY="$2"
+                shift 2
+                ;;
+            --with-db)
+                WITH_DB=1
+                shift
+                ;;
+            --db-type)
+                WITH_DB=1
+                DB_TYPE="$2"
+                shift 2
+                ;;
+            --db-cronjob)
+                DB_CRONJOB=1
+                WITH_DB=1
+                shift
+                ;;
+            --uninstall)
+                UNINSTALL=1
+                shift
+                ;;
+            *)
+                error "Unknown option: $1"
+                ;;
+        esac
+    done
+}
+
+select_mode() {
+    if [[ -n "${INSTALL_MODE}" ]]; then
+        case "${INSTALL_MODE}" in
+            server|client) return ;;
+            *) error "Invalid mode '${INSTALL_MODE}'. Use 'server' or 'client'." ;;
+        esac
+    fi
+
+    echo ""
+    echo -e "${BOLD}What would you like to install?${NC}"
+    echo ""
+    echo "  1) ${CYAN}Server${NC}  — The backup server that stores all backups"
+    echo "  2) ${CYAN}Client${NC}  — A remote server that will be backed up"
+    echo ""
+
+    local choice
+    choice=$(read_input "  Choose [1/2]: " "")
+
+    case "${choice}" in
+        1|server|s)  INSTALL_MODE="server" ;;
+        2|client|c)  INSTALL_MODE="client" ;;
+        *)           error "Invalid choice '${choice}'. Please enter 1 or 2." ;;
+    esac
+}
+
+# ############################################################
+#
+#  SERVER INSTALLATION
+#
+# ############################################################
+
+# ============================================================
+# SERVER: DEPENDENCY INSTALLATION
+# ============================================================
+
+server_install_dependencies() {
     local os="$1"
     local packages=(rsync openssh-server socat curl)
 
@@ -87,10 +206,10 @@ install_dependencies() {
 }
 
 # ============================================================
-# USER SETUP
+# SERVER: USER SETUP
 # ============================================================
 
-setup_user() {
+server_setup_user() {
     info "Setting up user '${TM_USER}'..."
 
     if id "${TM_USER}" &>/dev/null; then
@@ -122,10 +241,10 @@ setup_user() {
 }
 
 # ============================================================
-# DIRECTORY SETUP
+# SERVER: DIRECTORY SETUP
 # ============================================================
 
-setup_directories() {
+server_setup_directories() {
     info "Setting up directories..."
 
     # If TM_BACKUP_ROOT doesn't end with /timemachine, create the subdir
@@ -153,10 +272,10 @@ setup_directories() {
 }
 
 # ============================================================
-# CONFIGURATION
+# SERVER: CONFIGURATION
 # ============================================================
 
-setup_config() {
+server_setup_config() {
     info "Setting up configuration..."
 
     # Copy .env.example if .env doesn't exist
@@ -188,10 +307,10 @@ setup_config() {
 }
 
 # ============================================================
-# SUDOERS SETUP
+# SERVER: SUDOERS SETUP
 # ============================================================
 
-setup_sudoers() {
+server_setup_sudoers() {
     info "Setting up sudoers for '${TM_USER}'..."
 
     local sudoers_file="/etc/sudoers.d/timemachine"
@@ -213,15 +332,15 @@ ${TM_USER} ALL=NOPASSWD:/usr/bin/rsync, /bin/cat, /bin/chown, /usr/bin/mysql, /u
 }
 
 # ============================================================
-# SYSTEMD SERVICE SETUP
+# SERVER: SYSTEMD SERVICE SETUP
 # ============================================================
 
-setup_service() {
+server_setup_service() {
     info "Setting up systemd service..."
 
     if ! command -v systemctl &>/dev/null; then
         warn "systemd not found; falling back to cron-based scheduling"
-        setup_cron
+        server_setup_cron
         return
     fi
 
@@ -240,11 +359,11 @@ setup_service() {
         info "Start with: systemctl start timemachine"
     else
         warn "Service file not found at ${source_file}; skipping"
-        setup_cron
+        server_setup_cron
     fi
 }
 
-setup_cron() {
+server_setup_cron() {
     info "Setting up cron job (fallback)..."
 
     local cron_file="/etc/cron.d/timemachine"
@@ -258,10 +377,10 @@ MAILTO=\"\"
 }
 
 # ============================================================
-# MAKE SCRIPTS EXECUTABLE
+# SERVER: PERMISSIONS & SYMLINKS
 # ============================================================
 
-setup_permissions() {
+server_setup_permissions() {
     info "Setting script permissions..."
 
     find "${INSTALL_DIR}/bin" -name "*.sh" -exec chmod +x {} \;
@@ -277,47 +396,377 @@ setup_permissions() {
 }
 
 # ============================================================
-# MAIN
+# SERVER: ASK BACKUP DIRECTORY
 # ============================================================
 
-main() {
+server_ask_backup_dir() {
+    # Skip if TM_BACKUP_ROOT was already set explicitly (e.g. by get.sh)
+    if [[ "${TM_BACKUP_ROOT}" != "/backups" ]]; then
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}Where should backups be stored?${NC}"
+    echo ""
+    echo "  This should be a mount point or directory with enough disk space."
+    echo "  A 'timemachine' subdirectory will be created automatically."
+    echo ""
+    echo "  Examples: /mnt/backups, /srv/backups, /data/backups"
+    echo ""
+
+    local backup_dir
+    backup_dir=$(read_input "  Backup directory [/backups]: " "/backups")
+
+    if [[ "${backup_dir}" != /* ]]; then
+        error "Backup directory must be an absolute path (starting with /)"
+    fi
+
+    TM_BACKUP_ROOT="${backup_dir}"
+    info "Backups will be stored in: ${TM_BACKUP_ROOT}/timemachine/"
+}
+
+# ============================================================
+# SERVER: MAIN
+# ============================================================
+
+install_server() {
+    echo ""
     echo "============================================"
     echo "  TimeMachine Backup - Server Installation"
     echo "============================================"
     echo ""
 
-    require_root
-
     local os
     os=$(detect_os)
     info "Detected OS: ${os}"
 
-    install_dependencies "${os}"
-    setup_user
-    setup_directories
-    setup_permissions
-    setup_config
-    setup_sudoers
-    setup_service
+    server_ask_backup_dir
+    server_install_dependencies "${os}"
+    server_setup_user
+    server_setup_directories
+    server_setup_permissions
+    server_setup_config
+    server_setup_sudoers
+    server_setup_service
 
     echo ""
     echo "============================================"
-    echo "  Installation Complete!"
+    echo "  Server Installation Complete!"
     echo "============================================"
     echo ""
     info "Next steps:"
-    echo "  1. Edit .env to configure your backup settings"
-    echo "  2. Edit config/servers.conf to add your servers"
-    echo "  3. Start the service:"
-    echo "     systemctl start timemachine"
-    echo "  4. On each client server, install with:"
-    echo "     sudo ./install-client.sh --server <this-hostname>"
-    echo "     (auto-downloads SSH key from the API)"
-    echo "  5. Or manually provide the SSH key:"
-    echo "     sudo ./install-client.sh --ssh-key '$(cat ${TM_HOME}/.ssh/id_rsa.pub 2>/dev/null || echo "<key>")'"
-    echo "  6. Test with: tmctl backup <hostname> --dry-run"
-    echo "  7. Dashboard: http://$(hostname):7600"
+    echo "  1. Edit .env:             vi ${INSTALL_DIR}/.env"
+    echo "  2. Add servers:           vi ${INSTALL_DIR}/config/servers.conf"
+    echo "  3. Start service:         systemctl start timemachine"
+    echo "  4. Install on clients:    sudo ./install.sh client --server $(hostname)"
+    echo "  5. Test:                  tmctl backup <hostname> --dry-run"
+    echo "  6. Dashboard:             http://$(hostname):7600"
     echo ""
+}
+
+# ############################################################
+#
+#  CLIENT INSTALLATION
+#
+# ############################################################
+
+# ============================================================
+# CLIENT: UNINSTALL
+# ============================================================
+
+client_do_uninstall() {
+    info "Uninstalling TimeMachine client..."
+
+    # Remove cron job
+    rm -f /etc/cron.d/timemachine-dump
+
+    # Remove sudoers
+    rm -f /etc/sudoers.d/timemachine
+
+    # Remove user
+    if id "${TM_USER}" &>/dev/null; then
+        userdel -r "${TM_USER}" 2>/dev/null || true
+        info "Removed user '${TM_USER}'"
+    fi
+
+    # Remove run directory
+    rm -rf "${TM_RUN_DIR}"
+
+    info "Uninstall complete"
+    exit 0
+}
+
+# ============================================================
+# CLIENT: USER SETUP
+# ============================================================
+
+client_setup_user() {
+    info "Setting up user '${TM_USER}'..."
+
+    if id "${TM_USER}" &>/dev/null; then
+        info "User '${TM_USER}' already exists"
+    else
+        useradd -m -s /bin/bash "${TM_USER}"
+        passwd -d "${TM_USER}" &>/dev/null || true
+        info "Created user '${TM_USER}'"
+    fi
+}
+
+# ============================================================
+# CLIENT: SSH KEY
+# ============================================================
+
+client_fetch_ssh_key() {
+    if [[ -z "${BACKUP_SERVER}" ]]; then
+        return 1
+    fi
+
+    info "Downloading SSH public key from ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}..."
+
+    if ! command -v curl &>/dev/null; then
+        error "curl is required for --server option. Install curl first."
+    fi
+
+    local key
+    key=$(curl -sf --connect-timeout 10 \
+        "http://${BACKUP_SERVER}:${BACKUP_SERVER_PORT}/api/ssh-key/raw" 2>/dev/null)
+
+    if [[ -z "${key}" ]]; then
+        error "Failed to download SSH key from ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}. Is the TimeMachine service running?"
+    fi
+
+    SSH_PUBLIC_KEY="${key}"
+    info "SSH key downloaded successfully from ${BACKUP_SERVER}"
+}
+
+client_setup_ssh() {
+    # Auto-download key from server if --server was provided
+    if [[ -n "${BACKUP_SERVER}" && -z "${SSH_PUBLIC_KEY}" ]]; then
+        client_fetch_ssh_key
+    fi
+
+    # If still no key, ask interactively
+    if [[ -z "${SSH_PUBLIC_KEY}" ]]; then
+        echo ""
+        echo -e "${BOLD}How do you want to configure the SSH key?${NC}"
+        echo ""
+        echo "  1) Enter the backup server hostname (auto-download key)"
+        echo "  2) Paste the SSH public key manually"
+        echo ""
+
+        local choice
+        choice=$(read_input "  Choose [1/2]: " "")
+
+        case "${choice}" in
+            1)
+                BACKUP_SERVER=$(read_input "  Backup server hostname/IP: " "")
+                [[ -z "${BACKUP_SERVER}" ]] && error "Server hostname is required"
+                client_fetch_ssh_key
+                ;;
+            2)
+                SSH_PUBLIC_KEY=$(read_input "  SSH public key: " "")
+                [[ -z "${SSH_PUBLIC_KEY}" ]] && error "SSH key is required"
+                ;;
+            *)
+                error "Invalid choice"
+                ;;
+        esac
+    fi
+
+    info "Configuring SSH access..."
+
+    local ssh_dir="${TM_HOME}/.ssh"
+    mkdir -p "${ssh_dir}"
+
+    # Add key (avoid duplicates)
+    local auth_keys="${ssh_dir}/authorized_keys"
+    touch "${auth_keys}"
+
+    if grep -qF "${SSH_PUBLIC_KEY}" "${auth_keys}" 2>/dev/null; then
+        info "SSH key already present"
+    else
+        echo "${SSH_PUBLIC_KEY}" >> "${auth_keys}"
+        info "SSH key added"
+    fi
+
+    chown -R "${TM_USER}:${TM_USER}" "${ssh_dir}"
+    chmod 700 "${ssh_dir}"
+    chmod 600 "${auth_keys}"
+}
+
+# ============================================================
+# CLIENT: SUDOERS
+# ============================================================
+
+client_setup_sudoers() {
+    info "Configuring sudoers..."
+
+    local sudoers_file="/etc/sudoers.d/timemachine"
+
+    # Determine correct paths for this system
+    local rsync_path cat_path
+    rsync_path=$(command -v rsync 2>/dev/null || echo "/usr/bin/rsync")
+    cat_path=$(command -v cat 2>/dev/null || echo "/bin/cat")
+
+    local sudoers_content="# TimeMachine Backup - client sudoers rules
+Defaults:${TM_USER} !tty_tickets
+Defaults:${TM_USER} !requiretty
+${TM_USER} ALL=NOPASSWD:${rsync_path}, ${cat_path}"
+
+    # Add database commands if database support is requested
+    if [[ ${WITH_DB} -eq 1 ]]; then
+        # MySQL/MariaDB
+        if command -v mysql &>/dev/null; then
+            sudoers_content+=", $(command -v mysql)"
+        fi
+        if command -v mysqldump &>/dev/null; then
+            sudoers_content+=", $(command -v mysqldump)"
+        fi
+        if command -v mariadb &>/dev/null; then
+            sudoers_content+=", $(command -v mariadb)"
+        fi
+        if command -v mariadb-dump &>/dev/null; then
+            sudoers_content+=", $(command -v mariadb-dump)"
+        fi
+        # PostgreSQL
+        if command -v psql &>/dev/null; then
+            sudoers_content+=", $(command -v psql), $(command -v pg_dump), $(command -v pg_dumpall)"
+        fi
+        # MongoDB
+        if command -v mongodump &>/dev/null; then
+            sudoers_content+=", $(command -v mongodump)"
+        fi
+        # Redis
+        if command -v redis-cli &>/dev/null; then
+            sudoers_content+=", $(command -v redis-cli)"
+        fi
+        # SQLite
+        if command -v sqlite3 &>/dev/null; then
+            sudoers_content+=", $(command -v sqlite3)"
+        fi
+    fi
+
+    echo "${sudoers_content}" > "${sudoers_file}"
+    chmod 440 "${sudoers_file}"
+
+    if visudo -cf "${sudoers_file}" &>/dev/null; then
+        info "Sudoers configured"
+    else
+        error "Invalid sudoers syntax! Removing ${sudoers_file}"
+        rm -f "${sudoers_file}"
+    fi
+}
+
+# ============================================================
+# CLIENT: DIRECTORIES
+# ============================================================
+
+client_setup_directories() {
+    info "Setting up directories..."
+
+    mkdir -p "${TM_RUN_DIR}"
+    chown "${TM_USER}:${TM_USER}" "${TM_RUN_DIR}"
+
+    mkdir -p "${TM_HOME}/sql"
+    chown "${TM_USER}:${TM_USER}" "${TM_HOME}/sql"
+}
+
+# ============================================================
+# CLIENT: DATABASE SCRIPTS
+# ============================================================
+
+client_deploy_db_scripts() {
+    if [[ ${WITH_DB} -eq 0 ]]; then
+        return
+    fi
+
+    info "Deploying database dump scripts..."
+
+    # Copy dump_dbs.sh to client
+    if [[ -f "${INSTALL_DIR}/bin/dump_dbs.sh" ]]; then
+        install -m 700 -o "${TM_USER}" -g "${TM_USER}" \
+            "${INSTALL_DIR}/bin/dump_dbs.sh" "${TM_HOME}/dump_dbs.sh"
+        info "Deployed dump_dbs.sh"
+    else
+        warn "dump_dbs.sh not found in ${INSTALL_DIR}/bin/"
+    fi
+
+    # Copy dump_dbs_wait.sh to client
+    if [[ -f "${INSTALL_DIR}/bin/dump_dbs_wait.sh" ]]; then
+        install -m 700 -o "${TM_USER}" -g "${TM_USER}" \
+            "${INSTALL_DIR}/bin/dump_dbs_wait.sh" "${TM_HOME}/dump_dbs_wait.sh"
+        info "Deployed dump_dbs_wait.sh"
+    else
+        warn "dump_dbs_wait.sh not found in ${INSTALL_DIR}/bin/"
+    fi
+
+    # Install cron job for autonomous DB dumps
+    if [[ ${DB_CRONJOB} -eq 1 ]]; then
+        local cron_file="/etc/cron.d/timemachine-dump"
+        echo "# TimeMachine - Autonomous database dump
+0 1 * * * ${TM_USER} /bin/bash ${TM_HOME}/dump_dbs.sh --db-cronjob >> ${TM_HOME}/dump_dbs.log 2>&1" > "${cron_file}"
+        chmod 644 "${cron_file}"
+        info "Database dump cron job installed"
+    fi
+}
+
+# ============================================================
+# CLIENT: MAIN
+# ============================================================
+
+install_client() {
+    echo ""
+    echo "============================================"
+    echo "  TimeMachine Backup - Client Installation"
+    echo "============================================"
+    echo ""
+
+    if [[ ${UNINSTALL} -eq 1 ]]; then
+        client_do_uninstall
+    fi
+
+    client_setup_user
+    client_setup_ssh
+    client_setup_sudoers
+    client_setup_directories
+    client_deploy_db_scripts
+
+    echo ""
+    echo "============================================"
+    echo "  Client Installation Complete!"
+    echo "============================================"
+    echo ""
+    info "This server is now ready to be backed up by TimeMachine."
+    if [[ -n "${BACKUP_SERVER}" ]]; then
+        info "Backup server: ${BACKUP_SERVER}"
+    fi
+    info "Test connectivity from the backup server:"
+    echo "  ssh -i ~/.ssh/id_rsa ${TM_USER}@$(hostname -f 2>/dev/null || hostname) 'echo OK'"
+    echo ""
+}
+
+# ############################################################
+#
+#  MAIN ENTRY POINT
+#
+# ############################################################
+
+main() {
+    echo -e "${CYAN}${BOLD}"
+    echo "  ╔══════════════════════════════════════════╗"
+    echo "  ║     TimeMachine Backup for Linux         ║"
+    echo "  ║     Installer                            ║"
+    echo "  ╚══════════════════════════════════════════╝"
+    echo -e "${NC}"
+
+    require_root
+    parse_args "$@"
+    select_mode
+
+    case "${INSTALL_MODE}" in
+        server) install_server ;;
+        client) install_client ;;
+    esac
 }
 
 main "$@"

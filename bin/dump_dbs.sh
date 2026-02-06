@@ -4,7 +4,7 @@
 # ============================================================
 # This script runs ON THE REMOTE SERVER to dump databases to
 # /home/timemachine/sql/. It is deployed to clients via
-# install-client.sh and triggered remotely by timemachine.sh.
+# install.sh (client mode) and triggered remotely by timemachine.sh.
 #
 # Supported databases:
 #   - MySQL / MariaDB

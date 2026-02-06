@@ -4,16 +4,18 @@ A robust, rsync-based backup system for Linux servers inspired by macOS Time Mac
 
 ## Quick Install
 
+The installer asks whether you want to set up a **server** (stores backups) or **client** (gets backed up).
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
 ```
 
-The installer will ask where to store backups (e.g. `/mnt/backups`). A `timemachine` subdirectory is created automatically with the correct permissions.
+**Server** — also asks where to store backups; creates `<dir>/timemachine/` with correct permissions.
 
-To preset the backup directory:
+**Client** — pass mode and options directly:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo TM_BACKUP_DIR=/mnt/storage bash
+curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server backup.example.com
 ```
 
 ## Features
@@ -74,8 +76,7 @@ timemachine-backup-linux/
 │   ├── test_database.sh           # Tests for database support
 │   └── test_shellcheck.sh         # ShellCheck linting
 ├── get.sh                         # Single-line installer (curl | bash)
-├── install.sh                     # Server (backup host) installer
-├── install-client.sh              # Client (remote server) installer
+├── install.sh                     # Unified installer (server + client)
 ├── .env.example                   # Configuration template
 ├── .gitignore                     # Git ignore rules
 ├── CHANGELOG.md                   # Version history
@@ -128,22 +129,22 @@ The dashboard is now available at `http://<backup-server>:7600`.
 
 ```bash
 # Files only
-sudo ./install-client.sh --server backup.example.com
+sudo ./install.sh client --server backup.example.com
 
 # With database support (auto-detects installed DB engines)
-sudo ./install-client.sh --server backup.example.com --with-db
+sudo ./install.sh client --server backup.example.com --with-db
 
 # With specific database types
-sudo ./install-client.sh --server backup.example.com --db-type mysql,postgresql
+sudo ./install.sh client --server backup.example.com --db-type mysql,postgresql
 
 # With autonomous DB dump cronjob
-sudo ./install-client.sh --server backup.example.com --with-db --db-cronjob
+sudo ./install.sh client --server backup.example.com --with-db --db-cronjob
 ```
 
 **Manual** (provide SSH key directly):
 
 ```bash
-sudo ./install-client.sh --ssh-key "ssh-rsa AAAA..."
+sudo ./install.sh client --ssh-key "ssh-rsa AAAA..."
 ```
 
 ### 5. Test
@@ -470,7 +471,7 @@ bash tests/test_shellcheck.sh
 
 ```bash
 # Remove from a client server
-sudo ./install-client.sh --uninstall
+sudo ./install.sh client --uninstall
 
 # Remove the backup server
 sudo systemctl stop timemachine
