@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeMachine Backup - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>&#x1f4be; TimeMachine Backup</h1>
+            <div id="service-status" class="status-badge status-unknown">Connecting...</div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Status Cards -->
+        <section class="cards">
+            <div class="card">
+                <div class="card-label">Uptime</div>
+                <div class="card-value" id="uptime">--</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Hostname</div>
+                <div class="card-value" id="hostname">--</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Active Jobs</div>
+                <div class="card-value" id="active-jobs">0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Servers</div>
+                <div class="card-value" id="server-count">0</div>
+            </div>
+        </section>
+
+        <!-- Running Processes -->
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Backup Processes</h2>
+                <button class="btn btn-sm" onclick="refreshProcesses()">Refresh</button>
+            </div>
+            <table id="processes-table">
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>PID</th>
+                        <th>Mode</th>
+                        <th>Started</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="processes-body">
+                    <tr><td colspan="6" class="empty">No processes</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Configured Servers -->
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Configured Servers</h2>
+            </div>
+            <table id="servers-table">
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>Options</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="servers-body">
+                    <tr><td colspan="3" class="empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- SSH Key -->
+        <section class="panel">
+            <div class="panel-header">
+                <h2>SSH Public Key</h2>
+                <button class="btn btn-sm" onclick="copySSHKey()">Copy</button>
+            </div>
+            <pre id="ssh-key" class="code-block">Loading...</pre>
+            <p class="hint">Use this key when running <code>install-client.sh --ssh-key '...'</code> on remote servers, or download via:<br>
+            <code id="ssh-key-url">curl -s http://&lt;this-server&gt;:7600/api/ssh-key/raw</code></p>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Quick Backup</h2>
+            </div>
+            <div class="quick-action">
+                <input type="text" id="backup-hostname" placeholder="hostname.example.com">
+                <select id="backup-mode">
+                    <option value="">Full (files + DB)</option>
+                    <option value="?files-only">Files only</option>
+                    <option value="?db-only">Database only</option>
+                </select>
+                <button class="btn btn-primary" onclick="startBackup()">Start Backup</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>TimeMachine Backup v0.2.0 &mdash; <span id="refresh-time">--</span></p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

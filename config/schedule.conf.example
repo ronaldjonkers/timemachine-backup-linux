@@ -1,0 +1,11 @@
+# ============================================================
+# TimeMachine Backup - Schedule Configuration
+# ============================================================
+# Controls when the service daemon triggers daily backups.
+# Used by tmserviced.sh scheduler.
+#
+# The scheduler checks every minute if it's time to run.
+# ============================================================
+
+# Hour of day to start daily backups (24h format, default: 11)
+TM_SCHEDULE_HOUR=11

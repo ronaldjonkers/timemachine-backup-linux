@@ -1,0 +1,303 @@
+/* ============================================================
+   TimeMachine Backup - Dashboard Styles
+   ============================================================ */
+
+:root {
+    --bg: #0f1117;
+    --bg-card: #1a1d27;
+    --bg-panel: #1a1d27;
+    --bg-input: #252833;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --text-muted: #8b8fa3;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --cyan: #06b6d4;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* Header */
+header {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+/* Status Badge */
+.status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.status-running { background: rgba(34,197,94,0.15); color: var(--green); }
+.status-stopped { background: rgba(239,68,68,0.15); color: var(--red); }
+.status-unknown { background: rgba(139,143,163,0.15); color: var(--text-muted); }
+
+/* Main */
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem;
+}
+
+/* Cards */
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.card-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.card-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+/* Panels */
+.panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+thead th {
+    text-align: left;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.1);
+}
+
+tbody td {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.875rem;
+    border-bottom: 1px solid var(--border);
+}
+
+tbody tr:last-child td {
+    border-bottom: none;
+}
+
+tbody tr:hover {
+    background: rgba(99,102,241,0.05);
+}
+
+td.empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 2rem;
+}
+
+/* Status indicators in tables */
+.status-cell {
+    font-weight: 500;
+}
+
+.status-cell.running   { color: var(--green); }
+.status-cell.completed { color: var(--cyan); }
+.status-cell.failed    { color: var(--red); }
+.status-cell.killed    { color: var(--yellow); }
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.btn:hover {
+    background: var(--border);
+}
+
+.btn-sm {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+}
+
+.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+}
+
+.btn-danger {
+    border-color: var(--red);
+    color: var(--red);
+}
+
+.btn-danger:hover {
+    background: rgba(239,68,68,0.15);
+}
+
+.btn-success {
+    border-color: var(--green);
+    color: var(--green);
+}
+
+.btn-success:hover {
+    background: rgba(34,197,94,0.15);
+}
+
+/* Quick Action */
+.quick-action {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1.25rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.quick-action input,
+.quick-action select {
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.875rem;
+    outline: none;
+}
+
+.quick-action input {
+    flex: 1;
+    min-width: 200px;
+}
+
+.quick-action input:focus,
+.quick-action select:focus {
+    border-color: var(--accent);
+}
+
+/* Code Block */
+.code-block {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    background: rgba(0,0,0,0.2);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.8rem;
+    line-height: 1.8;
+    overflow-x: auto;
+    color: var(--cyan);
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+.hint {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+}
+
+.hint code {
+    background: var(--bg-input);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    header { padding: 1rem; }
+    main { padding: 1rem; }
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .quick-action { flex-direction: column; }
+    .quick-action input { min-width: 100%; }
+}

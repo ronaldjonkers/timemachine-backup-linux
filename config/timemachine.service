@@ -1,0 +1,29 @@
+[Unit]
+Description=TimeMachine Backup Service
+Documentation=https://github.com/your-org/timemachine-backup-linux
+After=network.target
+
+[Service]
+Type=simple
+User=timemachine
+Group=timemachine
+WorkingDirectory=/opt/timemachine-backup-linux
+ExecStart=/opt/timemachine-backup-linux/bin/tmserviced.sh --foreground
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=timemachine
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+ReadWritePaths=/backups /var/run/timemachine /home/timemachine
+
+# Environment
+EnvironmentFile=-/opt/timemachine-backup-linux/.env
+
+[Install]
+WantedBy=multi-user.target

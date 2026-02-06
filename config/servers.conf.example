@@ -1,0 +1,34 @@
+# ============================================================
+# TimeMachine Backup - Server List
+# ============================================================
+# List of servers to back up, one per line.
+# Format: <hostname> [OPTIONS]
+#
+# Options:
+#   --files-only   Only backup files (skip database dump)
+#   --db-only      Only backup databases (skip file sync)
+#   --no-rotate    Skip backup rotation for this host
+#
+# Lines starting with # are comments.
+# Blank lines are ignored.
+#
+# This file is executed in parallel by daily-runner.sh.
+# The number of parallel jobs is controlled by TM_PARALLEL_JOBS
+# in your .env configuration.
+# ============================================================
+
+# === Critical Production Servers ===
+# web1.example.com
+# db1.example.com
+# app1.example.com
+
+# === File-Only Servers (no database) ===
+# relay1.example.com --files-only
+# monitor1.example.com --files-only
+
+# === Database-Only Servers ===
+# db-replica1.example.com --db-only
+
+# === DNS / Infrastructure ===
+# ns1.example.com --files-only
+# ns2.example.com --files-only

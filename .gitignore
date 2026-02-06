@@ -1,0 +1,34 @@
+# Environment & secrets
+.env
+*.pw
+
+# SSH keys (private)
+ssh/id_rsa
+ssh/id_ed25519
+
+# Logs
+logs/
+*.log
+
+# PID files
+run/
+*.pid
+
+# SQL dumps
+sql/
+
+# Temporary files
+.sh-tmp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.sublime-*
