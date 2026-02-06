@@ -156,6 +156,13 @@ assert_contains "Excludes /sys" "/sys" "${global_exclude}"
 assert_contains "Excludes /dev" "/dev" "${global_exclude}"
 assert_contains "Excludes /tmp" "/tmp" "${global_exclude}"
 assert_contains "Excludes docker" "/var/lib/docker" "${global_exclude}"
+assert_contains "Excludes /var/log" "/var/log" "${global_exclude}"
+assert_contains "Excludes /var/lib/mysql" "/var/lib/mysql" "${global_exclude}"
+assert_contains "Excludes /backup" "/backup" "${global_exclude}"
+assert_contains "Excludes /mnt" "/mnt" "${global_exclude}"
+assert_contains "Excludes varnish" "varnish_storage.bin" "${global_exclude}"
+assert_contains "Excludes lxcfs" "/var/lib/lxcfs/" "${global_exclude}"
+assert_contains "Excludes node_modules" "node_modules" "${global_exclude}"
 
 # ============================================================
 # RESULTS
