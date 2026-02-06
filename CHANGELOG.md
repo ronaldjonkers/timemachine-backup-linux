@@ -8,19 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2026-02-06
 
 ### Added
+- **Email backup reports** — After each daily backup run, a detailed report is generated and sent via email/webhook/slack with per-server success/failure status, duration, and mode
+  - `lib/report.sh` — New report generator library (`tm_report_init`, `tm_report_add`, `tm_report_send`)
+  - Reports saved to `logs/report-daily-YYYY-MM-DD.log`
+  - DB interval backups send individual success/failure notifications
+- **Email setup during install** — `install.sh` now prompts for a report email address during server installation, automatically configures `TM_ALERT_ENABLED` and `TM_ALERT_EMAIL` in `.env`
 - **Server priority** — `--priority N` option per server (1=highest, default=10). Servers with lower numbers are backed up first during daily runs
 - **DB interval backups** — `--db-interval Xh` option per server for extra DB-only backups throughout the day (e.g. `--db-interval 4h` = every 4 hours). Works with all DB types (MySQL, PostgreSQL, MongoDB, Redis, SQLite)
 - **Priority sorting** in `daily-runner.sh` and `tmserviced.sh` scheduler — servers processed in priority order
 - **DB interval scheduler** — checks every minute, triggers `--db-only` backup when interval elapsed, resets after daily full backup
 - **Web dashboard** — Priority and DB Interval columns in server table, input fields in add server form
 - **API** — `/api/servers` response now includes `priority` and `db_interval` fields
-- **New tests** — Priority parsing (3), DB interval parsing (3), priority sorting (2), syntax checks (3), server add with priority/db-interval (4) — 138 total tests across 9 suites
+- **New tests** — Report library (18), priority/db-interval (15), syntax checks (3) — 156 total tests across 9 suites
 
 ### Changed
 - `bin/timemachine.sh` — Accepts and skips `--priority N` and `--db-interval Xh` flags (consumed by scheduler)
-- `bin/daily-runner.sh` — Sorts servers by priority before parallel execution
-- `bin/tmserviced.sh` — Refactored scheduler with `_parse_priority()`, `_parse_db_interval()`, `_get_sorted_servers()`, `_wait_for_slot()`, `_check_db_intervals()`
+- `bin/daily-runner.sh` — Rewritten: sorts by priority, tracks per-server results via PID file, generates report after run
+- `bin/tmserviced.sh` — Scheduler delegates daily runs to `daily-runner.sh`; DB interval backups send notifications; sources `lib/report.sh`
 - `config/servers.conf.example` — Updated with priority and db-interval examples
+- `install.sh` — Added `server_ask_email()` step to server installation flow
 
 ## [0.5.0] - 2026-02-06
 

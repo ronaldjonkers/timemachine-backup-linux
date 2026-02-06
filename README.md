@@ -53,6 +53,7 @@ timemachine-backup-linux/
 │   ├── rsync.sh                   # Rsync sync & rotation functions
 │   ├── database.sh                # Database trigger & sync functions
 │   ├── notify.sh                  # Multi-channel notifications
+│   ├── report.sh                  # Backup report generator
 │   └── encrypt.sh                 # GPG encryption/decryption
 ├── web/                           # Dashboard (served by tmserviced)
 │   ├── index.html                 # Dashboard HTML
@@ -64,7 +65,7 @@ timemachine-backup-linux/
 │   ├── exclude.conf               # Global rsync exclude patterns
 │   ├── exclude.example.com.conf   # Per-server exclude example
 │   └── timemachine.service        # Systemd unit file
-├── tests/                         # Test suite (138 tests)
+├── tests/                         # Test suite (156 tests)
 │   ├── run_all_tests.sh           # Test runner
 │   ├── test_common.sh             # Tests for lib/common.sh
 │   ├── test_rsync.sh              # Tests for lib/rsync.sh
@@ -368,6 +369,38 @@ The scheduler checks every minute and triggers a `--db-only` backup when the int
 
 The daily backup schedule is controlled by `TM_SCHEDULE_HOUR` in `.env` (default: `11`, i.e. 11:00 AM).
 
+## Email Reports
+
+After each daily backup run, a **report email** is sent with per-server results:
+
+```
+TimeMachine Backup Report
+========================
+Server:    backup.example.com
+Date:      2026-02-06 11:45:00
+Type:      daily
+Summary:   4 succeeded, 1 failed, 0 skipped (5 total)
+
+FAILED:
+  FAIL db2.example.com (full, 12s) - exit code 1
+
+SUCCEEDED:
+  OK   db1.example.com (full, 2m 30s)
+  OK   web1.example.com (full, 5m 12s)
+  OK   app1.example.com (full, 1m 45s)
+  OK   ns1.example.com (full, 30s)
+```
+
+**Setup during installation:** The installer prompts for an email address. You can also configure it manually in `.env`:
+
+```bash
+TM_ALERT_ENABLED=true
+TM_ALERT_EMAIL="admin@example.com"
+TM_NOTIFY_METHODS="email"          # also: webhook, slack
+```
+
+DB interval backups also send individual notifications on success or failure. Reports are saved to `logs/report-daily-YYYY-MM-DD.log`.
+
 ## File Excludes
 
 ### Global Excludes
@@ -509,7 +542,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 ## Running Tests
 
 ```bash
-# Run all tests (138 tests across 9 suites)
+# Run all tests (156 tests across 9 suites)
 bash tests/run_all_tests.sh
 
 # Run specific test suite

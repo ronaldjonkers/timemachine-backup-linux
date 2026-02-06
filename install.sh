@@ -289,6 +289,16 @@ server_setup_config() {
         sed -i.bak "s|TM_BACKUP_ROOT=.*|TM_BACKUP_ROOT=\"${TM_BACKUP_ROOT}\"|" "${INSTALL_DIR}/.env" 2>/dev/null || \
         sed -i '' "s|TM_BACKUP_ROOT=.*|TM_BACKUP_ROOT=\"${TM_BACKUP_ROOT}\"|" "${INSTALL_DIR}/.env"
         rm -f "${INSTALL_DIR}/.env.bak"
+        # Configure email notifications if provided
+        if [[ -n "${TM_REPORT_EMAIL:-}" ]]; then
+            sed -i.bak "s|TM_ALERT_ENABLED=.*|TM_ALERT_ENABLED=true|" "${INSTALL_DIR}/.env" 2>/dev/null || \
+            sed -i '' "s|TM_ALERT_ENABLED=.*|TM_ALERT_ENABLED=true|" "${INSTALL_DIR}/.env"
+            rm -f "${INSTALL_DIR}/.env.bak"
+            sed -i.bak "s|TM_ALERT_EMAIL=.*|TM_ALERT_EMAIL=\"${TM_REPORT_EMAIL}\"|" "${INSTALL_DIR}/.env" 2>/dev/null || \
+            sed -i '' "s|TM_ALERT_EMAIL=.*|TM_ALERT_EMAIL=\"${TM_REPORT_EMAIL}\"|" "${INSTALL_DIR}/.env"
+            rm -f "${INSTALL_DIR}/.env.bak"
+            info "Email reports enabled: ${TM_REPORT_EMAIL}"
+        fi
         info "Created .env from template (edit as needed)"
     else
         info ".env already exists; skipping"
@@ -426,6 +436,28 @@ server_ask_backup_dir() {
 }
 
 # ============================================================
+# SERVER: ASK EMAIL FOR REPORTS
+# ============================================================
+
+server_ask_email() {
+    echo ""
+    echo -e "${BOLD}Email address for backup reports?${NC}"
+    echo ""
+    echo "  You will receive daily reports with per-server backup results"
+    echo "  (success/failure) and alerts for failed DB interval backups."
+    echo "  Leave empty to skip (can be configured later in .env)."
+    echo ""
+
+    TM_REPORT_EMAIL=$(read_input "  Email address []: " "")
+
+    if [[ -n "${TM_REPORT_EMAIL}" ]]; then
+        info "Reports will be sent to: ${TM_REPORT_EMAIL}"
+    else
+        info "Email reports disabled (set TM_ALERT_EMAIL in .env to enable)"
+    fi
+}
+
+# ============================================================
 # SERVER: MAIN
 # ============================================================
 
@@ -441,6 +473,7 @@ install_server() {
     info "Detected OS: ${os}"
 
     server_ask_backup_dir
+    server_ask_email
     server_install_dependencies "${os}"
     server_setup_user
     server_setup_directories
@@ -461,6 +494,9 @@ install_server() {
     echo "  4. Install on clients:    sudo ./install.sh client --server $(hostname)"
     echo "  5. Test:                  tmctl backup <hostname> --dry-run"
     echo "  6. Dashboard:             http://$(hostname):7600"
+    if [[ -n "${TM_REPORT_EMAIL:-}" ]]; then
+    echo "  7. Reports:               ${TM_REPORT_EMAIL}"
+    fi
     echo ""
 }
 

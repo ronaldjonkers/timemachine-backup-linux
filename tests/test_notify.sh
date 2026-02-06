@@ -65,6 +65,7 @@ mkdir -p "${TM_HOME}" "${TM_BACKUP_ROOT}" "${TM_RUN_DIR}" "${TM_LOG_DIR}"
 
 source "${PROJECT_ROOT}/lib/common.sh"
 source "${PROJECT_ROOT}/lib/notify.sh"
+source "${PROJECT_ROOT}/lib/report.sh"
 
 tm_load_config
 
@@ -156,6 +157,90 @@ fi
 TM_NOTIFY_METHODS="unknown_method"
 output=$(tm_notify "Test Unknown" "Body" "info" 2>&1 || true)
 assert_contains "Unknown method warned" "Unknown notification method" "${output}"
+
+# ============================================================
+# TESTS: REPORT LIBRARY
+# ============================================================
+
+echo ""
+echo "=== Testing: Report Library ==="
+
+# report.sh syntax check
+syntax_output=$(bash -n "${PROJECT_ROOT}/lib/report.sh" 2>&1)
+syntax_rc=$?
+assert_eq "report.sh syntax valid" "0" "${syntax_rc}"
+
+# Test report init creates temp file
+tm_report_init "test"
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ -f "${_TM_REPORT_FILE}" ]]; then
+    echo "  PASS: Report init creates temp file"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo "  FAIL: Report init did not create temp file"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# Test report add writes entries
+tm_report_add "host1.example.com" "success" "45s" "full"
+tm_report_add "host2.example.com" "failed" "12s" "files" "exit code 1"
+tm_report_add "host3.example.com" "skipped" "0s" "db-only" "lock held"
+
+report_content=$(cat "${_TM_REPORT_FILE}")
+assert_contains "Report has success entry" "host1.example.com|success" "${report_content}"
+assert_contains "Report has failed entry" "host2.example.com|failed" "${report_content}"
+assert_contains "Report has skipped entry" "host3.example.com|skipped" "${report_content}"
+assert_contains "Report has exit code detail" "exit code 1" "${report_content}"
+
+# Test report line count
+line_count=$(wc -l < "${_TM_REPORT_FILE}" | tr -d ' ')
+assert_eq "Report has 3 entries" "3" "${line_count}"
+
+# Test report send (notifications disabled, but should still log)
+TM_ALERT_ENABLED="false"
+output=$(tm_report_send "test" 2>&1)
+assert_contains "Report send logs summary" "1 OK, 1 FAILED, 1 skipped" "${output}"
+
+# Verify report log file was created
+report_log="${TM_LOG_DIR}/report-test-$(date +'%Y-%m-%d').log"
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ -f "${report_log}" ]]; then
+    echo "  PASS: Report log file created"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo "  FAIL: Report log file not created"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# Verify report log content
+if [[ -f "${report_log}" ]]; then
+    log_content=$(cat "${report_log}")
+    assert_contains "Report log has header" "TimeMachine Backup Report" "${log_content}"
+    assert_contains "Report log has summary" "1 succeeded, 1 failed, 1 skipped" "${log_content}"
+    assert_contains "Report log has FAILED section" "FAIL host2" "${log_content}"
+    assert_contains "Report log has OK section" "OK   host1" "${log_content}"
+    assert_contains "Report log has SKIP section" "SKIP host3" "${log_content}"
+fi
+
+# Test temp file cleanup after send
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ -z "${_TM_REPORT_FILE}" || ! -f "${_TM_REPORT_FILE:-/nonexistent}" ]]; then
+    echo "  PASS: Report temp file cleaned up"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo "  FAIL: Report temp file still exists"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# Test _tm_format_duration
+dur=$(_tm_format_duration 45)
+assert_eq "Format 45s" "45s" "${dur}"
+
+dur=$(_tm_format_duration 125)
+assert_eq "Format 2m 5s" "2m 5s" "${dur}"
+
+dur=$(_tm_format_duration 3661)
+assert_eq "Format 1h 1m 1s" "1h 1m 1s" "${dur}"
 
 # ============================================================
 # SUMMARY

@@ -11,6 +11,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/../lib/common.sh"
+source "${SCRIPT_DIR}/../lib/report.sh"
 
 tm_load_config
 tm_require_user
@@ -56,13 +57,12 @@ if [[ "${JOB_COUNT}" -eq 0 ]]; then
 fi
 
 # ============================================================
-# EXECUTE BACKUPS IN PARALLEL (sorted by priority)
+# EXECUTE BACKUPS (sorted by priority, with reporting)
 # ============================================================
 
 tm_log "INFO" "Starting daily backups (parallel=${TM_PARALLEL_JOBS})"
 
 # Parse --priority N from each line (default 10), sort ascending
-# Each non-comment, non-empty line is: <hostname> [options]
 _get_priority() {
     local line="$1"
     if echo "${line}" | grep -qo '\-\-priority[[:space:]]\+[0-9]\+'; then
@@ -82,22 +82,96 @@ SORTED_JOBS=$(
         done | sort -t'|' -k1,1n | cut -d'|' -f2-
 )
 
-echo "${SORTED_JOBS}" | \
-    xargs -I{} -P "${TM_PARALLEL_JOBS}" bash -c \
-        "\"${SCRIPT_DIR}/timemachine.sh\" {} >> \"${LOGFILE}\" 2>&1"
+# Initialize report
+tm_report_init "daily"
 
-EXIT_CODE=$?
+# Results tracking file (pid:hostname:start_time per line)
+PIDS_FILE="${TM_RUN_DIR}/daily-pids-$$.tmp"
+: > "${PIDS_FILE}"
+EXIT_CODE=0
+
+# Collect finished jobs and add to report
+_collect_finished() {
+    local new_entries=""
+    while IFS= read -r entry; do
+        [[ -z "${entry}" ]] && continue
+        local pid="${entry%%:*}"
+        local meta="${entry#*:}"
+        local srv_host="${meta%%:*}"
+        local srv_start="${meta#*:}"
+
+        if kill -0 "${pid}" 2>/dev/null; then
+            new_entries+="${entry}"$'\n'
+        else
+            wait "${pid}" 2>/dev/null || true
+            local rc=$?
+            local srv_end
+            srv_end=$(date +%s)
+            local srv_duration
+            srv_duration=$(_tm_format_duration $(( srv_end - srv_start )))
+            if [[ ${rc} -eq 0 ]]; then
+                tm_report_add "${srv_host}" "success" "${srv_duration}" "full"
+            else
+                tm_report_add "${srv_host}" "failed" "${srv_duration}" "full" "exit code ${rc}"
+                EXIT_CODE=1
+            fi
+        fi
+    done < "${PIDS_FILE}"
+    printf '%s' "${new_entries}" > "${PIDS_FILE}"
+}
+
+# Wait until running count drops below parallel limit
+_wait_for_slot() {
+    while true; do
+        _collect_finished
+        local running
+        running=$(wc -l < "${PIDS_FILE}" | tr -d ' ')
+        [[ ${running} -lt ${TM_PARALLEL_JOBS} ]] && break
+        sleep 5
+    done
+}
+
+# Wait for all jobs to finish
+_wait_all() {
+    while true; do
+        _collect_finished
+        local running
+        running=$(wc -l < "${PIDS_FILE}" | tr -d ' ')
+        [[ ${running} -eq 0 ]] && break
+        sleep 5
+    done
+}
+
+# Launch backups in priority order with parallel limit
+while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    srv_host=$(echo "${line}" | awk '{print $1}')
+
+    _wait_for_slot
+
+    srv_start=$(date +%s)
+    "${SCRIPT_DIR}/timemachine.sh" ${line} >> "${LOGFILE}" 2>&1 &
+    pid=$!
+    echo "${pid}:${srv_host}:${srv_start}" >> "${PIDS_FILE}"
+    tm_log "INFO" "Started backup for ${srv_host} (PID ${pid})"
+done <<< "${SORTED_JOBS}"
+
+# Wait for all remaining jobs
+_wait_all
+
+# Cleanup
+rm -f "${PIDS_FILE}"
 
 # ============================================================
-# SUMMARY
+# REPORT & SUMMARY
 # ============================================================
+
+tm_report_send "daily"
 
 if [[ ${EXIT_CODE} -eq 0 ]]; then
     tm_log "INFO" "Daily backup run completed successfully"
 else
-    tm_log "ERROR" "Daily backup run completed with errors (exit code ${EXIT_CODE})"
-    tm_notify "Daily backup errors" \
-        "The daily backup run on $(hostname) completed with errors. Check ${LOGFILE} for details."
+    tm_log "ERROR" "Daily backup run completed with errors"
 fi
 
 exit ${EXIT_CODE}
