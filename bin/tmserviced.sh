@@ -651,23 +651,53 @@ _start_http_server() {
     local handler="${TM_RUN_DIR}/_http_handler.sh"
 
     if command -v socat &>/dev/null; then
+        # socat: best option — handles concurrent connections via fork
         socat TCP-LISTEN:${TM_API_PORT},bind=${TM_API_BIND},reuseaddr,fork \
             EXEC:"${handler}" &
         HTTP_PID=$!
+        tm_log "INFO" "HTTP API started via socat (PID ${HTTP_PID})"
+
     elif command -v ncat &>/dev/null; then
-        while true; do
-            ncat -l -p ${TM_API_PORT} -c "${handler}" &
+        # ncat (from nmap): use --keep-open for concurrent connections
+        # --keep-open keeps listening after each connection closes
+        if ncat --help 2>&1 | grep -q "\-\-keep-open"; then
+            ncat --keep-open -l -p ${TM_API_PORT} --sh-exec "${handler}" &
             HTTP_PID=$!
-            wait ${HTTP_PID}
-        done &
+            tm_log "INFO" "HTTP API started via ncat --keep-open (PID ${HTTP_PID})"
+        else
+            # Older ncat or netcat without --keep-open: use respawning loop
+            # with a small pre-listen delay to avoid port conflicts
+            _ncat_respawn_loop "${handler}" &
+            HTTP_PID=$!
+            tm_log "INFO" "HTTP API started via ncat respawn loop (PID ${HTTP_PID})"
+        fi
+
+    elif command -v nc &>/dev/null; then
+        # Traditional netcat fallback
+        _ncat_respawn_loop "${handler}" &
         HTTP_PID=$!
+        tm_log "INFO" "HTTP API started via nc respawn loop (PID ${HTTP_PID})"
+
     else
-        tm_log "ERROR" "Neither socat nor ncat found. Dashboard will not be available."
-        tm_log "ERROR" "Install socat: apt install socat / yum install socat"
+        tm_log "ERROR" "No socat, ncat, or nc found. Dashboard will not be available."
+        tm_log "ERROR" "Install socat: dnf install socat / apt install socat"
         return 1
     fi
+}
 
-    tm_log "INFO" "HTTP API started (PID ${HTTP_PID})"
+_ncat_respawn_loop() {
+    local handler="$1"
+    # Single-connection listener loop (fallback when --keep-open unavailable)
+    # Respawns immediately after each connection
+    while true; do
+        if command -v ncat &>/dev/null; then
+            ncat -l -p ${TM_API_PORT} -c "${handler}" 2>/dev/null
+        elif command -v nc &>/dev/null; then
+            nc -l -p ${TM_API_PORT} -c "${handler}" 2>/dev/null
+        else
+            sleep 1
+        fi
+    done
 }
 
 # ============================================================
