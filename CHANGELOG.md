@@ -24,22 +24,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Certbot multi-method install** — `setup-web.sh` tries EPEL + package manager, then snap, then pip to install certbot. Falls back to self-signed cert if all methods fail
 - **Post-install command reference** — Server installer now shows complete `tmctl` command reference, dashboard credentials, and getting started guide after installation
 - **Final service restart** — Installer restarts the TimeMachine service at the end to ensure it runs with the latest configuration
+- **SELinux auto-configuration** — Installer and setup-web.sh automatically enable `httpd_can_network_connect` and set `httpd_sys_content_t` file context on RHEL/CentOS/Rocky/Alma for nginx proxy and static file serving
+- **Nginx static file serving** — Dashboard HTML/CSS/JS served directly from disk by nginx with correct MIME types; only `/api/` requests proxied to TimeMachine service
+- **Robust `tmctl update`** — Version detection from git tags or CHANGELOG.md; auto-unshallow for shallow clones; curl-based tarball fallback when git remote unreachable; shows actual git errors
 
 ### Changed
-- `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support
-- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for server (12 steps) and client (4-5 steps) installs; complete post-install output with getting started guide, dashboard info, and full command reference
-- `tmserviced.sh` — Replaced fragile `export -f` + `SYSTEM:"bash -c '...'"` approach with self-contained handler script generation (`_generate_handler_script`). Each HTTP request now runs a standalone script with all functions and variables embedded. Changed socat from `SYSTEM:` to `EXEC:` for direct script execution. Added `disown` to `run_backup()` so background backups survive handler exit
-- `setup-web.sh` — Nginx uses `restart` instead of `reload` after SSL setup; automatically restarts TimeMachine service after changing `TM_API_BIND` to `127.0.0.1`; shows actual password in completion output
+- `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support; fetches tags on clone/update
+- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for server (12 steps) and client (4-5 steps) installs; complete post-install output with getting started guide, dashboard info, and full command reference; SELinux auto-configuration in firewall step
+- `tmserviced.sh` — Replaced fragile `export -f` + `SYSTEM:"bash -c '...'"` approach with self-contained handler script generation (`_generate_handler_script`). Each HTTP request now runs a standalone script with all functions and variables embedded. Changed socat from `SYSTEM:` to `EXEC:` for direct script execution. Added `disown` to `run_backup()` so background backups survive handler exit. ncat now uses `--keep-open --sh-exec` for concurrent connections. HTTP handler has 5s read timeouts. Content-Length uses byte count
+- `setup-web.sh` — Nginx uses `restart` instead of `reload` after SSL setup; automatically restarts TimeMachine service after changing `TM_API_BIND` to `127.0.0.1`; shows actual password in completion output; serves static files from disk; SELinux file context and network connect configuration
 - `timemachine.service` — Added `RuntimeDirectory=timemachine` and `LogsDirectory=timemachine` for automatic directory creation by systemd; removed hardcoded `ReadWritePaths=/backups`
 - `README.md` — Complete SEO-optimized rewrite with keyword-rich headings, "Why TimeMachine for Linux?" section, badges, supported distributions list, horizontal rule separators, and keywords footer for search engine discoverability
 
 ### Fixed
 - **Dashboard not starting** — HTTP server failed to bind port 7600 because `export -f` bash functions were stripped by socat's `/bin/sh` intermediary on systems with Shellshock mitigations. Replaced with handler script approach
+- **Dashboard 502 errors with ncat** — ncat (without socat) handles only one connection at a time. Dashboard makes 5+ concurrent API calls, causing "Connection refused" on all but one. Now uses `ncat --keep-open --sh-exec` for concurrent handling
 - **Dashboard broken after setup-web** — `setup-web.sh` changed `TM_API_BIND` to `127.0.0.1` but did not restart the TimeMachine service, leaving the old binding active. After manual restart, nginx proxy couldn't reach the API
+- **Dashboard MIME type errors** — `X-Content-Type-Options: nosniff` blocked `app.js` execution when proxied through bash HTTP server with wrong Content-Type. Nginx now serves static files directly from disk
+- **SELinux blocking nginx proxy** — On RHEL/CentOS, `httpd_can_network_connect` is off by default, preventing nginx from proxying to backend ports. Now auto-enabled during install and setup-web
+- **SELinux blocking nginx static files** — Web directory lacked `httpd_sys_content_t` context. Now set automatically via `semanage`/`chcon`
 - **binadit-firewall not detected** — Binary at `/usr/local/sbin/binadit-firewall` was not in sudo's `secure_path`, causing `command -v` to fail. Now checks the known path directly as fallback
 - **Certbot install failure on RHEL/CentOS** — `certbot` and `python3-certbot-nginx` packages not available without EPEL. Now installs `epel-release` first, with snap and pip fallbacks
 - **Nginx not restarted after SSL cert** — `finalize()` used `systemctl reload` which doesn't work for first-time SSL config. Changed to `systemctl restart`
 - **Service not starting after install** — Missing `/var/run/timemachine` directory on first boot. Added `RuntimeDirectory=timemachine` to systemd unit and pre-creation in installer
+- **`tmctl update` failing** — `git describe --tags` failed on shallow clones; `git fetch` errors hidden; no fallback when git remote unreachable
 - `get.sh` installation hanging at `apt-get update` on systems with dpkg locks or interactive prompts
 - Package installation failing silently on non-Debian/RHEL distributions
 - `SCRIPT_DIR` not exported to socat subprocesses, causing backup-via-dashboard to fail
