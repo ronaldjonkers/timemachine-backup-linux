@@ -553,6 +553,99 @@ server_ask_email() {
 }
 
 # ============================================================
+# SERVER: FIREWALL
+# ============================================================
+
+server_configure_firewall() {
+    local api_port="${TM_API_PORT:-7600}"
+
+    # 1) binadit-firewall (auto-configure)
+    if command -v binadit-firewall &>/dev/null; then
+        info "binadit-firewall detected"
+        local current_ports
+        current_ports=$(binadit-firewall config get TCP_PORTS 2>/dev/null || true)
+        if echo "${current_ports}" | grep -qw "${api_port}" 2>/dev/null; then
+            step_done "Port ${api_port} already open in binadit-firewall"
+        else
+            binadit-firewall config add TCP_PORTS "${api_port}" 2>/dev/null || true
+            binadit-firewall restart 2>/dev/null || true
+            step_done "Port ${api_port} opened in binadit-firewall automatically"
+        fi
+        return
+    fi
+
+    # 2) ufw
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -qi "active"; then
+        info "ufw firewall detected (active)"
+        if ufw status | grep -qw "${api_port}" 2>/dev/null; then
+            step_done "Port ${api_port} already open in ufw"
+        else
+            ufw allow "${api_port}/tcp" comment "TimeMachine dashboard" 2>/dev/null || true
+            step_done "Port ${api_port} opened in ufw"
+        fi
+        return
+    fi
+
+    # 3) firewalld
+    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -qi "running"; then
+        info "firewalld detected (running)"
+        if firewall-cmd --list-ports 2>/dev/null | grep -qw "${api_port}/tcp"; then
+            step_done "Port ${api_port} already open in firewalld"
+        else
+            firewall-cmd --permanent --add-port="${api_port}/tcp" 2>/dev/null || true
+            firewall-cmd --reload 2>/dev/null || true
+            step_done "Port ${api_port} opened in firewalld"
+        fi
+        return
+    fi
+
+    # 4) iptables (check only, don't modify)
+    if command -v iptables &>/dev/null; then
+        if iptables -L INPUT -n 2>/dev/null | grep -qw "${api_port}"; then
+            step_done "Port ${api_port} appears open in iptables"
+        else
+            info "No managed firewall detected (ufw/firewalld/binadit-firewall)"
+            warn "Ensure TCP port ${api_port} is open in your firewall for the dashboard"
+        fi
+        return
+    fi
+
+    info "No firewall detected; port ${api_port} should be accessible"
+}
+
+# ============================================================
+# SERVER: DASHBOARD SECURITY
+# ============================================================
+
+server_ask_dashboard_security() {
+    echo ""
+    echo -e "  ${BOLD}Dashboard Security${NC}"
+    echo ""
+    echo "  The dashboard runs on port ${TM_API_PORT:-7600}."
+    echo "  You can optionally secure it with an nginx reverse proxy"
+    echo "  (SSL + password protection via port 443)."
+    echo ""
+
+    local choice
+    choice=$(read_input "  Set up SSL + password-protected dashboard now? [y/N]: " "n")
+
+    case "${choice}" in
+        y|Y|yes|YES)
+            if [[ -f "${INSTALL_DIR}/bin/setup-web.sh" ]]; then
+                info "Running setup-web for SSL + password dashboard..."
+                bash "${INSTALL_DIR}/bin/setup-web.sh" --with-ssl --with-auth
+                step_done "Dashboard secured with SSL + password via nginx"
+            else
+                warn "setup-web.sh not found. Run 'tmctl setup-web' after installation."
+            fi
+            ;;
+        *)
+            info "Skipped. You can set this up later with: sudo tmctl setup-web"
+            ;;
+    esac
+}
+
+# ============================================================
 # SERVER: MAIN
 # ============================================================
 
@@ -563,7 +656,7 @@ install_server() {
 
     local os
     os=$(detect_os)
-    local total=9
+    local total=11
 
     server_ask_backup_dir
     server_ask_email
@@ -605,7 +698,16 @@ install_server() {
         warn "Service could not be started (check logs with: journalctl -u timemachine)"
     fi
 
+    step 10 ${total} "Configuring firewall"
+    server_configure_firewall
+
+    step 11 ${total} "Dashboard security"
+    server_ask_dashboard_security
+
     show_complete "Server"
+
+    local my_hostname
+    my_hostname=$(hostname -f 2>/dev/null || hostname)
 
     info "Next steps:"
     echo ""
@@ -617,18 +719,20 @@ install_server() {
     echo "     tmctl server add db1.example.com --priority 1 --db-interval 4h"
     echo ""
     echo "  ${BOLD}3. Install TimeMachine on each client server (run this on the client):${NC}"
-    echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server $(hostname -f 2>/dev/null || hostname)"
+    echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server ${my_hostname}"
     echo ""
     echo "  ${BOLD}4. Test a backup (dry-run):${NC}"
     echo "     tmctl backup web1.example.com --dry-run"
     echo ""
     echo "  ${BOLD}5. Web dashboard:${NC}"
-    echo "     http://$(hostname):7600"
+    echo "     http://${my_hostname}:${TM_API_PORT:-7600}"
     if [[ -n "${TM_REPORT_EMAIL:-}" ]]; then
     echo ""
     echo "  ${BOLD}6. Email reports:${NC}"
     echo "     Reports will be sent to: ${TM_REPORT_EMAIL}"
     fi
+    echo ""
+    echo "  ${YELLOW}${BOLD}Firewall:${NC} Ensure TCP port ${TM_API_PORT:-7600} is open for the dashboard & client SSH key downloads."
     echo ""
     echo "  ${BOLD}Uninstall:${NC}"
     echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/uninstall.sh | sudo bash"
@@ -695,28 +799,58 @@ client_fetch_ssh_key() {
         return 1
     fi
 
-    info "Downloading SSH public key from ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}..."
-
     if ! command -v curl &>/dev/null; then
         error "curl is required for --server option. Install curl first."
     fi
 
-    local key
-    key=$(curl -sf --connect-timeout 10 \
-        "http://${BACKUP_SERVER}:${BACKUP_SERVER_PORT}/api/ssh-key/raw" 2>/dev/null)
+    local key=""
 
-    if [[ -z "${key}" ]]; then
-        error "Failed to download SSH key from ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}. Is the TimeMachine service running?"
+    # Try 1: HTTPS via nginx gateway (port 443)
+    info "Trying HTTPS (port 443) on ${BACKUP_SERVER}..."
+    key=$(curl -sf --connect-timeout 5 -k \
+        "https://${BACKUP_SERVER}/api/ssh-key/raw" 2>/dev/null) || true
+
+    if [[ -n "${key}" ]]; then
+        SSH_PUBLIC_KEY="${key}"
+        info "SSH key downloaded via HTTPS (nginx gateway) from ${BACKUP_SERVER}"
+        return 0
     fi
 
-    SSH_PUBLIC_KEY="${key}"
-    info "SSH key downloaded successfully from ${BACKUP_SERVER}"
+    # Try 2: HTTP direct (port 7600 or custom)
+    info "Trying HTTP (port ${BACKUP_SERVER_PORT}) on ${BACKUP_SERVER}..."
+    key=$(curl -sf --connect-timeout 5 \
+        "http://${BACKUP_SERVER}:${BACKUP_SERVER_PORT}/api/ssh-key/raw" 2>/dev/null) || true
+
+    if [[ -n "${key}" ]]; then
+        SSH_PUBLIC_KEY="${key}"
+        info "SSH key downloaded via HTTP from ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}"
+        return 0
+    fi
+
+    # Both failed — show helpful diagnostics
+    echo ""
+    warn "Could not download SSH key from ${BACKUP_SERVER}"
+    echo ""
+    echo -e "  ${BOLD}Possible causes:${NC}"
+    echo "    1) TimeMachine service is not running on ${BACKUP_SERVER}"
+    echo "       Fix: ssh ${BACKUP_SERVER} 'sudo systemctl start timemachine'"
+    echo ""
+    echo "    2) Port ${BACKUP_SERVER_PORT} is blocked by a firewall"
+    echo "       Fix: open TCP port ${BACKUP_SERVER_PORT} on the backup server's firewall"
+    echo ""
+    echo "    3) Nginx gateway is not set up for HTTPS access"
+    echo "       Fix: run 'sudo tmctl setup-web' on the backup server"
+    echo ""
+    echo -e "  ${BOLD}You can still continue by pasting the SSH key manually.${NC}"
+    echo ""
+
+    return 1
 }
 
 client_setup_ssh() {
     # Auto-download key from server if --server was provided
     if [[ -n "${BACKUP_SERVER}" && -z "${SSH_PUBLIC_KEY}" ]]; then
-        client_fetch_ssh_key
+        client_fetch_ssh_key || true
     fi
 
     # If still no key, ask interactively
@@ -733,9 +867,15 @@ client_setup_ssh() {
 
         case "${choice}" in
             1)
-                BACKUP_SERVER=$(read_input "  Backup server hostname/IP: " "")
-                [[ -z "${BACKUP_SERVER}" ]] && error "Server hostname is required"
-                client_fetch_ssh_key
+                if [[ -z "${BACKUP_SERVER}" ]]; then
+                    BACKUP_SERVER=$(read_input "  Backup server hostname/IP: " "")
+                    [[ -z "${BACKUP_SERVER}" ]] && error "Server hostname is required"
+                fi
+                if ! client_fetch_ssh_key; then
+                    # Fallback: ask for manual paste
+                    SSH_PUBLIC_KEY=$(read_input "  SSH public key (paste here): " "")
+                    [[ -z "${SSH_PUBLIC_KEY}" ]] && error "SSH key is required"
+                fi
                 ;;
             2)
                 SSH_PUBLIC_KEY=$(read_input "  SSH public key: " "")

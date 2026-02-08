@@ -9,19 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Standalone uninstaller** (`uninstall.sh`) — Single-line `curl | bash` command to completely remove TimeMachine from server or client. Auto-detects installation type, step-by-step progress, confirmation prompt, `--force` and `--remove-backups` options
-- **Fancy ASCII art installer** — ANSI Shadow block-letter banner for TIME MACHINE with colored output, step-by-step progress display (`[1/9] Step description`), and completion banner
+- **Fancy ASCII art installer** — ANSI Shadow block-letter banner for TIME MACHINE with colored output, step-by-step progress display (`[1/11] Step description`), and completion banner
 - **Multi-distro package manager support** — `get.sh` and `install.sh` now support Debian/Ubuntu, RHEL/CentOS/Fedora, Rocky/Alma, openSUSE (zypper), Arch/Manjaro (pacman), Alpine (apk), and macOS (brew) with auto-detection fallback
 - **Service auto-start** — Server installation now automatically starts the TimeMachine service after setup; service is enabled on boot via systemd
 - **Client database auto-detection** — Client installer now automatically detects installed database engines (MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite) and prompts for credentials per database. Auto-imports existing credentials from `/root/mysql.pw` and `/root/.my.cnf` for MySQL. PostgreSQL uses peer auth (no prompt). `--with-db` is auto-enabled when databases are found
+- **Dashboard makeover** — Complete redesign of web dashboard with modern dark theme, gradient header, animated status indicators (pulsing dot), disk usage progress bar with color thresholds, toast notifications (replaces alert()), snapshot modal dialog, collapsible add-server form, and improved responsive layout
+- **Disk usage API** — New `/api/disk` endpoint returns backup volume total/used/available/percent for the dashboard
+- **SSH key download fallback** — Client installer tries HTTPS (port 443, nginx gateway) first, then HTTP (port 7600), with clear diagnostic messages on failure and graceful fallback to manual key paste
+- **Firewall auto-configuration** — Server installer detects binadit-firewall, ufw, and firewalld and automatically opens the dashboard port (default 7600). Shows manual instructions if no managed firewall is found
+- **Dashboard security prompt** — Server installer asks whether to set up SSL + password protection for the dashboard via nginx reverse proxy with self-signed certificate
+- **Self-signed SSL support** (`setup-web.sh`) — New `--with-ssl`, `--with-auth`, and `--self-signed` flags for quick nginx proxy setup without a domain or Let's Encrypt. Generates a 10-year self-signed certificate
+- **binadit-firewall integration** — `setup-web.sh` and server installer detect binadit-firewall and auto-open ports using `binadit-firewall config add TCP_PORTS`
 
 ### Changed
 - `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support
-- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for both server (9 steps) and client (4-5 steps) installs; post-install instructions now show `restart` instead of `start`; added uninstall command reference in post-install output
-- `README.md` — Expanded uninstalling section with single-line curl command, `--force`/`--remove-backups` options, and manual uninstall; updated "Start the Service" to "Start / Restart the Service" with systemctl commands; added `uninstall.sh` to architecture diagram
+- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for both server (11 steps) and client (4-5 steps) installs; post-install instructions now show `restart` instead of `start`; added uninstall command reference and firewall reminder in post-install output
+- `tmserviced.sh` — Replaced fragile `export -f` + `SYSTEM:"bash -c '...'"` approach with self-contained handler script generation (`_generate_handler_script`). Each HTTP request now runs a standalone script with all functions and variables embedded, fixing dashboard startup failures caused by Shellshock-era environment variable sanitization. Changed socat from `SYSTEM:` to `EXEC:` for direct script execution. Added `disown` to `run_backup()` so background backups survive handler exit
+- `README.md` — Added dashboard security section with `tmctl setup-web` examples; updated SSH key download docs with fallback info; added firewall auto-detection note
 
 ### Fixed
+- **Dashboard not starting** — HTTP server failed to bind port 7600 because `export -f` bash functions were stripped by socat's `/bin/sh` intermediary on systems with Shellshock mitigations. Replaced with handler script approach
 - `get.sh` installation hanging at `apt-get update` on systems with dpkg locks or interactive prompts
 - Package installation failing silently on non-Debian/RHEL distributions
+- `SCRIPT_DIR` not exported to socat subprocesses, causing backup-via-dashboard to fail
 
 ## [0.6.0] - 2026-02-06
 

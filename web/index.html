@@ -3,42 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TimeMachine Backup - Dashboard</title>
+    <title>TimeMachine Backup</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#x23f0;</text></svg>">
 </head>
 <body>
     <header>
         <div class="header-content">
-            <h1>&#x1f4be; TimeMachine Backup</h1>
-            <div id="service-status" class="status-badge status-unknown">Connecting...</div>
+            <div class="logo">
+                <span class="logo-icon">&#x23f0;</span>
+                <span class="logo-text">TimeMachine</span>
+            </div>
+            <div id="service-status" class="badge badge-unknown">
+                <span class="pulse"></span>
+                <span class="badge-text">Connecting...</span>
+            </div>
         </div>
     </header>
 
     <main>
-        <!-- Status Cards -->
         <section class="cards">
             <div class="card">
-                <div class="card-label">Uptime</div>
-                <div class="card-value" id="uptime">--</div>
+                <div class="card-icon">&#x23F1;</div>
+                <div class="card-body">
+                    <div class="card-label">Uptime</div>
+                    <div class="card-value" id="uptime">--</div>
+                </div>
             </div>
             <div class="card">
-                <div class="card-label">Hostname</div>
-                <div class="card-value" id="hostname">--</div>
+                <div class="card-icon">&#x1F5A5;</div>
+                <div class="card-body">
+                    <div class="card-label">Hostname</div>
+                    <div class="card-value" id="hostname">--</div>
+                </div>
             </div>
             <div class="card">
-                <div class="card-label">Active Jobs</div>
-                <div class="card-value" id="active-jobs">0</div>
+                <div class="card-icon">&#x26A1;</div>
+                <div class="card-body">
+                    <div class="card-label">Active Jobs</div>
+                    <div class="card-value" id="active-jobs">0</div>
+                </div>
             </div>
             <div class="card">
-                <div class="card-label">Servers</div>
-                <div class="card-value" id="server-count">0</div>
+                <div class="card-icon">&#x1F4E1;</div>
+                <div class="card-body">
+                    <div class="card-label">Servers</div>
+                    <div class="card-value" id="server-count">0</div>
+                </div>
+            </div>
+            <div class="card card-wide">
+                <div class="card-icon">&#x1F4BE;</div>
+                <div class="card-body" style="flex:1">
+                    <div class="card-label">Disk Usage</div>
+                    <div class="disk-row">
+                        <span class="card-value" id="disk-used">--</span>
+                        <span class="disk-detail" id="disk-detail">/ --</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="disk-bar" style="width:0%"></div>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <!-- Running Processes -->
         <section class="panel">
             <div class="panel-header">
-                <h2>Backup Processes</h2>
+                <h2>&#x1F504; Backup Processes</h2>
                 <button class="btn btn-sm" onclick="refreshProcesses()">Refresh</button>
             </div>
             <table id="processes-table">
@@ -53,15 +83,15 @@
                     </tr>
                 </thead>
                 <tbody id="processes-body">
-                    <tr><td colspan="6" class="empty">No processes</td></tr>
+                    <tr><td colspan="6" class="empty">No active processes</td></tr>
                 </tbody>
             </table>
         </section>
 
-        <!-- Configured Servers -->
         <section class="panel">
             <div class="panel-header">
-                <h2>Configured Servers</h2>
+                <h2>&#x1F4E1; Configured Servers</h2>
+                <button class="btn btn-sm" id="toggle-add-server" onclick="toggleAddServer()">+ Add</button>
             </div>
             <table id="servers-table">
                 <thead>
@@ -77,7 +107,7 @@
                     <tr><td colspan="5" class="empty">Loading...</td></tr>
                 </tbody>
             </table>
-            <div class="quick-action" id="add-server-form">
+            <div class="quick-action hidden" id="add-server-form">
                 <input type="text" id="add-server-hostname" placeholder="hostname.example.com">
                 <select id="add-server-options">
                     <option value="">Full (files + DB)</option>
@@ -91,21 +121,21 @@
             </div>
         </section>
 
-        <!-- SSH Key -->
         <section class="panel">
             <div class="panel-header">
-                <h2>SSH Public Key</h2>
+                <h2>&#x1F511; SSH Public Key</h2>
                 <button class="btn btn-sm" onclick="copySSHKey()">Copy</button>
             </div>
             <pre id="ssh-key" class="code-block">Loading...</pre>
-            <p class="hint">Use this key when running <code>install.sh client --ssh-key '...'</code> on remote servers, or download via:<br>
-            <code id="ssh-key-url">curl -s http://&lt;this-server&gt;:7600/api/ssh-key/raw</code></p>
+            <p class="hint">
+                Client install: <code>sudo ./install.sh client --server <span id="ssh-key-host">this-server</span></code><br>
+                Direct download: <code id="ssh-key-url">curl -s http://&lt;this-server&gt;:7600/api/ssh-key/raw</code>
+            </p>
         </section>
 
-        <!-- Quick Actions -->
         <section class="panel">
             <div class="panel-header">
-                <h2>Quick Backup</h2>
+                <h2>&#x26A1; Quick Backup</h2>
             </div>
             <div class="quick-action">
                 <input type="text" id="backup-hostname" placeholder="hostname.example.com">
@@ -120,8 +150,20 @@
     </main>
 
     <footer>
-        <p>TimeMachine Backup v0.3.1 &mdash; <span id="refresh-time">--</span></p>
+        <p>TimeMachine Backup <span id="version">v0.7.0</span> &mdash; <span id="refresh-time">--</span></p>
     </footer>
+
+    <div id="toast-container"></div>
+
+    <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modal-title">Snapshots</h3>
+                <button class="btn btn-sm" onclick="closeModal()">&#x2715;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

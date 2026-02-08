@@ -136,9 +136,26 @@ journalctl -u timemachine -f         # Follow logs
 
 The dashboard is now available at `http://<backup-server>:7600`.
 
+> **Firewall:** The installer auto-detects binadit-firewall, ufw, and firewalld and opens port 7600 automatically. If no managed firewall is found, ensure TCP port 7600 is open manually.
+
+#### Secure the Dashboard (optional)
+
+During server installation you are asked whether to enable SSL + password protection. You can also run it later:
+
+```bash
+# Self-signed SSL + password (quick setup)
+sudo tmctl setup-web --with-ssl --with-auth
+
+# Let's Encrypt SSL + password (production)
+sudo tmctl setup-web --domain tm.example.com --email admin@example.com
+
+# Remove web proxy
+sudo tmctl setup-web --remove
+```
+
 ### 4. Install on Client Servers
 
-**Automatic** (downloads SSH key from the backup server API):
+**Automatic** (downloads SSH key from the backup server API — tries HTTPS/443 first, then HTTP/7600, with manual-paste fallback):
 
 ```bash
 # Standard install — auto-detects databases and asks for credentials

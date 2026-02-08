@@ -109,6 +109,9 @@ AUTH_USER=""
 AUTH_PASS=""
 OPEN_SSH_KEY=0
 REMOVE_MODE=0
+WITH_SSL=0
+WITH_AUTH=0
+SELF_SIGNED=0
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -118,6 +121,9 @@ parse_args() {
             --user)      AUTH_USER="$2"; shift 2 ;;
             --pass)      AUTH_PASS="$2"; shift 2 ;;
             --open-ssh-key) OPEN_SSH_KEY=1; shift ;;
+            --with-ssl)  WITH_SSL=1; shift ;;
+            --with-auth) WITH_AUTH=1; shift ;;
+            --self-signed) SELF_SIGNED=1; shift ;;
             --remove|--uninstall) REMOVE_MODE=1; shift ;;
             *) warn "Unknown option: $1"; shift ;;
         esac
@@ -441,7 +447,12 @@ TMPEOF
 configure_firewall() {
     info "Configuring firewall..."
 
-    if command -v ufw &>/dev/null; then
+    if command -v binadit-firewall &>/dev/null; then
+        binadit-firewall config add TCP_PORTS 80 2>/dev/null || true
+        binadit-firewall config add TCP_PORTS 443 2>/dev/null || true
+        binadit-firewall restart 2>/dev/null || true
+        info "binadit-firewall: ports 80 and 443 opened"
+    elif command -v ufw &>/dev/null; then
         ufw allow 80/tcp 2>/dev/null || true
         ufw allow 443/tcp 2>/dev/null || true
         info "UFW: ports 80 and 443 opened"
@@ -565,6 +576,97 @@ remove_web() {
 # MAIN
 # ============================================================
 
+generate_self_signed() {
+    local cert_dir="/etc/ssl/timemachine"
+    mkdir -p "${cert_dir}"
+
+    if [[ -f "${cert_dir}/fullchain.pem" && -f "${cert_dir}/privkey.pem" ]]; then
+        info "Self-signed certificate already exists"
+        return
+    fi
+
+    info "Generating self-signed SSL certificate..."
+    openssl req -x509 -nodes -days 3650 \
+        -newkey rsa:2048 \
+        -keyout "${cert_dir}/privkey.pem" \
+        -out "${cert_dir}/fullchain.pem" \
+        -subj "/CN=$(hostname -f 2>/dev/null || hostname)/O=TimeMachine Backup" \
+        2>/dev/null
+
+    chmod 600 "${cert_dir}/privkey.pem"
+    info "Self-signed certificate generated (valid 10 years)"
+}
+
+configure_nginx_self_signed() {
+    info "Configuring Nginx with self-signed SSL..."
+
+    local site_conf=""
+    if [[ -d "${NGINX_CONF_DIR}/sites-available" ]]; then
+        site_conf="${NGINX_CONF_DIR}/sites-available/${NGINX_SITE_NAME}"
+    elif [[ -d "${NGINX_CONF_DIR}/conf.d" ]]; then
+        site_conf="${NGINX_CONF_DIR}/conf.d/${NGINX_SITE_NAME}.conf"
+    else
+        error "Cannot find nginx config directory"
+    fi
+
+    local auth_block=""
+    if [[ ${WITH_AUTH} -eq 1 ]] && [[ -f "${HTPASSWD_FILE}" ]]; then
+        auth_block="
+    auth_basic \"TimeMachine Dashboard\";
+    auth_basic_user_file ${HTPASSWD_FILE};"
+    fi
+
+    local ssh_key_location=""
+    if [[ ${OPEN_SSH_KEY} -eq 1 ]] && [[ -n "${auth_block}" ]]; then
+        ssh_key_location="
+    location = /api/ssh-key/raw {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:${TM_API_PORT};
+        proxy_set_header Host \\\$host;
+        proxy_set_header X-Real-IP \\\$remote_addr;
+    }"
+    fi
+
+    cat > "${site_conf}" <<NGINX_SS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name _;
+
+    ssl_certificate /etc/ssl/timemachine/fullchain.pem;
+    ssl_certificate_key /etc/ssl/timemachine/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;${auth_block}${ssh_key_location}
+
+    location / {
+        proxy_pass http://127.0.0.1:${TM_API_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINX_SS
+
+    if [[ -d "${NGINX_CONF_DIR}/sites-available" ]]; then
+        ln -sf "${site_conf}" "${NGINX_CONF_DIR}/sites-enabled/${NGINX_SITE_NAME}"
+        rm -f "${NGINX_CONF_DIR}/sites-enabled/default"
+    fi
+
+    info "Nginx config written to ${site_conf}"
+}
+
 main() {
     require_root
     parse_args "$@"
@@ -574,6 +676,71 @@ main() {
         exit 0
     fi
 
+    # Quick mode: called from installer with --with-ssl --with-auth
+    if [[ ${WITH_SSL} -eq 1 ]] || [[ ${WITH_AUTH} -eq 1 ]]; then
+        SELF_SIGNED=1
+        OPEN_SSH_KEY=1
+
+        local os
+        os=$(detect_os)
+        info "Installing nginx..."
+        case "${os}" in
+            ubuntu|debian)
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -qq 2>/dev/null
+                apt-get install -y -qq nginx apache2-utils > /dev/null 2>&1 || true
+                ;;
+            centos|rhel|rocky|almalinux|fedora)
+                if command -v dnf &>/dev/null; then
+                    dnf install -y -q nginx httpd-tools 2>/dev/null || true
+                else
+                    yum install -y -q nginx httpd-tools 2>/dev/null || true
+                fi
+                ;;
+            *)
+                warn "Install nginx manually if not present"
+                ;;
+        esac
+        systemctl enable nginx 2>/dev/null || true
+
+        if [[ ${WITH_AUTH} -eq 1 ]]; then
+            if [[ -z "${AUTH_USER}" ]]; then
+                AUTH_USER=$(read_input "  Dashboard username [admin]: " "admin")
+            fi
+            if [[ -z "${AUTH_PASS}" ]]; then
+                AUTH_PASS=$(read_password "  Dashboard password: ")
+                if [[ -z "${AUTH_PASS}" ]]; then
+                    warn "No password entered; skipping auth setup"
+                    WITH_AUTH=0
+                fi
+            fi
+            if [[ ${WITH_AUTH} -eq 1 ]]; then
+                create_htpasswd
+            fi
+        fi
+
+        generate_self_signed
+        configure_nginx_self_signed
+        configure_firewall
+        secure_api_bind
+
+        if nginx -t 2>/dev/null; then
+            systemctl restart nginx 2>/dev/null || true
+            local my_host
+            my_host=$(hostname -f 2>/dev/null || hostname)
+            echo ""
+            info "Dashboard available at: https://${my_host}/"
+            if [[ ${WITH_AUTH} -eq 1 ]]; then
+                info "Login: ${AUTH_USER} / ********"
+            fi
+            info "SSH key (no auth): https://${my_host}/api/ssh-key/raw"
+        else
+            warn "Nginx config test failed — check manually"
+        fi
+        return
+    fi
+
+    # Full interactive mode
     prompt_config
     install_deps
     create_htpasswd
