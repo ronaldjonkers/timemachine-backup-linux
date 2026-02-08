@@ -313,6 +313,9 @@ _http_response() {
     local body="$3"
     local body_length=${#body}
 
+    # Use byte count (not char count) for Content-Length
+    body_length=$(printf '%s' "${body}" | wc -c)
+
     printf "HTTP/1.1 %s\r\n" "${status}"
     printf "Content-Type: %s\r\n" "${content_type}"
     printf "Content-Length: %d\r\n" "${body_length}"
@@ -329,21 +332,25 @@ _handle_request() {
     local content_length=0
     local body=""
 
-    # Read request line
-    read -r request_line
-    request_line=$(echo "${request_line}" | tr -d '\r')
+    # Read request line (5s timeout to prevent hangs)
+    if ! read -r -t 5 request_line; then
+        _http_response "408 Request Timeout" "text/plain" "Request timeout"
+        return
+    fi
+    request_line="${request_line//$'\r'/}"
 
     local method path
-    method=$(echo "${request_line}" | awk '{print $1}')
-    path=$(echo "${request_line}" | awk '{print $2}')
+    method="${request_line%% *}"
+    path="${request_line#* }"
+    path="${path%% *}"
 
-    # Read headers
-    while read -r header; do
-        header=$(echo "${header}" | tr -d '\r')
+    # Read headers (5s timeout per line)
+    while read -r -t 5 header; do
+        header="${header//$'\r'/}"
         [[ -z "${header}" ]] && break
-        if echo "${header}" | grep -qi "^content-length:"; then
-            content_length=$(echo "${header}" | awk -F: '{print $2}' | tr -d ' ')
-        fi
+        case "${header,,}" in
+            content-length:*) content_length="${header#*: }"; content_length="${content_length// /}" ;;
+        esac
     done
 
     # Read body if present
@@ -576,6 +583,10 @@ _handle_request() {
             else
                 _http_response "404 Not Found" "text/plain" "Not found"
             fi
+            ;;
+
+        "GET /favicon.ico")
+            _http_response "204 No Content" "image/x-icon" ""
             ;;
 
         "OPTIONS "*)

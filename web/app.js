@@ -9,13 +9,22 @@ const REFRESH_INTERVAL = 10000;
    API HELPERS
    ============================================================ */
 
+var _apiErrors = 0;
+
 async function apiGet(endpoint) {
     try {
         const resp = await fetch(`${API_BASE}${endpoint}`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+        const text = await resp.text();
+        if (!text) return null;
+        _apiErrors = 0;
+        return JSON.parse(text);
     } catch (e) {
-        console.error(`API GET ${endpoint}:`, e);
+        _apiErrors++;
+        console.error(`API GET ${endpoint}:`, e.message);
+        if (_apiErrors === 3) {
+            toast('API unreachable: ' + e.message + ' — check if the TimeMachine service is running', 'error');
+        }
         return null;
     }
 }

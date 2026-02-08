@@ -506,6 +506,14 @@ TMPEOF
 configure_firewall() {
     info "Configuring firewall..."
 
+    # SELinux: allow nginx to connect to backend ports (RHEL/CentOS)
+    if command -v setsebool &>/dev/null; then
+        if ! getsebool httpd_can_network_connect 2>/dev/null | grep -q "on$"; then
+            info "Enabling SELinux httpd_can_network_connect..."
+            setsebool -P httpd_can_network_connect 1 2>/dev/null || true
+        fi
+    fi
+
     local bf_cmd=""
     if command -v binadit-firewall &>/dev/null; then
         bf_cmd="binadit-firewall"
@@ -732,6 +740,8 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
     }
 }
 NGINX_SS
