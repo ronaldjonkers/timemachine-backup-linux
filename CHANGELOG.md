@@ -5,31 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - 2026-02-08
+## [2.0.0] - 2026-02-08
 
 ### Added
 - **Standalone uninstaller** (`uninstall.sh`) — Single-line `curl | bash` command to completely remove TimeMachine from server or client. Auto-detects installation type, step-by-step progress, confirmation prompt, `--force` and `--remove-backups` options
-- **Fancy ASCII art installer** — ANSI Shadow block-letter banner for TIME MACHINE with colored output, step-by-step progress display (`[1/11] Step description`), and completion banner
+- **Fancy ASCII art installer** — ANSI Shadow block-letter banner for TIME MACHINE with colored output, step-by-step progress display (`[1/12] Step description`), and completion banner
 - **Multi-distro package manager support** — `get.sh` and `install.sh` now support Debian/Ubuntu, RHEL/CentOS/Fedora, Rocky/Alma, openSUSE (zypper), Arch/Manjaro (pacman), Alpine (apk), and macOS (brew) with auto-detection fallback
 - **Service auto-start** — Server installation now automatically starts the TimeMachine service after setup; service is enabled on boot via systemd
 - **Client database auto-detection** — Client installer now automatically detects installed database engines (MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite) and prompts for credentials per database. Auto-imports existing credentials from `/root/mysql.pw` and `/root/.my.cnf` for MySQL. PostgreSQL uses peer auth (no prompt). `--with-db` is auto-enabled when databases are found
 - **Dashboard makeover** — Complete redesign of web dashboard with modern dark theme, gradient header, animated status indicators (pulsing dot), disk usage progress bar with color thresholds, toast notifications (replaces alert()), snapshot modal dialog, collapsible add-server form, and improved responsive layout
 - **Disk usage API** — New `/api/disk` endpoint returns backup volume total/used/available/percent for the dashboard
 - **SSH key download fallback** — Client installer tries HTTPS (port 443, nginx gateway) first, then HTTP (port 7600), with clear diagnostic messages on failure and graceful fallback to manual key paste
-- **Firewall auto-configuration** — Server installer detects binadit-firewall, ufw, and firewalld and automatically opens the dashboard port (default 7600). Shows manual instructions if no managed firewall is found
-- **Dashboard security prompt** — Server installer asks whether to set up SSL + password protection for the dashboard via nginx reverse proxy with self-signed certificate
-- **Self-signed SSL support** (`setup-web.sh`) — New `--with-ssl`, `--with-auth`, and `--self-signed` flags for quick nginx proxy setup without a domain or Let's Encrypt. Generates a 10-year self-signed certificate
-- **binadit-firewall integration** — `setup-web.sh` and server installer detect binadit-firewall and auto-open ports using `binadit-firewall config add TCP_PORTS`
+- **Firewall auto-configuration** — Server installer detects binadit-firewall (`/usr/local/sbin/binadit-firewall`), ufw, and firewalld and automatically opens the dashboard port (default 7600). Shows manual instructions if no managed firewall is found
+- **Dashboard security with Let's Encrypt** — Server installer asks for domain, username, and password (with confirmation) to set up HTTPS + password protection via Nginx + certbot. Reuses report email for Let's Encrypt. Shows credentials in post-install output
+- **Self-signed SSL support** (`setup-web.sh`) — New `--with-ssl`, `--with-auth`, and `--self-signed` flags for quick nginx proxy setup without a domain. Generates a 10-year self-signed certificate as fallback when certbot is unavailable
+- **binadit-firewall integration** — `setup-web.sh` and server installer detect binadit-firewall at `/usr/local/sbin` and auto-open ports using `binadit-firewall config add TCP_PORTS`
 - **Weekly auto-update** — Server installer asks whether to enable automatic weekly updates via cron (Sunday 04:00). Also available as `tmctl auto-update on|off|status` CLI command. Logs to `logs/auto-update.log`
+- **Certbot multi-method install** — `setup-web.sh` tries EPEL + package manager, then snap, then pip to install certbot. Falls back to self-signed cert if all methods fail
+- **Post-install command reference** — Server installer now shows complete `tmctl` command reference, dashboard credentials, and getting started guide after installation
+- **Final service restart** — Installer restarts the TimeMachine service at the end to ensure it runs with the latest configuration
 
 ### Changed
 - `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support
-- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for both server (12 steps) and client (4-5 steps) installs; post-install instructions now show `restart` instead of `start`; added uninstall command reference and firewall reminder in post-install output
-- `tmserviced.sh` — Replaced fragile `export -f` + `SYSTEM:"bash -c '...'"` approach with self-contained handler script generation (`_generate_handler_script`). Each HTTP request now runs a standalone script with all functions and variables embedded, fixing dashboard startup failures caused by Shellshock-era environment variable sanitization. Changed socat from `SYSTEM:` to `EXEC:` for direct script execution. Added `disown` to `run_backup()` so background backups survive handler exit
-- `README.md` — Added dashboard security section with `tmctl setup-web` examples; updated SSH key download docs with fallback info; added firewall auto-detection note
+- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for server (12 steps) and client (4-5 steps) installs; complete post-install output with getting started guide, dashboard info, and full command reference
+- `tmserviced.sh` — Replaced fragile `export -f` + `SYSTEM:"bash -c '...'"` approach with self-contained handler script generation (`_generate_handler_script`). Each HTTP request now runs a standalone script with all functions and variables embedded. Changed socat from `SYSTEM:` to `EXEC:` for direct script execution. Added `disown` to `run_backup()` so background backups survive handler exit
+- `setup-web.sh` — Nginx uses `restart` instead of `reload` after SSL setup; automatically restarts TimeMachine service after changing `TM_API_BIND` to `127.0.0.1`; shows actual password in completion output
+- `timemachine.service` — Added `RuntimeDirectory=timemachine` and `LogsDirectory=timemachine` for automatic directory creation by systemd; removed hardcoded `ReadWritePaths=/backups`
+- `README.md` — Complete SEO-optimized rewrite with keyword-rich headings, "Why TimeMachine for Linux?" section, badges, supported distributions list, horizontal rule separators, and keywords footer for search engine discoverability
 
 ### Fixed
 - **Dashboard not starting** — HTTP server failed to bind port 7600 because `export -f` bash functions were stripped by socat's `/bin/sh` intermediary on systems with Shellshock mitigations. Replaced with handler script approach
+- **Dashboard broken after setup-web** — `setup-web.sh` changed `TM_API_BIND` to `127.0.0.1` but did not restart the TimeMachine service, leaving the old binding active. After manual restart, nginx proxy couldn't reach the API
+- **binadit-firewall not detected** — Binary at `/usr/local/sbin/binadit-firewall` was not in sudo's `secure_path`, causing `command -v` to fail. Now checks the known path directly as fallback
+- **Certbot install failure on RHEL/CentOS** — `certbot` and `python3-certbot-nginx` packages not available without EPEL. Now installs `epel-release` first, with snap and pip fallbacks
+- **Nginx not restarted after SSL cert** — `finalize()` used `systemctl reload` which doesn't work for first-time SSL config. Changed to `systemctl restart`
+- **Service not starting after install** — Missing `/var/run/timemachine` directory on first boot. Added `RuntimeDirectory=timemachine` to systemd unit and pre-creation in installer
 - `get.sh` installation hanging at `apt-get update` on systems with dpkg locks or interactive prompts
 - Package installation failing silently on non-Debian/RHEL distributions
 - `SCRIPT_DIR` not exported to socat subprocesses, causing backup-via-dashboard to fail

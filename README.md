@@ -1,39 +1,71 @@
 # TimeMachine Backup for Linux
 
-A robust, rsync-based backup system for Linux servers inspired by macOS Time Machine. Creates rotating daily snapshots with hardlinks for space-efficient, point-in-time recovery. Includes a service daemon with web dashboard, CLI control tool, restore functionality, multi-database support, encryption, and multi-channel notifications.
+**The Time Machine alternative for Linux servers.** An open-source, rsync-based backup system that brings macOS Time Machine-style snapshots to Linux. Back up your entire server with rotating daily snapshots using hardlinks — only changed files consume extra disk space, giving you efficient point-in-time recovery for any day.
+
+Perfect for sysadmins who want **automated Linux server backups** with a web dashboard, database support, encryption, and one-command install.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Shell: Bash](https://img.shields.io/badge/Shell-Bash-green.svg)](https://www.gnu.org/software/bash/)
+[![Tests: 40+](https://img.shields.io/badge/Tests-40%2B-brightgreen.svg)](tests/)
+
+---
+
+## Why TimeMachine for Linux?
+
+- **Zero-config backups** — One command installs everything. The installer detects your OS, databases, and firewall automatically.
+- **Space-efficient** — Hardlinked snapshots mean a week of daily backups takes barely more space than a single copy.
+- **Full-system coverage** — Backs up files *and* databases (MySQL, PostgreSQL, MongoDB, Redis, SQLite).
+- **Web dashboard** — Monitor backups, start/kill jobs, and view snapshots from your browser.
+- **Production-ready** — Used to protect real servers with systemd integration, automatic retries, and email/Slack alerts.
+
+> *"Like macOS Time Machine, but for your Linux servers."*
+
+---
 
 ## Quick Install
 
-The installer asks whether you want to set up a **server** (stores backups) or **client** (gets backed up).
+Install TimeMachine on any Linux server with a single command:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
 ```
 
-**Server** — also asks where to store backups; creates `<dir>/timemachine/` with correct permissions.
+The interactive installer asks whether you want to set up a **backup server** (stores backups) or **client** (gets backed up). It auto-detects your distro, installs dependencies, configures the firewall, and optionally sets up HTTPS + password protection for the dashboard.
 
-**Client** — pass mode and options directly:
+**Supported distributions:** Debian, Ubuntu, RHEL, CentOS, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and macOS (for development).
+
+### Quick Client Install
+
+On the servers you want to back up, run:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server backup.example.com
 ```
 
+---
+
 ## Features
 
-- **Time Machine-style snapshots** — Daily backups with hardlinks (only changed files use extra disk space)
-- **Service daemon** — Runs as a systemd service with built-in scheduler
-- **Web dashboard** — Real-time monitoring UI with process control
-- **CLI control tool (`tmctl`)** — Manage backups, view status, kill processes
-- **Restore** — Selective file/database restore from any snapshot
+- **Time Machine-style snapshots** — Daily rotating backups with hardlinks (only changed files use extra disk space)
+- **Service daemon** — Runs as a systemd service with built-in backup scheduler
+- **Web dashboard** — Modern dark-themed monitoring UI with real-time status, process control, and disk usage
+- **CLI control tool (`tmctl`)** — Full backup management from the command line
+- **Restore** — Selective file and database restore from any snapshot
 - **Multi-database support** — MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite with auto-detection
 - **Exclude system** — Global defaults + per-server exclude patterns
-- **Parallel execution** — Back up multiple servers simultaneously
-- **Multi-channel notifications** — Email, HTTP POST webhooks, Slack
+- **Parallel execution** — Back up multiple servers simultaneously with priority ordering
+- **Dashboard security** — HTTPS via Let's Encrypt + HTTP Basic Auth via Nginx reverse proxy
+- **Multi-channel notifications** — Email reports, HTTP POST webhooks, Slack alerts
 - **Encryption** — GPG-based symmetric or asymmetric backup encryption
-- **SSH key distribution** — Auto-download SSH keys from the backup server API
-- **Configurable retention** — Automatic rotation of old backups
-- **Client installer** — One-command setup with `--server` auto-configuration
-- **Modular architecture** — Shared libraries with reusable functions
+- **SSH key distribution** — Auto-download SSH keys from the backup server API (HTTPS/HTTP fallback)
+- **Configurable retention** — Automatic rotation of old backups (default: 7 days)
+- **Firewall auto-detection** — Auto-opens ports on binadit-firewall, ufw, and firewalld
+- **Weekly auto-updates** — Optional cron-based automatic updates
+- **Client installer** — One-command setup with auto database detection and credential import
+- **Modular architecture** — Clean shared libraries with reusable functions
+- **Comprehensive tests** — 40+ automated tests across 9 test suites
+
+---
 
 ## Architecture
 
@@ -86,7 +118,7 @@ timemachine-backup-linux/
 └── README.md                      # This file
 ```
 
-## Quick Start
+## Server Setup Guide
 
 ### 1. Install the Backup Server
 
@@ -154,7 +186,9 @@ sudo tmctl setup-web --domain tm.example.com --email admin@example.com
 sudo tmctl setup-web --remove
 ```
 
-### 4. Install on Client Servers
+---
+
+## Client Setup Guide
 
 **Automatic** (downloads SSH key from the backup server API — tries HTTPS/443 first, then HTTP/7600, with manual-paste fallback):
 
@@ -183,14 +217,16 @@ The installer automatically detects installed database engines (MySQL/MariaDB, P
 sudo ./install.sh client --ssh-key "ssh-rsa AAAA..."
 ```
 
-### 5. Test
+### 3. Test a Backup
 
 ```bash
 tmctl backup web1.example.com --dry-run
 tmctl status
 ```
 
-## Updating
+---
+
+## Updating TimeMachine
 
 Update to the latest version on the backup server:
 
@@ -204,7 +240,11 @@ This will pull the latest code, restart the service if running, and show what's 
 curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
 ```
 
-## CLI Tool (`tmctl`)
+---
+
+## CLI Tool — All Commands (`tmctl`)
+
+The `tmctl` command is your primary interface for managing TimeMachine backups:
 
 ```bash
 tmctl status              # Service status + running processes
@@ -227,7 +267,9 @@ tmctl uninstall           # Remove TimeMachine completely (sudo)
 tmctl version             # Show version
 ```
 
-## Exposing the Dashboard (HTTPS + Auth)
+---
+
+## Securing the Dashboard (HTTPS + Password Protection)
 
 To make the web dashboard securely accessible from the internet:
 
@@ -256,7 +298,9 @@ To remove external access:
 sudo tmctl setup-web --remove
 ```
 
-## Restore
+---
+
+## Restoring from Backups
 
 Restore files and/or databases from any snapshot:
 
@@ -287,7 +331,9 @@ tm-restore web1.example.com --dry-run
 tm-restore web1.example.com --decrypt --target /tmp/restore
 ```
 
-## Database Backup
+---
+
+## Database Backup Support
 
 TimeMachine supports automatic backup of all major database engines. The `dump_dbs.sh` script runs on the client server, auto-detects installed databases, and dumps them before the file sync pulls the dumps back.
 
@@ -400,6 +446,8 @@ sql/
     └── app.db.sql
 ```
 
+---
+
 ## Server Priority & DB Interval
 
 Servers can be assigned a **priority** (1 = highest, default = 10). During daily backup runs, servers with lower priority numbers are started first:
@@ -422,7 +470,9 @@ The scheduler checks every minute and triggers a `--db-only` backup when the int
 
 The daily backup schedule is controlled by `TM_SCHEDULE_HOUR` in `.env` (default: `11`, i.e. 11:00 AM).
 
-## Email Reports
+---
+
+## Email Reports & Alerts
 
 After each daily backup run, a **report email** is sent with per-server results:
 
@@ -453,6 +503,8 @@ TM_NOTIFY_METHODS="email"          # also: webhook, slack
 ```
 
 DB interval backups also send individual notifications on success or failure. Reports are saved to `logs/report-daily-YYYY-MM-DD.log`.
+
+---
 
 ## File Excludes
 
@@ -490,6 +542,8 @@ To limit the backup to a specific subtree, override in `.env`:
 TM_BACKUP_SOURCE="/home/"
 ```
 
+---
+
 ## Web Dashboard
 
 The service daemon serves a monitoring dashboard at `http://<host>:7600`:
@@ -500,7 +554,9 @@ The service daemon serves a monitoring dashboard at `http://<host>:7600`:
 - **SSH key** — Copy key for client installation
 - **Quick backup** — Start ad-hoc backups from the UI
 
-## API Endpoints
+---
+
+## REST API Endpoints
 
 The service exposes a REST API:
 
@@ -516,7 +572,9 @@ The service exposes a REST API:
 | `GET` | `/api/ssh-key/raw` | SSH public key (plain text) |
 | `GET` | `/api/logs/<host>` | View host logs |
 
-## Notifications
+---
+
+## Notifications (Email, Webhook, Slack)
 
 Configure multi-channel alerts in `.env`:
 
@@ -547,7 +605,9 @@ Webhook JSON payload format:
 }
 ```
 
-## Encryption
+---
+
+## Backup Encryption (GPG)
 
 Enable GPG-based backup encryption:
 
@@ -565,6 +625,8 @@ TM_ENCRYPT_KEY_ID="your-gpg-key-id"
 # Remove unencrypted originals after encryption
 TM_ENCRYPT_REMOVE_ORIGINAL=true
 ```
+
+---
 
 ## Configuration Reference
 
@@ -592,6 +654,8 @@ All settings are in `.env`. See `.env.example` for the full list.
 | `TM_ENCRYPT_ENABLED` | `false` | Enable backup encryption |
 | `TM_LOG_LEVEL` | `INFO` | Log verbosity (DEBUG/INFO/WARN/ERROR) |
 
+---
+
 ## Running Tests
 
 ```bash
@@ -612,7 +676,9 @@ bash tests/test_database.sh
 bash tests/test_shellcheck.sh
 ```
 
-## Uninstalling
+---
+
+## Uninstalling TimeMachine
 
 ### Single-Line Uninstall (recommended)
 
@@ -650,9 +716,11 @@ sudo rm -f /usr/bin/{tmctl,timemachine,tm-restore}
 sudo rm -rf /opt/timemachine-backup-linux
 ```
 
+---
+
 ## License
 
-MIT
+MIT — free for personal and commercial use.
 
 ## Contributing
 
@@ -660,3 +728,9 @@ MIT
 2. Create a feature branch
 3. Run tests: `bash tests/run_all_tests.sh`
 4. Submit a pull request
+
+---
+
+## Keywords
+
+time machine linux, linux backup solution, rsync backup tool, automated server backup, time machine alternative linux, linux server backup software, incremental backup linux, snapshot backup, database backup linux, mysql backup, postgresql backup, web dashboard backup, open source backup tool

@@ -855,51 +855,99 @@ install_server() {
 
     show_complete "Server"
 
+    # Final service restart to ensure everything is running with latest config
+    if command -v systemctl &>/dev/null; then
+        info "Restarting TimeMachine service..."
+        systemctl restart timemachine 2>/dev/null || true
+        sleep 2
+        if systemctl is-active timemachine &>/dev/null; then
+            step_done "TimeMachine service is running"
+        else
+            warn "Service may not have started. Check: journalctl -u timemachine -n 20"
+        fi
+    fi
+
     local my_hostname
     my_hostname=$(hostname -f 2>/dev/null || hostname)
 
-    info "Next steps:"
     echo ""
-    echo "  ${BOLD}1. Restart the service (if needed):${NC}"
-    echo "     sudo systemctl restart timemachine"
+    echo "  ─────────────────────────────────────────────────────"
+    echo -e "  ${BOLD}GETTING STARTED${NC}"
+    echo "  ─────────────────────────────────────────────────────"
     echo ""
-    echo "  ${BOLD}2. Add servers to back up:${NC}"
+    echo -e "  ${BOLD}1. Add servers to back up:${NC}"
     echo "     tmctl server add web1.example.com"
     echo "     tmctl server add db1.example.com --priority 1 --db-interval 4h"
     echo ""
-    echo "  ${BOLD}3. Install TimeMachine on each client server (run this on the client):${NC}"
+    echo -e "  ${BOLD}2. Install TimeMachine on each client server:${NC}"
+    echo "     (run this command on the client machine)"
+    echo ""
     echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server ${my_hostname}"
     echo ""
-    echo "  ${BOLD}4. Test a backup (dry-run):${NC}"
+    echo -e "  ${BOLD}3. Test a backup (dry-run):${NC}"
     echo "     tmctl backup web1.example.com --dry-run"
     echo ""
+    echo -e "  ${BOLD}4. Start a real backup:${NC}"
+    echo "     tmctl backup web1.example.com"
+    echo ""
+    echo "  ─────────────────────────────────────────────────────"
+    echo -e "  ${BOLD}WEB DASHBOARD${NC}"
+    echo "  ─────────────────────────────────────────────────────"
+    echo ""
     if [[ ${DASHBOARD_SECURED} -eq 1 ]]; then
-    echo "  ${BOLD}5. Web dashboard (secured):${NC}"
-    echo "     URL:      ${CYAN}https://${DASHBOARD_DOMAIN}/${NC}"
-    echo "     Username: ${BOLD}${DASHBOARD_USER}${NC}"
-    echo "     Password: ${BOLD}${DASHBOARD_PASS}${NC}"
-    echo "     SSH key:  https://${DASHBOARD_DOMAIN}/api/ssh-key/raw (no auth)"
+    echo -e "  URL:      ${CYAN}https://${DASHBOARD_DOMAIN}/${NC}"
+    echo -e "  Username: ${BOLD}${DASHBOARD_USER}${NC}"
+    echo -e "  Password: ${BOLD}${DASHBOARD_PASS}${NC}"
+    echo ""
+    echo -e "  SSH key endpoint (no auth): ${CYAN}https://${DASHBOARD_DOMAIN}/api/ssh-key/raw${NC}"
     else
-    echo "  ${BOLD}5. Web dashboard:${NC}"
-    echo "     http://${my_hostname}:${TM_API_PORT:-7600}"
+    echo -e "  URL: ${CYAN}http://${my_hostname}:${TM_API_PORT:-7600}${NC}"
+    echo ""
+    echo "  Tip: Secure the dashboard with SSL + password:"
+    echo "     sudo tmctl setup-web"
     fi
+    echo ""
     if [[ -n "${TM_REPORT_EMAIL:-}" ]]; then
+    echo "  ─────────────────────────────────────────────────────"
+    echo -e "  ${BOLD}EMAIL REPORTS${NC}"
+    echo "  ─────────────────────────────────────────────────────"
     echo ""
-    echo "  ${BOLD}6. Email reports:${NC}"
-    echo "     Reports will be sent to: ${TM_REPORT_EMAIL}"
+    echo "  Reports will be sent to: ${TM_REPORT_EMAIL}"
+    echo ""
     fi
+    echo "  ─────────────────────────────────────────────────────"
+    echo -e "  ${BOLD}ALL COMMANDS (tmctl)${NC}"
+    echo "  ─────────────────────────────────────────────────────"
+    echo ""
+    echo "  tmctl status                Show service status and running processes"
+    echo "  tmctl ps                    List running backup processes"
+    echo "  tmctl backup <host>         Start a backup for a host"
+    echo "  tmctl kill <host>           Kill a running backup"
+    echo "  tmctl restore <host>        Restore from backup (interactive)"
+    echo "  tmctl logs [host]           View backup logs"
+    echo "  tmctl servers               List all configured servers"
+    echo "  tmctl server add <host>     Add a server to back up"
+    echo "  tmctl server remove <host>  Remove a server"
+    echo "  tmctl snapshots <host>      List available snapshots for a host"
+    echo "  tmctl ssh-key               Show the SSH public key"
+    echo "  tmctl setup-web             Setup Nginx + SSL + Auth for the dashboard"
+    echo "  tmctl update                Update to the latest version"
+    echo "  tmctl auto-update on|off    Enable/disable weekly auto-updates"
+    echo "  tmctl uninstall             Remove TimeMachine completely"
+    echo "  tmctl version               Show installed version"
+    echo ""
+    echo "  ─────────────────────────────────────────────────────"
+    echo -e "  ${BOLD}IMPORTANT${NC}"
+    echo "  ─────────────────────────────────────────────────────"
     echo ""
     if [[ ${DASHBOARD_SECURED} -eq 1 ]]; then
-    echo "  ${YELLOW}${BOLD}Firewall:${NC} Ensure TCP ports 80 and 443 are open for HTTPS access."
+    echo -e "  ${YELLOW}Firewall:${NC} Ensure TCP ports 80 and 443 are open for HTTPS access."
     else
-    echo "  ${YELLOW}${BOLD}Firewall:${NC} Ensure TCP port ${TM_API_PORT:-7600} is open for the dashboard & client SSH key downloads."
+    echo -e "  ${YELLOW}Firewall:${NC} Ensure TCP port ${TM_API_PORT:-7600} is open for the dashboard."
     fi
     echo ""
-    echo "  ${BOLD}Uninstall:${NC}"
+    echo "  Uninstall:"
     echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/uninstall.sh | sudo bash"
-    echo ""
-    echo "  ${CYAN}Run 'tmctl help' for all available commands and options.${NC}"
-    echo "  ${CYAN}Run 'tmctl update' to update to the latest version.${NC}"
     echo ""
 }
 

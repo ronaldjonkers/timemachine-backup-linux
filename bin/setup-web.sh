@@ -567,9 +567,20 @@ finalize() {
         error "Nginx configuration test failed"
     fi
 
-    # Reload nginx
-    systemctl reload nginx
-    info "Nginx reloaded"
+    # Restart nginx (not reload — needed after fresh SSL cert or first config)
+    systemctl restart nginx
+    info "Nginx restarted"
+
+    # Restart TimeMachine service to pick up new TM_API_BIND=127.0.0.1
+    if command -v systemctl &>/dev/null && systemctl is-enabled timemachine &>/dev/null; then
+        systemctl restart timemachine 2>/dev/null || true
+        sleep 1
+        if systemctl is-active timemachine &>/dev/null; then
+            info "TimeMachine service restarted (API bound to localhost)"
+        else
+            warn "TimeMachine service failed to restart — check: journalctl -u timemachine"
+        fi
+    fi
 
     echo ""
     echo -e "${BOLD}============================================${NC}"
@@ -578,7 +589,7 @@ finalize() {
     echo ""
     echo -e "  URL:      ${CYAN}https://${DOMAIN}/${NC}"
     echo -e "  Username: ${BOLD}${AUTH_USER}${NC}"
-    echo -e "  Password: ${BOLD}********${NC}"
+    echo -e "  Password: ${BOLD}${AUTH_PASS}${NC}"
     echo ""
     if [[ ${OPEN_SSH_KEY} -eq 1 ]]; then
         echo -e "  SSH key (no auth): ${CYAN}https://${DOMAIN}/api/ssh-key/raw${NC}"
@@ -792,12 +803,25 @@ main() {
 
         if nginx -t 2>/dev/null; then
             systemctl restart nginx 2>/dev/null || true
+            info "Nginx restarted"
+
+            # Restart TimeMachine to pick up TM_API_BIND=127.0.0.1
+            if systemctl is-enabled timemachine &>/dev/null; then
+                systemctl restart timemachine 2>/dev/null || true
+                sleep 1
+                if systemctl is-active timemachine &>/dev/null; then
+                    info "TimeMachine service restarted"
+                else
+                    warn "TimeMachine service failed to restart — check: journalctl -u timemachine"
+                fi
+            fi
+
             local my_host
             my_host=$(hostname -f 2>/dev/null || hostname)
             echo ""
             info "Dashboard available at: https://${my_host}/"
             if [[ ${WITH_AUTH} -eq 1 ]]; then
-                info "Login: ${AUTH_USER} / ********"
+                info "Login: ${AUTH_USER} / ${AUTH_PASS}"
             fi
             info "SSH key (no auth): https://${my_host}/api/ssh-key/raw"
         else

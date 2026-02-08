@@ -359,7 +359,7 @@ _handle_request() {
             local uptime_secs
             uptime_secs=$(( $(date +%s) - SERVICE_START_TIME ))
             local resp
-            resp=$(printf '{"status":"running","uptime":%d,"hostname":"%s","version":"0.7.0","processes":%s}' \
+            resp=$(printf '{"status":"running","uptime":%d,"hostname":"%s","version":"2.0.0","processes":%s}' \
                 "${uptime_secs}" "$(hostname)" "${procs}")
             _http_response "200 OK" "application/json" "${resp}"
             ;;
