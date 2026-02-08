@@ -151,6 +151,16 @@ main {
     grid-column: span 2;
 }
 
+.cards-6 {
+    grid-template-columns: 1fr 1fr 1fr 2fr;
+}
+
+.card-unit {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
 .card-icon {
     font-size: 1.6rem;
     opacity: 0.7;
@@ -213,6 +223,11 @@ main {
 .progress-fill.warn { background: linear-gradient(90deg, var(--yellow), #f59e0b); }
 .progress-fill.danger { background: linear-gradient(90deg, var(--red), #dc2626); }
 
+.progress-bar-sm {
+    height: 4px;
+    margin-top: 0.45rem;
+}
+
 /* Panels */
 .panel {
     background: var(--bg-card);
@@ -235,6 +250,15 @@ main {
 .panel-header h2 {
     font-size: 0.95rem;
     font-weight: 600;
+}
+
+.panel-header-danger {
+    background: var(--red-glow);
+    border-bottom-color: rgba(248,113,113,0.3);
+}
+
+.panel-header-danger h2 {
+    color: var(--red);
 }
 
 /* Tables */
@@ -403,6 +427,74 @@ td.empty {
     color: var(--text);
 }
 
+.error-text {
+    color: var(--red);
+    font-size: 0.78rem;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+/* Installer Block */
+.installer-block {
+    padding: 1rem 1.25rem 0;
+}
+
+.installer-label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+/* System Info Grid */
+.sysinfo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+}
+
+.sysinfo-item {
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid rgba(36,42,56,0.6);
+    border-right: 1px solid rgba(36,42,56,0.6);
+}
+
+.sysinfo-item:nth-child(3n) {
+    border-right: none;
+}
+
+.sysinfo-item:nth-last-child(-n+3) {
+    border-bottom: none;
+}
+
+.sysinfo-label {
+    display: block;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+}
+
+.sysinfo-value {
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+/* Log Viewer */
+.log-viewer {
+    background: rgba(0,0,0,0.35);
+    padding: 1rem;
+    border-radius: var(--radius-sm);
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.72rem;
+    line-height: 1.7;
+    max-height: 50vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text);
+}
+
 /* Footer */
 footer {
     text-align: center;
@@ -479,7 +571,8 @@ footer {
     border-radius: var(--radius);
     box-shadow: var(--shadow-lg);
     min-width: 420px;
-    max-width: 640px;
+    max-width: 800px;
+    width: 90vw;
     max-height: 80vh;
     overflow: auto;
     animation: modal-in 0.25s ease;
@@ -519,17 +612,24 @@ footer {
 /* Responsive */
 @media (max-width: 900px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
+    .cards-6 { grid-template-columns: repeat(2, 1fr); }
     .card-wide { grid-column: span 2; }
+    .sysinfo-grid { grid-template-columns: repeat(2, 1fr); }
+    .sysinfo-item:nth-child(3n) { border-right: 1px solid rgba(36,42,56,0.6); }
+    .sysinfo-item:nth-child(2n) { border-right: none; }
 }
 
 @media (max-width: 600px) {
     header { padding: 0.75rem 1rem; }
     main { padding: 1rem; }
     .cards { grid-template-columns: 1fr 1fr; }
+    .cards-6 { grid-template-columns: 1fr 1fr; }
     .card-wide { grid-column: span 2; }
     .quick-action { flex-direction: column; }
     .quick-action input { min-width: 100%; }
     .modal { min-width: 90vw; }
+    .sysinfo-grid { grid-template-columns: 1fr; }
+    .sysinfo-item { border-right: none !important; }
     table { font-size: 0.8rem; }
     thead th, tbody td { padding: 0.5rem 0.75rem; }
 }

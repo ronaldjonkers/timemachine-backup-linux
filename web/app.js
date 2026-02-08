@@ -13,17 +13,17 @@ var _apiErrors = 0;
 
 async function apiGet(endpoint) {
     try {
-        const resp = await fetch(`${API_BASE}${endpoint}`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+        const resp = await fetch(API_BASE + endpoint);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
         const text = await resp.text();
         if (!text) return null;
         _apiErrors = 0;
         return JSON.parse(text);
     } catch (e) {
         _apiErrors++;
-        console.error(`API GET ${endpoint}:`, e.message);
+        console.error('API GET ' + endpoint + ':', e.message);
         if (_apiErrors === 3) {
-            toast('API unreachable: ' + e.message + ' — check if the TimeMachine service is running', 'error');
+            toast('API unreachable: ' + e.message + ' — check if TimeMachine service is running', 'error');
         }
         return null;
     }
@@ -31,27 +31,27 @@ async function apiGet(endpoint) {
 
 async function apiPost(endpoint, body) {
     try {
-        const opts = { method: 'POST' };
+        var opts = { method: 'POST' };
         if (body) {
             opts.headers = { 'Content-Type': 'application/json' };
             opts.body = JSON.stringify(body);
         }
-        const resp = await fetch(`${API_BASE}${endpoint}`, opts);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        var resp = await fetch(API_BASE + endpoint, opts);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return await resp.json();
     } catch (e) {
-        console.error(`API POST ${endpoint}:`, e);
+        console.error('API POST ' + endpoint + ':', e);
         return null;
     }
 }
 
 async function apiDelete(endpoint) {
     try {
-        const resp = await fetch(`${API_BASE}${endpoint}`, { method: 'DELETE' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        var resp = await fetch(API_BASE + endpoint, { method: 'DELETE' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return await resp.json();
     } catch (e) {
-        console.error(`API DELETE ${endpoint}:`, e);
+        console.error('API DELETE ' + endpoint + ':', e);
         return null;
     }
 }
@@ -62,8 +62,8 @@ async function apiDelete(endpoint) {
 
 function toast(message, type) {
     type = type || 'info';
-    const container = document.getElementById('toast-container');
-    const el = document.createElement('div');
+    var container = document.getElementById('toast-container');
+    var el = document.createElement('div');
     el.className = 'toast toast-' + type;
     el.textContent = message;
     container.appendChild(el);
@@ -91,7 +91,7 @@ function closeModal(e) {
 }
 
 /* ============================================================
-   STATUS
+   FORMATTING
    ============================================================ */
 
 function formatUptime(seconds) {
@@ -102,6 +102,17 @@ function formatUptime(seconds) {
     if (hours > 0) return hours + 'h ' + mins + 'm';
     return mins + 'm';
 }
+
+function formatMB(mb) {
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb + ' MB';
+}
+
+/* ============================================================
+   STATUS
+   ============================================================ */
+
+var _serverHostname = '';
 
 async function refreshStatus() {
     var data = await apiGet('/api/status');
@@ -115,6 +126,7 @@ async function refreshStatus() {
         badge.className = 'badge badge-running';
         uptimeEl.textContent = formatUptime(data.uptime || 0);
         hostnameEl.textContent = data.hostname || '--';
+        _serverHostname = data.hostname || '';
         var running = (data.processes || []).filter(function(p) { return p.status === 'running'; }).length;
         activeEl.textContent = running;
         if (data.version) {
@@ -130,6 +142,34 @@ async function refreshStatus() {
 
     document.getElementById('refresh-time').textContent =
         'Last refresh: ' + new Date().toLocaleTimeString();
+}
+
+/* ============================================================
+   SYSTEM METRICS
+   ============================================================ */
+
+async function refreshSystem() {
+    var data = await apiGet('/api/system');
+    if (!data) return;
+
+    var el = function(id) { return document.getElementById(id); };
+
+    el('sys-load1').textContent = data.load1 || '--';
+    el('sys-load5').textContent = data.load5 || '--';
+
+    var memPct = data.mem_percent || 0;
+    el('sys-mem-used').textContent = formatMB(data.mem_used || 0);
+    el('sys-mem-detail').textContent = ' / ' + formatMB(data.mem_total || 0);
+    var memBar = el('mem-bar');
+    memBar.style.width = memPct + '%';
+    memBar.className = 'progress-fill' + (memPct >= 90 ? ' danger' : memPct >= 75 ? ' warn' : '');
+
+    el('sys-os').textContent = data.os || '--';
+    el('sys-kernel').textContent = data.kernel || '--';
+    el('sys-cpus').textContent = data.cpu_count || '--';
+    el('sys-mem-total').textContent = formatMB(data.mem_total || 0);
+    el('sys-uptime').textContent = formatUptime(data.sys_uptime || 0);
+    el('sys-load-full').textContent = (data.load1 || '0') + ' / ' + (data.load5 || '0') + ' / ' + (data.load15 || '0');
 }
 
 /* ============================================================
@@ -149,6 +189,34 @@ async function refreshDisk() {
         barEl.style.width = pct + '%';
         barEl.className = 'progress-fill' + (pct >= 90 ? ' danger' : pct >= 75 ? ' warn' : '');
     }
+}
+
+/* ============================================================
+   FAILED BACKUPS
+   ============================================================ */
+
+async function refreshFailures() {
+    var data = await apiGet('/api/failures');
+    var panel = document.getElementById('failures-panel');
+    var tbody = document.getElementById('failures-body');
+
+    if (!data || data.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = '';
+    tbody.innerHTML = data.map(function(f) {
+        var msg = f.message || 'Unknown error';
+        if (msg.length > 120) msg = msg.substring(0, 120) + '...';
+        return '<tr>' +
+            '<td><strong>' + esc(f.hostname) + '</strong></td>' +
+            '<td class="error-text">' + esc(msg) + '</td>' +
+            '<td>' +
+                '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(f.hostname) + '\')">Logs</button> ' +
+                '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(f.hostname) + '\')">Retry</button>' +
+            '</td></tr>';
+    }).join('');
 }
 
 /* ============================================================
@@ -173,16 +241,26 @@ async function refreshProcesses() {
             '<td>' + esc(proc.mode) + '</td>' +
             '<td>' + esc(proc.started) + '</td>' +
             '<td><span class="status-cell ' + sc + '"><span class="status-dot"></span>' + esc(proc.status) + '</span></td>' +
-            '<td>' + (canKill
-                ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button>'
-                : '--') +
+            '<td>' +
+                (canKill ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +
+                '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(proc.hostname) + '\')">Logs</button>' +
             '</td></tr>';
     }).join('');
 }
 
 /* ============================================================
-   SERVERS
+   SERVERS & BACKUP HISTORY
    ============================================================ */
+
+var _historyData = {};
+
+async function refreshHistory() {
+    var data = await apiGet('/api/history');
+    if (data) {
+        _historyData = {};
+        data.forEach(function(h) { _historyData[h.hostname] = h; });
+    }
+}
 
 async function refreshServers() {
     var data = await apiGet('/api/servers');
@@ -190,7 +268,7 @@ async function refreshServers() {
     var countEl = document.getElementById('server-count');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">No servers configured</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No servers configured</td></tr>';
         countEl.textContent = '0';
         return;
     }
@@ -198,37 +276,45 @@ async function refreshServers() {
     countEl.textContent = data.length;
 
     tbody.innerHTML = data.map(function(srv) {
-        var prio = srv.priority || 10;
-        var dbInt = srv.db_interval ? srv.db_interval + 'h' : '--';
+        var h = _historyData[srv.hostname] || {};
+        var lastBackup = h.last_backup || 'never';
+        var snapCount = h.snapshots || 0;
+        var totalSize = h.total_size || '--';
+        var status = h.status || 'unknown';
+        var statusClass = status === 'ok' ? 'completed' : status === 'error' ? 'failed' : '';
+        var statusLabel = status === 'ok' ? 'OK' : status === 'error' ? 'Error' : '--';
+
         return '<tr>' +
             '<td><strong>' + esc(srv.hostname) + '</strong></td>' +
-            '<td>' + (esc(srv.options) || '<em style="color:var(--text-muted)">default</em>') + '</td>' +
-            '<td>' + prio + '</td>' +
-            '<td>' + dbInt + '</td>' +
+            '<td>' + esc(lastBackup) + '</td>' +
+            '<td>' + snapCount + '</td>' +
+            '<td>' + esc(totalSize) + '</td>' +
+            '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + statusLabel + '</span></td>' +
             '<td>' +
                 '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(srv.hostname) + '\')">Backup</button> ' +
-                '<button class="btn btn-sm" onclick="viewSnapshots(\'' + esc(srv.hostname) + '\')">Snapshots</button> ' +
-                '<button class="btn btn-sm btn-danger" onclick="removeServer(\'' + esc(srv.hostname) + '\')">Remove</button>' +
+                '<button class="btn btn-sm" onclick="viewSnapshots(\'' + esc(srv.hostname) + '\')">Snaps</button> ' +
+                '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(srv.hostname) + '\')">Logs</button> ' +
+                '<button class="btn btn-sm btn-danger" onclick="removeServer(\'' + esc(srv.hostname) + '\')">&#x2715;</button>' +
             '</td></tr>';
     }).join('');
 }
 
 /* ============================================================
-   SSH KEY
+   SSH KEY & INSTALLER
    ============================================================ */
 
 async function refreshSSHKey() {
     var data = await apiGet('/api/ssh-key');
     var el = document.getElementById('ssh-key');
-    var urlEl = document.getElementById('ssh-key-url');
-    var hostEl = document.getElementById('ssh-key-host');
+    var cmdEl = document.getElementById('installer-cmd');
 
     if (data && data.ssh_public_key) {
         el.textContent = data.ssh_public_key;
-        urlEl.textContent = 'curl -s ' + API_BASE + '/api/ssh-key/raw';
-        if (data.hostname && hostEl) hostEl.textContent = data.hostname;
+        var host = data.hostname || window.location.hostname;
+        cmdEl.textContent = 'curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server ' + host;
     } else {
         el.textContent = 'SSH key not available (service may be offline)';
+        cmdEl.textContent = 'Service offline — cannot generate installer command';
     }
 }
 
@@ -239,6 +325,34 @@ function copySSHKey() {
             toast('SSH key copied to clipboard', 'success');
         });
     }
+}
+
+function copyInstaller() {
+    var cmd = document.getElementById('installer-cmd').textContent;
+    if (cmd && cmd.indexOf('Service offline') !== 0) {
+        navigator.clipboard.writeText(cmd).then(function() {
+            toast('Installer command copied to clipboard', 'success');
+        });
+    }
+}
+
+/* ============================================================
+   LOG VIEWER
+   ============================================================ */
+
+async function viewLogs(hostname) {
+    var data = await apiGet('/api/logs/' + hostname);
+    var content = '';
+    if (data && data.lines) {
+        content = data.lines;
+    } else if (data && data.error) {
+        content = data.error;
+    } else {
+        content = 'No logs available for ' + hostname;
+    }
+
+    var html = '<pre class="log-viewer">' + esc(content) + '</pre>';
+    openModal('Logs: ' + hostname, html);
 }
 
 /* ============================================================
@@ -367,9 +481,11 @@ function esc(str) {
 async function refreshAll() {
     await Promise.all([
         refreshStatus(),
+        refreshSystem(),
         refreshDisk(),
+        refreshFailures(),
         refreshProcesses(),
-        refreshServers(),
+        refreshHistory().then(refreshServers),
         refreshSSHKey()
     ]);
 }

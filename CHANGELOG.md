@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-02-08
+
+### Added
+- **System metrics dashboard** — New cards showing CPU load (1m/5m), memory usage with progress bar, and full system info panel (OS, kernel, CPU cores, total memory, system uptime, load averages)
+- **Failed backups panel** — Auto-detected from log files, shows server name and error message with "View Logs" and "Retry" buttons. Panel only visible when failures exist (red header)
+- **Backup history in servers table** — Servers table now shows last backup date, snapshot count, total backup size, and health status (OK/Error) per server
+- **Log viewer** — "Logs" button on every server and process row opens a modal with the last 100 lines of that server's log file
+- **One-liner client installer** — New "Add New Client" panel shows a copy-pastable `curl | bash` command that installs the client on any server with one command
+- **`/api/system` endpoint** — Returns CPU load averages, memory total/used/available/percent, CPU count, OS name, kernel version, system uptime
+- **`/api/failures` endpoint** — Scans log files for FAIL/ERROR/fatal lines and returns recent failures per server
+- **`/api/history` endpoint** — Returns last backup date, snapshot count, total size, and health status per configured server
+- **`VERSION` file** — Single source of truth for version number, read by `/api/status` endpoint. Ensures `tmctl update` can always detect the current version
+
+### Changed
+- Dashboard layout reorganized: service info cards (row 1), system metrics + disk (row 2), failures, processes, servers with history, installer, SSH key, quick backup, system info
+- Servers table columns changed from Options/Priority/DB Interval to Last Backup/Snapshots/Total Size/Status
+- Modal widened to 800px max for better log viewing
+- SSH key section simplified (removed install hints, replaced by dedicated installer panel)
+- Process table now includes "Logs" button per process
+
 ## [2.0.0] - 2026-02-08
 
 ### Added

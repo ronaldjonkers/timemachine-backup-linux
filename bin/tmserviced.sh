@@ -366,8 +366,11 @@ _handle_request() {
             local uptime_secs
             uptime_secs=$(( $(date +%s) - SERVICE_START_TIME ))
             local resp
-            resp=$(printf '{"status":"running","uptime":%d,"hostname":"%s","version":"2.0.0","processes":%s}' \
-                "${uptime_secs}" "$(hostname)" "${procs}")
+            local ver
+            ver=$(cat "${TM_PROJECT_ROOT}/VERSION" 2>/dev/null || echo "unknown")
+            ver=$(echo "${ver}" | tr -d '[:space:]')
+            resp=$(printf '{"status":"running","uptime":%d,"hostname":"%s","version":"%s","processes":%s}' \
+                "${uptime_secs}" "$(hostname)" "${ver}" "${procs}")
             _http_response "200 OK" "application/json" "${resp}"
             ;;
 
@@ -539,6 +542,110 @@ _handle_request() {
                 _http_response "404 Not Found" "application/json" \
                     "{\"error\":\"No logs for ${target_host}\"}"
             fi
+            ;;
+
+        "GET /api/system")
+            # System metrics: CPU, load, memory, OS
+            local load1 load5 load15
+            read -r load1 load5 load15 _ < /proc/loadavg 2>/dev/null || { load1="0"; load5="0"; load15="0"; }
+            local cpu_count
+            cpu_count=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
+            # Memory (in MB)
+            local mem_total mem_avail mem_used mem_pct
+            if [[ -f /proc/meminfo ]]; then
+                mem_total=$(awk '/^MemTotal:/ {printf "%.0f", $2/1024}' /proc/meminfo)
+                mem_avail=$(awk '/^MemAvailable:/ {printf "%.0f", $2/1024}' /proc/meminfo)
+                mem_used=$((mem_total - mem_avail))
+                mem_pct=$((mem_used * 100 / (mem_total > 0 ? mem_total : 1)))
+            else
+                mem_total=0; mem_avail=0; mem_used=0; mem_pct=0
+            fi
+            # OS info
+            local os_name
+            os_name=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME}" || uname -s)
+            local kernel
+            kernel=$(uname -r)
+            local sys_uptime
+            sys_uptime=$(awk '{printf "%.0f", $1}' /proc/uptime 2>/dev/null || echo "0")
+            _http_response "200 OK" "application/json" \
+                "$(printf '{"load1":"%s","load5":"%s","load15":"%s","cpu_count":%s,"mem_total":%s,"mem_used":%s,"mem_available":%s,"mem_percent":%s,"os":"%s","kernel":"%s","sys_uptime":%s}' \
+                    "${load1}" "${load5}" "${load15}" "${cpu_count}" \
+                    "${mem_total}" "${mem_used}" "${mem_avail}" "${mem_pct}" \
+                    "${os_name}" "${kernel}" "${sys_uptime}")"
+            ;;
+
+        "GET /api/failures")
+            # Recent failed backups from log files
+            local failures='['
+            local first=1
+            if [[ -d "${TM_LOG_DIR}" ]]; then
+                local logfile
+                for logfile in "${TM_LOG_DIR}"/service-*.log; do
+                    [[ -f "${logfile}" ]] || continue
+                    local lhost
+                    lhost=$(basename "${logfile}" .log)
+                    lhost="${lhost#service-}"
+                    # Search for FAIL/ERROR lines in last 200 lines
+                    local fail_lines
+                    fail_lines=$(tail -200 "${logfile}" 2>/dev/null | grep -iE "(FAIL|ERROR|fatal)" | tail -5)
+                    while IFS= read -r fline; do
+                        [[ -z "${fline}" ]] && continue
+                        # Escape quotes and newlines for JSON
+                        fline=$(echo "${fline}" | sed 's/"/\\"/g' | tr -d '\n')
+                        [[ ${first} -eq 1 ]] && first=0 || failures+=','
+                        failures+=$(printf '{"hostname":"%s","message":"%s"}' "${lhost}" "${fline}")
+                    done <<< "${fail_lines}"
+                done
+            fi
+            failures+=']'
+            _http_response "200 OK" "application/json" "${failures}"
+            ;;
+
+        "GET /api/history")
+            # Last backup date and status per server
+            local history='['
+            local first=1
+            local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+            if [[ -f "${servers_conf}" ]]; then
+                while IFS= read -r line; do
+                    line=$(echo "${line}" | sed 's/^[[:space:]]*//')
+                    [[ -z "${line}" || "${line}" == \#* ]] && continue
+                    local hist_host
+                    hist_host=$(echo "${line}" | awk '{print $1}')
+                    local snap_dir="${TM_BACKUP_ROOT}/${hist_host}"
+                    local last_backup="never"
+                    local snap_count=0
+                    local total_size="0"
+                    if [[ -d "${snap_dir}" ]]; then
+                        # Count snapshots
+                        snap_count=$(find "${snap_dir}" -maxdepth 1 -type d -name '????-??-??' 2>/dev/null | wc -l)
+                        snap_count=$(echo "${snap_count}" | tr -d ' ')
+                        # Latest snapshot date
+                        local latest
+                        latest=$(find "${snap_dir}" -maxdepth 1 -type d -name '????-??-??' 2>/dev/null | sort -r | head -1)
+                        if [[ -n "${latest}" ]]; then
+                            last_backup=$(basename "${latest}")
+                        fi
+                        # Total size
+                        total_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
+                    fi
+                    # Check if last backup had errors
+                    local last_status="ok"
+                    local logfile="${TM_LOG_DIR}/service-${hist_host}.log"
+                    if [[ -f "${logfile}" ]]; then
+                        local last_lines
+                        last_lines=$(tail -20 "${logfile}" 2>/dev/null)
+                        if echo "${last_lines}" | grep -qiE "(FAIL|ERROR|fatal)"; then
+                            last_status="error"
+                        fi
+                    fi
+                    [[ ${first} -eq 1 ]] && first=0 || history+=','
+                    history+=$(printf '{"hostname":"%s","last_backup":"%s","snapshots":%s,"total_size":"%s","status":"%s"}' \
+                        "${hist_host}" "${last_backup}" "${snap_count}" "${total_size}" "${last_status}")
+                done < "${servers_conf}"
+            fi
+            history+=']'
+            _http_response "200 OK" "application/json" "${history}"
             ;;
 
         "GET /api/disk")
