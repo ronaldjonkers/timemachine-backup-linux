@@ -610,6 +610,79 @@ cmd_update() {
 }
 
 # ============================================================
+# AUTO-UPDATE
+# ============================================================
+
+cmd_auto_update() {
+    local action="${1:-status}"
+    local cron_file="/etc/cron.d/timemachine-update"
+    local project_root="${SCRIPT_DIR}/.."
+    local tmctl_path="/usr/bin/tmctl"
+    local log_file
+
+    # Resolve log path from config
+    if [[ -f "${project_root}/.env" ]]; then
+        # shellcheck disable=SC1091
+        source "${project_root}/.env" 2>/dev/null || true
+    fi
+    log_file="${TM_HOME:-/home/timemachine}/logs/auto-update.log"
+
+    if [[ ! -x "${tmctl_path}" ]]; then
+        tmctl_path="${SCRIPT_DIR}/tmctl.sh"
+    fi
+
+    case "${action}" in
+        on|enable)
+            if [[ "$(id -u)" -ne 0 ]]; then
+                echo "  ${RED}Error:${NC} Run with sudo to enable auto-update"
+                exit 1
+            fi
+            cat > "${cron_file}" <<CRON_EOF
+# TimeMachine Backup — Weekly auto-update (Sunday 04:00)
+MAILTO=""
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 4 * * 0 root ${tmctl_path} update >> ${log_file} 2>&1
+CRON_EOF
+            chmod 644 "${cron_file}"
+            echo "  ${GREEN}Auto-update enabled${NC} (every Sunday at 04:00)"
+            echo "  Log: ${log_file}"
+            ;;
+        off|disable)
+            if [[ "$(id -u)" -ne 0 ]]; then
+                echo "  ${RED}Error:${NC} Run with sudo to disable auto-update"
+                exit 1
+            fi
+            if [[ -f "${cron_file}" ]]; then
+                rm -f "${cron_file}"
+                echo "  ${YELLOW}Auto-update disabled${NC}"
+            else
+                echo "  Auto-update is already disabled"
+            fi
+            ;;
+        status)
+            if [[ -f "${cron_file}" ]]; then
+                echo "  Auto-update: ${GREEN}enabled${NC} (every Sunday at 04:00)"
+                if [[ -f "${log_file}" ]]; then
+                    local last_line
+                    last_line=$(tail -1 "${log_file}" 2>/dev/null || true)
+                    if [[ -n "${last_line}" ]]; then
+                        echo "  Last log entry: ${last_line}"
+                    fi
+                fi
+            else
+                echo "  Auto-update: ${YELLOW}disabled${NC}"
+                echo "  Enable with: sudo tmctl auto-update on"
+            fi
+            ;;
+        *)
+            echo "Usage: tmctl auto-update <on|off|status>"
+            exit 1
+            ;;
+    esac
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -632,6 +705,7 @@ usage() {
     echo "  ssh-key             Show SSH public key"
     echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
     echo "  update              Update to the latest version"
+    echo "  auto-update <on|off|status>  Manage weekly auto-updates"
     echo "  uninstall           Remove TimeMachine completely (sudo)"
     echo "  version             Show version"
     exit 1
@@ -661,6 +735,7 @@ case "${COMMAND}" in
     ssh-key)    cmd_ssh_key ;;
     setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
     update)     cmd_update ;;
+    auto-update) cmd_auto_update "$@" ;;
     uninstall)  cmd_uninstall ;;
     version|-v|--version) cmd_version ;;
     help|--help|-h|"")    usage ;;

@@ -107,6 +107,7 @@ This will:
 - Set up sudoers and systemd service
 - Generate `.env` and `config/servers.conf` from templates
 - Create symlinks: `tmctl`, `timemachine`, `tm-restore` in `/usr/bin`
+- Optionally enable weekly auto-updates (cron, Sunday 04:00)
 
 ### 2. Configure
 
@@ -219,6 +220,9 @@ tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
 tmctl setup-web           # Setup Nginx + SSL + Auth for external dashboard access
 tmctl update              # Update to the latest version
+tmctl auto-update on      # Enable weekly auto-updates (Sunday 04:00)
+tmctl auto-update off     # Disable auto-updates
+tmctl auto-update status  # Show auto-update status
 tmctl uninstall           # Remove TimeMachine completely (sudo)
 tmctl version             # Show version
 ```

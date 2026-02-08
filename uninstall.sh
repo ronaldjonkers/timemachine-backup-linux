@@ -250,6 +250,10 @@ uninstall_server() {
         rm -f /etc/cron.d/timemachine-dump
         removed_cron=1
     fi
+    if [[ -f /etc/cron.d/timemachine-update ]]; then
+        rm -f /etc/cron.d/timemachine-update
+        removed_cron=1
+    fi
     if [[ ${removed_cron} -eq 1 ]]; then
         step_done "Cron jobs removed"
     else

@@ -646,6 +646,50 @@ server_ask_dashboard_security() {
 }
 
 # ============================================================
+# SERVER: AUTO-UPDATE
+# ============================================================
+
+server_setup_auto_update() {
+    local cron_file="/etc/cron.d/timemachine-update"
+    local tmctl_path="/usr/bin/tmctl"
+    local log_file="${TM_HOME:-/home/timemachine}/logs/auto-update.log"
+
+    echo ""
+    echo -e "  ${BOLD}Automatic Updates${NC}"
+    echo ""
+    echo "  TimeMachine can check for updates weekly and install them"
+    echo "  automatically (runs 'tmctl update' via cron every Sunday at 04:00)."
+    echo ""
+
+    local choice
+    choice=$(read_input "  Enable weekly auto-update? [y/N]: " "n")
+
+    case "${choice}" in
+        y|Y|yes|YES)
+            # Resolve tmctl path
+            if [[ ! -x "${tmctl_path}" ]]; then
+                tmctl_path="${INSTALL_DIR}/bin/tmctl.sh"
+            fi
+
+            cat > "${cron_file}" <<CRON_EOF
+# TimeMachine Backup — Weekly auto-update (Sunday 04:00)
+MAILTO=""
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 4 * * 0 root ${tmctl_path} update >> ${log_file} 2>&1
+CRON_EOF
+            chmod 644 "${cron_file}"
+            step_done "Weekly auto-update enabled (Sunday 04:00)"
+            info "Update log: ${log_file}"
+            ;;
+        *)
+            info "Skipped. You can enable it later by running:"
+            echo "     sudo tmctl auto-update on"
+            ;;
+    esac
+}
+
+# ============================================================
 # SERVER: MAIN
 # ============================================================
 
@@ -656,7 +700,7 @@ install_server() {
 
     local os
     os=$(detect_os)
-    local total=11
+    local total=12
 
     server_ask_backup_dir
     server_ask_email
@@ -703,6 +747,9 @@ install_server() {
 
     step 11 ${total} "Dashboard security"
     server_ask_dashboard_security
+
+    step 12 ${total} "Automatic updates"
+    server_setup_auto_update
 
     show_complete "Server"
 

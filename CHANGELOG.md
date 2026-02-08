@@ -20,10 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dashboard security prompt** — Server installer asks whether to set up SSL + password protection for the dashboard via nginx reverse proxy with self-signed certificate
 - **Self-signed SSL support** (`setup-web.sh`) — New `--with-ssl`, `--with-auth`, and `--self-signed` flags for quick nginx proxy setup without a domain or Let's Encrypt. Generates a 10-year self-signed certificate
 - **binadit-firewall integration** — `setup-web.sh` and server installer detect binadit-firewall and auto-open ports using `binadit-firewall config add TCP_PORTS`
+- **Weekly auto-update** — Server installer asks whether to enable automatic weekly updates via cron (Sunday 04:00). Also available as `tmctl auto-update on|off|status` CLI command. Logs to `logs/auto-update.log`
 
 ### Changed
 - `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support
-- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for both server (11 steps) and client (4-5 steps) installs; post-install instructions now show `restart` instead of `start`; added uninstall command reference and firewall reminder in post-install output
+- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for both server (12 steps) and client (4-5 steps) installs; post-install instructions now show `restart` instead of `start`; added uninstall command reference and firewall reminder in post-install output
 - `tmserviced.sh` — Replaced fragile `export -f` + `SYSTEM:"bash -c '...'"` approach with self-contained handler script generation (`_generate_handler_script`). Each HTTP request now runs a standalone script with all functions and variables embedded, fixing dashboard startup failures caused by Shellshock-era environment variable sanitization. Changed socat from `SYSTEM:` to `EXEC:` for direct script execution. Added `disown` to `run_backup()` so background backups survive handler exit
 - `README.md` — Added dashboard security section with `tmctl setup-web` examples; updated SSH key download docs with fallback info; added firewall auto-detection note
 
