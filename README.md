@@ -106,7 +106,7 @@ This will:
 - Ask for the backup storage directory and create `<dir>/timemachine/` with correct permissions
 - Set up sudoers and systemd service
 - Generate `.env` and `config/servers.conf` from templates
-- Create symlinks: `tmctl`, `timemachine`, `tm-restore` in `/usr/local/bin`
+- Create symlinks: `tmctl`, `timemachine`, `tm-restore` in `/usr/bin`
 
 ### 2. Configure
 
@@ -620,7 +620,7 @@ sudo systemctl disable timemachine
 sudo rm -f /etc/systemd/system/timemachine.service
 sudo userdel -r timemachine
 sudo rm -f /etc/sudoers.d/timemachine
-sudo rm -f /usr/local/bin/{tmctl,timemachine,tm-restore}
+sudo rm -f /usr/bin/{tmctl,timemachine,tm-restore}
 sudo rm -rf /opt/timemachine-backup-linux
 ```
 

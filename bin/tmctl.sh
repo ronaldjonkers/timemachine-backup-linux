@@ -29,7 +29,15 @@
 #   --verbose           Enable debug output
 # ============================================================
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks to find real script directory
+_src="$0"
+while [[ -L "$_src" ]]; do
+    _src_dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_src_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+
 source "${SCRIPT_DIR}/../lib/common.sh"
 tm_load_config
 
@@ -488,9 +496,8 @@ cmd_uninstall() {
     echo "  ${GREEN}✓${NC} Sudoers rules removed"
 
     # 4. Remove symlinks
-    rm -f /usr/local/bin/tmctl
-    rm -f /usr/local/bin/timemachine
-    rm -f /usr/local/bin/tm-restore
+    rm -f /usr/bin/tmctl /usr/bin/timemachine /usr/bin/tm-restore
+    rm -f /usr/local/bin/tmctl /usr/local/bin/timemachine /usr/local/bin/tm-restore 2>/dev/null || true
     echo "  ${GREEN}✓${NC} Symlinks removed"
 
     # 5. Remove nginx config (if setup-web was used)

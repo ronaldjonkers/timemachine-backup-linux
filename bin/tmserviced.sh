@@ -13,7 +13,15 @@
 # The service listens on TM_API_PORT (default: 7600).
 # ============================================================
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks to find real script directory
+_src="$0"
+while [[ -L "$_src" ]]; do
+    _src_dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_src_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+
 source "${SCRIPT_DIR}/../lib/common.sh"
 source "${SCRIPT_DIR}/../lib/notify.sh"
 source "${SCRIPT_DIR}/../lib/report.sh"

@@ -489,13 +489,14 @@ server_setup_permissions() {
 
     find "${INSTALL_DIR}/bin" -name "*.sh" -exec chmod +x {} \;
     # Create convenience symlinks
-    local bin_dir="/usr/local/bin"
-    if [[ -d "${bin_dir}" ]]; then
-        ln -sf "${INSTALL_DIR}/bin/tmctl.sh" "${bin_dir}/tmctl" 2>/dev/null || true
-        ln -sf "${INSTALL_DIR}/bin/timemachine.sh" "${bin_dir}/timemachine" 2>/dev/null || true
-        ln -sf "${INSTALL_DIR}/bin/restore.sh" "${bin_dir}/tm-restore" 2>/dev/null || true
-        info "Symlinks created in ${bin_dir}: tmctl, timemachine, tm-restore"
-    fi
+    # Install to /usr/bin (guaranteed in sudo's secure_path on all distros)
+    local bin_dir="/usr/bin"
+    ln -sf "${INSTALL_DIR}/bin/tmctl.sh" "${bin_dir}/tmctl" 2>/dev/null || true
+    ln -sf "${INSTALL_DIR}/bin/timemachine.sh" "${bin_dir}/timemachine" 2>/dev/null || true
+    ln -sf "${INSTALL_DIR}/bin/restore.sh" "${bin_dir}/tm-restore" 2>/dev/null || true
+    # Clean up old symlinks from previous installs
+    rm -f /usr/local/bin/tmctl /usr/local/bin/timemachine /usr/local/bin/tm-restore 2>/dev/null || true
+    info "Symlinks created in ${bin_dir}: tmctl, timemachine, tm-restore"
     info "All scripts in bin/ are now executable"
 }
 

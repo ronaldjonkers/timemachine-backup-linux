@@ -168,12 +168,12 @@ if [[ "${INSTALL_TYPE}" == "server" ]]; then
         echo "    - Cron job (/etc/cron.d/timemachine)"
     [[ -f /etc/sudoers.d/timemachine ]] && \
         echo "    - Sudoers rules (/etc/sudoers.d/timemachine)"
-    [[ -L /usr/local/bin/tmctl ]] && \
-        echo "    - Symlink /usr/local/bin/tmctl"
-    [[ -L /usr/local/bin/timemachine ]] && \
-        echo "    - Symlink /usr/local/bin/timemachine"
-    [[ -L /usr/local/bin/tm-restore ]] && \
-        echo "    - Symlink /usr/local/bin/tm-restore"
+    { [[ -L /usr/bin/tmctl ]] || [[ -L /usr/local/bin/tmctl ]]; } && \
+        echo "    - Symlink tmctl"
+    { [[ -L /usr/bin/timemachine ]] || [[ -L /usr/local/bin/timemachine ]]; } && \
+        echo "    - Symlink timemachine"
+    { [[ -L /usr/bin/tm-restore ]] || [[ -L /usr/local/bin/tm-restore ]]; } && \
+        echo "    - Symlink tm-restore"
     [[ -f /etc/nginx/sites-enabled/timemachine ]] && \
         echo "    - Nginx config (/etc/nginx/sites-*/timemachine)"
     id "${TM_USER}" &>/dev/null && \
@@ -266,14 +266,15 @@ uninstall_server() {
 
     step 5 ${total} "Removing symlinks"
     local removed_links=0
-    for link in /usr/local/bin/tmctl /usr/local/bin/timemachine /usr/local/bin/tm-restore; do
+    for link in /usr/bin/tmctl /usr/bin/timemachine /usr/bin/tm-restore \
+                /usr/local/bin/tmctl /usr/local/bin/timemachine /usr/local/bin/tm-restore; do
         if [[ -L "${link}" ]]; then
             rm -f "${link}"
             removed_links=1
         fi
     done
     if [[ ${removed_links} -eq 1 ]]; then
-        step_done "Symlinks removed from /usr/local/bin"
+        step_done "Symlinks removed"
     else
         step_skip "Symlinks"
     fi
@@ -302,6 +303,15 @@ uninstall_server() {
     fi
     rm -rf "${TM_RUN_DIR}" 2>/dev/null || true
 
+    # Read backup root from .env BEFORE removing install dir
+    local backup_root="/backups/timemachine"
+    if [[ ${REMOVE_BACKUPS} -eq 1 ]] && [[ -f "${INSTALL_DIR}/.env" ]]; then
+        local env_root
+        env_root=$(grep -oP 'TM_BACKUP_ROOT="\K[^"]+' "${INSTALL_DIR}/.env" 2>/dev/null || \
+                   sed -n 's/^TM_BACKUP_ROOT="\(.*\)"/\1/p' "${INSTALL_DIR}/.env" 2>/dev/null || true)
+        [[ -n "${env_root}" ]] && backup_root="${env_root}"
+    fi
+
     step 8 ${total} "Removing installation directory"
     if [[ -d "${INSTALL_DIR}" ]]; then
         rm -rf "${INSTALL_DIR}"
@@ -312,13 +322,6 @@ uninstall_server() {
 
     if [[ ${REMOVE_BACKUPS} -eq 1 ]]; then
         step 9 ${total} "Removing backup data"
-        # Try to find the backup root from .env or use default
-        local backup_root="/backups/timemachine"
-        if [[ -f "${INSTALL_DIR}/.env" ]]; then
-            local env_root
-            env_root=$(grep -oP 'TM_BACKUP_ROOT="\K[^"]+' "${INSTALL_DIR}/.env" 2>/dev/null || true)
-            [[ -n "${env_root}" ]] && backup_root="${env_root}"
-        fi
         if [[ -d "${backup_root}" ]]; then
             rm -rf "${backup_root}"
             step_done "Backup data removed: ${backup_root}"
