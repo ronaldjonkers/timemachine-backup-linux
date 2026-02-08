@@ -16,11 +16,14 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=timemachine
 
+# Runtime directories (systemd creates these automatically with correct ownership)
+RuntimeDirectory=timemachine
+LogsDirectory=timemachine
+
 # Security hardening
 NoNewPrivileges=false
 ProtectSystem=false
 ProtectHome=false
-ReadWritePaths=/backups /var/run/timemachine /home/timemachine
 
 # Environment
 EnvironmentFile=-/opt/timemachine-backup-linux/.env

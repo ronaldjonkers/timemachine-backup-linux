@@ -447,10 +447,17 @@ TMPEOF
 configure_firewall() {
     info "Configuring firewall..."
 
+    local bf_cmd=""
     if command -v binadit-firewall &>/dev/null; then
-        binadit-firewall config add TCP_PORTS 80 2>/dev/null || true
-        binadit-firewall config add TCP_PORTS 443 2>/dev/null || true
-        binadit-firewall restart 2>/dev/null || true
+        bf_cmd="binadit-firewall"
+    elif [[ -x /usr/local/sbin/binadit-firewall ]]; then
+        bf_cmd="/usr/local/sbin/binadit-firewall"
+    fi
+
+    if [[ -n "${bf_cmd}" ]]; then
+        ${bf_cmd} config add TCP_PORTS 80 2>/dev/null || true
+        ${bf_cmd} config add TCP_PORTS 443 2>/dev/null || true
+        ${bf_cmd} restart 2>/dev/null || true
         info "binadit-firewall: ports 80 and 443 opened"
     elif command -v ufw &>/dev/null; then
         ufw allow 80/tcp 2>/dev/null || true

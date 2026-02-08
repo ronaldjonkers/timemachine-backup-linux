@@ -456,10 +456,26 @@ server_setup_service() {
             "${source_file}" > "${service_file}"
         chmod 644 "${service_file}"
 
+        # Ensure runtime directories exist before first start
+        local run_dir="/var/run/timemachine"
+        local log_dir="${TM_HOME:-/home/timemachine}/logs"
+        mkdir -p "${run_dir}" "${log_dir}" 2>/dev/null || true
+        chown "${TM_USER}:${TM_USER}" "${run_dir}" "${log_dir}" 2>/dev/null || true
+
         systemctl daemon-reload
         systemctl enable timemachine.service
+
+        # Start and verify
         systemctl start timemachine.service 2>/dev/null || true
-        step_done "Systemd service installed, enabled, and started"
+        sleep 1
+
+        if systemctl is-active timemachine.service &>/dev/null; then
+            step_done "Systemd service installed, enabled, and started"
+        else
+            warn "Service installed but failed to start. Checking logs..."
+            journalctl -u timemachine --no-pager -n 5 2>/dev/null || true
+            warn "Try: sudo systemctl restart timemachine"
+        fi
         info "Service will auto-start on reboot"
     else
         warn "Service file not found at ${source_file}; skipping"
@@ -560,15 +576,23 @@ server_configure_firewall() {
     local api_port="${TM_API_PORT:-7600}"
 
     # 1) binadit-firewall (auto-configure)
+    #    Binary may be at /usr/local/sbin which is not always in PATH
+    local bf_cmd=""
     if command -v binadit-firewall &>/dev/null; then
-        info "binadit-firewall detected"
+        bf_cmd="binadit-firewall"
+    elif [[ -x /usr/local/sbin/binadit-firewall ]]; then
+        bf_cmd="/usr/local/sbin/binadit-firewall"
+    fi
+
+    if [[ -n "${bf_cmd}" ]]; then
+        info "binadit-firewall detected (${bf_cmd})"
         local current_ports
-        current_ports=$(binadit-firewall config get TCP_PORTS 2>/dev/null || true)
+        current_ports=$(${bf_cmd} config get TCP_PORTS 2>/dev/null || true)
         if echo "${current_ports}" | grep -qw "${api_port}" 2>/dev/null; then
             step_done "Port ${api_port} already open in binadit-firewall"
         else
-            binadit-firewall config add TCP_PORTS "${api_port}" 2>/dev/null || true
-            binadit-firewall restart 2>/dev/null || true
+            ${bf_cmd} config add TCP_PORTS "${api_port}" 2>/dev/null || true
+            ${bf_cmd} restart 2>/dev/null || true
             step_done "Port ${api_port} opened in binadit-firewall automatically"
         fi
         return
