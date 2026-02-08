@@ -26,6 +26,7 @@
 # ============================================================
 
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 
 # ============================================================
 # CONSTANTS
@@ -41,7 +42,9 @@ RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'
+MAGENTA=$'\033[0;35m'
 BOLD=$'\033[1m'
+DIM=$'\033[2m'
 NC=$'\033[0m'
 
 # ============================================================
@@ -51,6 +54,54 @@ NC=$'\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+
+# ============================================================
+# FANCY DISPLAY HELPERS
+# ============================================================
+
+show_banner() {
+    echo ""
+    echo -e "${CYAN}"
+    echo '    ████████╗██╗███╗   ███╗███████╗'
+    echo '    ╚══██╔══╝██║████╗ ████║██╔════╝'
+    echo '       ██║   ██║██╔████╔██║█████╗  '
+    echo '       ██║   ██║██║╚██╔╝██║██╔══╝  '
+    echo '       ██║   ██║██║ ╚═╝ ██║███████╗'
+    echo '       ╚═╝   ╚═╝╚═╝     ╚═╝╚══════╝'
+    echo -e "${GREEN}"
+    echo '    ███╗   ███╗ █████╗  ██████╗██╗  ██╗██╗███╗   ██╗███████╗'
+    echo '    ████╗ ████║██╔══██╗██╔════╝██║  ██║██║████╗  ██║██╔════╝'
+    echo '    ██╔████╔██║███████║██║     ███████║██║██╔██╗ ██║█████╗  '
+    echo '    ██║╚██╔╝██║██╔══██║██║     ██╔══██║██║██║╚██╗██║██╔══╝  '
+    echo '    ██║ ╚═╝ ██║██║  ██║╚██████╗██║  ██║██║██║ ╚████║███████╗'
+    echo '    ╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝'
+    echo -e "${NC}"
+    echo -e "    ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "    ${BOLD}Backup for Linux${NC}  ${DIM}│${NC}  ${CYAN}rsync + hardlinks${NC}  ${DIM}│${NC}  ${GREEN}github.com/ronaldjonkers${NC}"
+    echo -e "    ${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+show_complete() {
+    local mode="$1"
+    echo ""
+    echo -e "    ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "    ${GREEN}${BOLD}  ✅  ${mode} Installation Complete!${NC}"
+    echo -e "    ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+step() {
+    local num="$1" total="$2"
+    shift 2
+    echo ""
+    echo -e "  ${CYAN}▶ [${num}/${total}]${NC} ${BOLD}$*${NC}"
+    echo -e "  ${CYAN}─────────────────────────────────────────────────────${NC}"
+}
+
+step_done() {
+    echo -e "  ${GREEN}✔${NC} $*"
+}
 
 detect_os() {
     if [[ -f /etc/os-release ]]; then
@@ -179,18 +230,42 @@ select_mode() {
 
 server_install_dependencies() {
     local os="$1"
-    local packages=(rsync openssh-server socat curl)
 
-    info "Installing dependencies for ${os}..."
+    info "Detected package manager for: ${os}"
 
     case "${os}" in
-        ubuntu|debian)
-            apt-get update -qq
-            apt-get install -y -qq "${packages[@]}" mailutils gnupg2 2>/dev/null || true
+        ubuntu|debian|linuxmint|pop|elementary|zorin)
+            info "Using apt-get..."
+            apt-get update -qq \
+                -o Dpkg::Options::="--force-confdef" \
+                -o Dpkg::Options::="--force-confold" 2>/dev/null || true
+            apt-get install -y -qq rsync openssh-server socat curl mailutils gnupg2 2>/dev/null || true
+            step_done "apt packages installed"
             ;;
-        centos|rhel|fedora|rocky|almalinux)
-            yum install -y -q "${packages[@]}" mailx gnupg2 2>/dev/null || \
-            dnf install -y -q "${packages[@]}" mailx gnupg2 2>/dev/null || true
+        centos|rhel|rocky|almalinux|ol)
+            info "Using yum..."
+            yum install -y -q rsync openssh-server socat curl mailx gnupg2 2>/dev/null || true
+            step_done "yum packages installed"
+            ;;
+        fedora)
+            info "Using dnf..."
+            dnf install -y -q rsync openssh-server socat curl mailx gnupg2 2>/dev/null || true
+            step_done "dnf packages installed"
+            ;;
+        opensuse*|sles|suse)
+            info "Using zypper..."
+            zypper --non-interactive install rsync openssh socat curl mailx gpg2 2>/dev/null || true
+            step_done "zypper packages installed"
+            ;;
+        arch|manjaro|endeavouros)
+            info "Using pacman..."
+            pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg 2>/dev/null || true
+            step_done "pacman packages installed"
+            ;;
+        alpine)
+            info "Using apk..."
+            apk add --no-cache rsync openssh socat curl gnupg mailx 2>/dev/null || true
+            step_done "apk packages installed"
             ;;
         macos)
             warn "macOS detected. This is for development/testing only."
@@ -198,9 +273,27 @@ server_install_dependencies() {
             if command -v brew &>/dev/null; then
                 brew install socat 2>/dev/null || true
             fi
+            step_done "macOS dependencies checked"
             ;;
         *)
-            warn "Unknown OS '${os}'. Please install rsync, openssh, socat, and curl manually."
+            warn "Unknown OS '${os}'. Trying to auto-detect package manager..."
+            if command -v apt-get &>/dev/null; then
+                apt-get update -qq 2>/dev/null || true
+                apt-get install -y -qq rsync openssh-server socat curl gnupg2 2>/dev/null || true
+            elif command -v dnf &>/dev/null; then
+                dnf install -y -q rsync openssh-server socat curl gnupg2 2>/dev/null || true
+            elif command -v yum &>/dev/null; then
+                yum install -y -q rsync openssh-server socat curl gnupg2 2>/dev/null || true
+            elif command -v zypper &>/dev/null; then
+                zypper --non-interactive install rsync openssh socat curl gpg2 2>/dev/null || true
+            elif command -v pacman &>/dev/null; then
+                pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg 2>/dev/null || true
+            elif command -v apk &>/dev/null; then
+                apk add --no-cache rsync openssh socat curl gnupg 2>/dev/null || true
+            else
+                warn "No supported package manager found. Install rsync, openssh, socat, and curl manually."
+            fi
+            step_done "Dependencies checked (fallback)"
             ;;
     esac
 }
@@ -365,8 +458,9 @@ server_setup_service() {
 
         systemctl daemon-reload
         systemctl enable timemachine.service
-        info "Systemd service installed and enabled"
-        info "Start with: systemctl start timemachine"
+        systemctl start timemachine.service 2>/dev/null || true
+        step_done "Systemd service installed, enabled, and started"
+        info "Service will auto-start on reboot"
     else
         warn "Service file not found at ${source_file}; skipping"
         server_setup_cron
@@ -463,34 +557,59 @@ server_ask_email() {
 
 install_server() {
     echo ""
-    echo "============================================"
-    echo "  TimeMachine Backup - Server Installation"
-    echo "============================================"
+    echo -e "  ${MAGENTA}${BOLD}Server Installation${NC}"
     echo ""
 
     local os
     os=$(detect_os)
-    info "Detected OS: ${os}"
+    local total=9
 
     server_ask_backup_dir
     server_ask_email
+
+    step 1 ${total} "Detecting operating system"
+    info "Detected OS: ${BOLD}${os}${NC}"
+    step_done "OS detected: ${os}"
+
+    step 2 ${total} "Installing system dependencies"
     server_install_dependencies "${os}"
+
+    step 3 ${total} "Setting up timemachine user & SSH keys"
     server_setup_user
+    step_done "User and SSH keys configured"
+
+    step 4 ${total} "Creating backup directories"
     server_setup_directories
+    step_done "Directories created"
+
+    step 5 ${total} "Setting file permissions & symlinks"
     server_setup_permissions
+    step_done "Permissions and symlinks configured"
+
+    step 6 ${total} "Configuring environment"
     server_setup_config
+    step_done "Environment configured"
+
+    step 7 ${total} "Setting up sudoers"
     server_setup_sudoers
+    step_done "Sudoers configured"
+
+    step 8 ${total} "Configuring systemd service"
     server_setup_service
 
-    echo ""
-    echo "============================================"
-    echo "  Server Installation Complete!"
-    echo "============================================"
-    echo ""
+    step 9 ${total} "Starting TimeMachine service"
+    if command -v systemctl &>/dev/null && systemctl is-active timemachine.service &>/dev/null; then
+        step_done "Service is running and enabled on boot"
+    else
+        warn "Service could not be started (check logs with: journalctl -u timemachine)"
+    fi
+
+    show_complete "Server"
+
     info "Next steps:"
     echo ""
-    echo "  ${BOLD}1. Start the service:${NC}"
-    echo "     systemctl start timemachine"
+    echo "  ${BOLD}1. Restart the service (if needed):${NC}"
+    echo "     sudo systemctl restart timemachine"
     echo ""
     echo "  ${BOLD}2. Add servers to back up:${NC}"
     echo "     tmctl server add web1.example.com"
@@ -509,6 +628,9 @@ install_server() {
     echo "  ${BOLD}6. Email reports:${NC}"
     echo "     Reports will be sent to: ${TM_REPORT_EMAIL}"
     fi
+    echo ""
+    echo "  ${BOLD}Uninstall:${NC}"
+    echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/uninstall.sh | sudo bash"
     echo ""
     echo "  ${CYAN}Run 'tmctl help' for all available commands and options.${NC}"
     echo "  ${CYAN}Run 'tmctl update' to update to the latest version.${NC}"
@@ -774,26 +896,40 @@ client_deploy_db_scripts() {
 
 install_client() {
     echo ""
-    echo "============================================"
-    echo "  TimeMachine Backup - Client Installation"
-    echo "============================================"
+    echo -e "  ${MAGENTA}${BOLD}Client Installation${NC}"
     echo ""
 
     if [[ ${UNINSTALL} -eq 1 ]]; then
         client_do_uninstall
     fi
 
-    client_setup_user
-    client_setup_ssh
-    client_setup_sudoers
-    client_setup_directories
-    client_deploy_db_scripts
+    local total=4
+    [[ ${WITH_DB} -eq 1 ]] && total=5
 
-    echo ""
-    echo "============================================"
-    echo "  Client Installation Complete!"
-    echo "============================================"
-    echo ""
+    step 1 ${total} "Setting up timemachine user"
+    client_setup_user
+    step_done "User configured"
+
+    step 2 ${total} "Configuring SSH access"
+    client_setup_ssh
+    step_done "SSH access configured"
+
+    step 3 ${total} "Setting up sudoers"
+    client_setup_sudoers
+    step_done "Sudoers configured"
+
+    step 4 ${total} "Creating directories"
+    client_setup_directories
+    step_done "Directories created"
+
+    if [[ ${WITH_DB} -eq 1 ]]; then
+        step 5 ${total} "Deploying database scripts"
+        client_deploy_db_scripts
+        step_done "Database scripts deployed"
+    fi
+
+    show_complete "Client"
+
     info "This server is now ready to be backed up by TimeMachine."
     echo ""
     if [[ -n "${BACKUP_SERVER}" ]]; then
@@ -806,6 +942,9 @@ install_client() {
     echo "  ${BOLD}Test connectivity from the backup server:${NC}"
     echo "     ssh -i ~/.ssh/id_rsa ${TM_USER}@$(hostname -f 2>/dev/null || hostname) 'echo OK'"
     echo ""
+    echo "  ${BOLD}Uninstall:${NC}"
+    echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/uninstall.sh | sudo bash"
+    echo ""
     echo "  ${CYAN}Run 'tmctl help' on the backup server for all available commands.${NC}"
     echo ""
 }
@@ -817,13 +956,7 @@ install_client() {
 # ############################################################
 
 main() {
-    echo -e "${CYAN}${BOLD}"
-    echo "  ╔══════════════════════════════════════════╗"
-    echo "  ║     TimeMachine Backup for Linux         ║"
-    echo "  ║     Installer                            ║"
-    echo "  ╚══════════════════════════════════════════╝"
-    echo -e "${NC}"
-
+    show_banner
     require_root
     parse_args "$@"
     select_mode

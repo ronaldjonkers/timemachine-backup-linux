@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-08
+
+### Added
+- **Standalone uninstaller** (`uninstall.sh`) — Single-line `curl | bash` command to completely remove TimeMachine from server or client. Auto-detects installation type, step-by-step progress, confirmation prompt, `--force` and `--remove-backups` options
+- **Fancy ASCII art installer** — ANSI Shadow block-letter banner for TIME MACHINE with colored output, step-by-step progress display (`[1/9] Step description`), and completion banner
+- **Multi-distro package manager support** — `get.sh` and `install.sh` now support Debian/Ubuntu, RHEL/CentOS/Fedora, Rocky/Alma, openSUSE (zypper), Arch/Manjaro (pacman), Alpine (apk), and macOS (brew) with auto-detection fallback
+- **Service auto-start** — Server installation now automatically starts the TimeMachine service after setup; service is enabled on boot via systemd
+
+### Changed
+- `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support
+- `install.sh` — Replaced plain-text banners with fancy ASCII art; added step-by-step progress for both server (9 steps) and client (4-5 steps) installs; post-install instructions now show `restart` instead of `start`; added uninstall command reference in post-install output
+- `README.md` — Expanded uninstalling section with single-line curl command, `--force`/`--remove-backups` options, and manual uninstall; updated "Start the Service" to "Start / Restart the Service" with systemctl commands; added `uninstall.sh` to architecture diagram
+
+### Fixed
+- `get.sh` installation hanging at `apt-get update` on systems with dpkg locks or interactive prompts
+- Package installation failing silently on non-Debian/RHEL distributions
+
 ## [0.6.0] - 2026-02-06
 
 ### Added

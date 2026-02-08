@@ -79,6 +79,7 @@ timemachine-backup-linux/
 ├── bin/setup-web.sh               # Nginx + SSL + Auth setup for web dashboard
 ├── get.sh                         # Single-line installer (curl | bash)
 ├── install.sh                     # Unified installer (server + client)
+├── uninstall.sh                   # Standalone uninstaller (curl | bash)
 ├── .env.example                   # Configuration template
 ├── .gitignore                     # Git ignore rules
 ├── CHANGELOG.md                   # Version history
@@ -117,10 +118,20 @@ sudo -u timemachine vi .env
 sudo -u timemachine vi config/servers.conf
 ```
 
-### 3. Start the Service
+### 3. Start / Restart the Service
+
+The installer automatically starts the service and enables it on boot. To restart:
 
 ```bash
-sudo systemctl start timemachine
+sudo systemctl restart timemachine
+```
+
+Other useful commands:
+
+```bash
+sudo systemctl status timemachine    # Check status
+sudo systemctl stop timemachine      # Stop the service
+journalctl -u timemachine -f         # Follow logs
 ```
 
 The dashboard is now available at `http://<backup-server>:7600`.
@@ -577,6 +588,28 @@ bash tests/test_shellcheck.sh
 
 ## Uninstalling
 
+### Single-Line Uninstall (recommended)
+
+Completely removes TimeMachine from server or client with one command:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/uninstall.sh | sudo bash
+```
+
+The uninstaller auto-detects whether this is a server or client installation and removes all components (service, cron, sudoers, symlinks, nginx config, user, install directory). **Backup data is preserved** unless explicitly requested.
+
+#### Uninstall Options
+
+```bash
+# Non-interactive (skip confirmation)
+curl -sSL .../uninstall.sh | sudo bash -s -- --force
+
+# Also remove backup data (DANGEROUS)
+curl -sSL .../uninstall.sh | sudo bash -s -- --force --remove-backups
+```
+
+### Manual Uninstall
+
 ```bash
 # Remove from a client server
 sudo ./install.sh client --uninstall
@@ -587,6 +620,8 @@ sudo systemctl disable timemachine
 sudo rm -f /etc/systemd/system/timemachine.service
 sudo userdel -r timemachine
 sudo rm -f /etc/sudoers.d/timemachine
+sudo rm -f /usr/local/bin/{tmctl,timemachine,tm-restore}
+sudo rm -rf /opt/timemachine-backup-linux
 ```
 
 ## License
