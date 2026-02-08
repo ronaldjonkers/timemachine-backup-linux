@@ -134,6 +134,21 @@ read_input() {
     echo "${result:-${default}}"
 }
 
+# Read password input (hidden) — works both interactively and when piped via curl
+read_password() {
+    local prompt="$1" result
+    if [[ -t 0 ]]; then
+        read -r -s -p "${prompt}" result
+        echo "" >&2
+    elif [[ -e /dev/tty ]]; then
+        read -r -s -p "${prompt}" result < /dev/tty
+        echo "" >&2
+    else
+        result=""
+    fi
+    echo "${result}"
+}
+
 # ============================================================
 # MODE SELECTION
 # ============================================================
@@ -641,13 +656,18 @@ server_configure_firewall() {
 # SERVER: DASHBOARD SECURITY
 # ============================================================
 
+DASHBOARD_DOMAIN=""
+DASHBOARD_USER=""
+DASHBOARD_PASS=""
+DASHBOARD_SECURED=0
+
 server_ask_dashboard_security() {
     echo ""
     echo -e "  ${BOLD}Dashboard Security${NC}"
     echo ""
     echo "  The dashboard runs on port ${TM_API_PORT:-7600}."
-    echo "  You can optionally secure it with an nginx reverse proxy"
-    echo "  (SSL + password protection via port 443)."
+    echo "  You can secure it with an Nginx reverse proxy + Let's Encrypt SSL"
+    echo "  + password protection (accessible via HTTPS on port 443)."
     echo ""
 
     local choice
@@ -655,18 +675,76 @@ server_ask_dashboard_security() {
 
     case "${choice}" in
         y|Y|yes|YES)
-            if [[ -f "${INSTALL_DIR}/bin/setup-web.sh" ]]; then
-                info "Running setup-web for SSL + password dashboard..."
-                bash "${INSTALL_DIR}/bin/setup-web.sh" --with-ssl --with-auth
-                step_done "Dashboard secured with SSL + password via nginx"
-            else
-                warn "setup-web.sh not found. Run 'tmctl setup-web' after installation."
-            fi
             ;;
         *)
             info "Skipped. You can set this up later with: sudo tmctl setup-web"
+            return
             ;;
     esac
+
+    # --- Domain ---
+    echo ""
+    DASHBOARD_DOMAIN=$(read_input "  Domain name for the dashboard (e.g. tm.example.com): " "")
+    if [[ -z "${DASHBOARD_DOMAIN}" ]]; then
+        warn "Domain name is required for Let's Encrypt SSL. Skipping."
+        return
+    fi
+    info "Domain: ${DASHBOARD_DOMAIN}"
+
+    # --- Username ---
+    DASHBOARD_USER=$(read_input "  Dashboard username [admin]: " "admin")
+    info "Username: ${DASHBOARD_USER}"
+
+    # --- Password (ask twice) ---
+    local pass1 pass2
+    while true; do
+        pass1=$(read_password "  Dashboard password: ")
+        if [[ -z "${pass1}" ]]; then
+            warn "Password cannot be empty. Try again."
+            continue
+        fi
+        pass2=$(read_password "  Confirm password: ")
+        if [[ "${pass1}" != "${pass2}" ]]; then
+            warn "Passwords do not match. Try again."
+            continue
+        fi
+        break
+    done
+    DASHBOARD_PASS="${pass1}"
+    info "Password: ********"
+
+    # --- Email (reuse report email or ask) ---
+    local le_email="${TM_REPORT_EMAIL:-}"
+    if [[ -z "${le_email}" ]]; then
+        le_email=$(read_input "  Email for Let's Encrypt []: " "")
+        if [[ -z "${le_email}" ]]; then
+            warn "Email is required for Let's Encrypt. Skipping dashboard security."
+            return
+        fi
+    else
+        info "Using report email for Let's Encrypt: ${le_email}"
+    fi
+
+    # --- Run setup-web.sh ---
+    if [[ -f "${INSTALL_DIR}/bin/setup-web.sh" ]]; then
+        echo ""
+        info "Installing Nginx + Certbot and configuring dashboard..."
+        bash "${INSTALL_DIR}/bin/setup-web.sh" \
+            --domain "${DASHBOARD_DOMAIN}" \
+            --email "${le_email}" \
+            --user "${DASHBOARD_USER}" \
+            --pass "${DASHBOARD_PASS}" \
+            --open-ssh-key
+
+        if [[ $? -eq 0 ]]; then
+            DASHBOARD_SECURED=1
+            step_done "Dashboard secured with Let's Encrypt SSL + password via Nginx"
+        else
+            warn "Dashboard security setup had issues. Run 'sudo tmctl setup-web' to retry."
+        fi
+    else
+        warn "setup-web.sh not found. Run 'tmctl setup-web' after installation."
+    fi
 }
 
 # ============================================================
@@ -795,15 +873,27 @@ install_server() {
     echo "  ${BOLD}4. Test a backup (dry-run):${NC}"
     echo "     tmctl backup web1.example.com --dry-run"
     echo ""
+    if [[ ${DASHBOARD_SECURED} -eq 1 ]]; then
+    echo "  ${BOLD}5. Web dashboard (secured):${NC}"
+    echo "     URL:      ${CYAN}https://${DASHBOARD_DOMAIN}/${NC}"
+    echo "     Username: ${BOLD}${DASHBOARD_USER}${NC}"
+    echo "     Password: ${BOLD}${DASHBOARD_PASS}${NC}"
+    echo "     SSH key:  https://${DASHBOARD_DOMAIN}/api/ssh-key/raw (no auth)"
+    else
     echo "  ${BOLD}5. Web dashboard:${NC}"
     echo "     http://${my_hostname}:${TM_API_PORT:-7600}"
+    fi
     if [[ -n "${TM_REPORT_EMAIL:-}" ]]; then
     echo ""
     echo "  ${BOLD}6. Email reports:${NC}"
     echo "     Reports will be sent to: ${TM_REPORT_EMAIL}"
     fi
     echo ""
+    if [[ ${DASHBOARD_SECURED} -eq 1 ]]; then
+    echo "  ${YELLOW}${BOLD}Firewall:${NC} Ensure TCP ports 80 and 443 are open for HTTPS access."
+    else
     echo "  ${YELLOW}${BOLD}Firewall:${NC} Ensure TCP port ${TM_API_PORT:-7600} is open for the dashboard & client SSH key downloads."
+    fi
     echo ""
     echo "  ${BOLD}Uninstall:${NC}"
     echo "     curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/uninstall.sh | sudo bash"
