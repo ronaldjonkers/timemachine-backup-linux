@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fancy ASCII art installer** — ANSI Shadow block-letter banner for TIME MACHINE with colored output, step-by-step progress display (`[1/9] Step description`), and completion banner
 - **Multi-distro package manager support** — `get.sh` and `install.sh` now support Debian/Ubuntu, RHEL/CentOS/Fedora, Rocky/Alma, openSUSE (zypper), Arch/Manjaro (pacman), Alpine (apk), and macOS (brew) with auto-detection fallback
 - **Service auto-start** — Server installation now automatically starts the TimeMachine service after setup; service is enabled on boot via systemd
+- **Client database auto-detection** — Client installer now automatically detects installed database engines (MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite) and prompts for credentials per database. Auto-imports existing credentials from `/root/mysql.pw` and `/root/.my.cnf` for MySQL. PostgreSQL uses peer auth (no prompt). `--with-db` is auto-enabled when databases are found
 
 ### Changed
 - `get.sh` — Fixed hanging during git installation by adding `DEBIAN_FRONTEND=noninteractive` and non-interactive flags for all package managers; added zypper/pacman/apk support

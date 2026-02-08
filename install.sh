@@ -853,6 +853,218 @@ client_setup_directories() {
 }
 
 # ============================================================
+# CLIENT: DATABASE DETECTION & CREDENTIALS
+# ============================================================
+
+DETECTED_DBS=""
+
+client_detect_databases() {
+    info "Scanning for installed database engines..."
+
+    DETECTED_DBS=""
+
+    if command -v mysql &>/dev/null || command -v mariadb &>/dev/null; then
+        DETECTED_DBS+="mysql,"
+        step_done "MySQL / MariaDB detected"
+    fi
+    if command -v psql &>/dev/null; then
+        DETECTED_DBS+="postgresql,"
+        step_done "PostgreSQL detected"
+    fi
+    if command -v mongodump &>/dev/null; then
+        DETECTED_DBS+="mongodb,"
+        step_done "MongoDB detected"
+    fi
+    if command -v redis-cli &>/dev/null; then
+        DETECTED_DBS+="redis,"
+        step_done "Redis detected"
+    fi
+    if command -v sqlite3 &>/dev/null; then
+        DETECTED_DBS+="sqlite,"
+        step_done "SQLite detected"
+    fi
+
+    DETECTED_DBS="${DETECTED_DBS%,}"
+
+    if [[ -z "${DETECTED_DBS}" ]]; then
+        info "No database engines detected on this system"
+        return
+    fi
+
+    info "Detected: ${BOLD}${DETECTED_DBS}${NC}"
+
+    # Auto-enable database support
+    if [[ ${WITH_DB} -eq 0 ]]; then
+        WITH_DB=1
+        DB_TYPE="${DETECTED_DBS}"
+        info "Database support auto-enabled"
+    fi
+}
+
+client_setup_db_credentials() {
+    if [[ -z "${DETECTED_DBS}" ]]; then
+        return
+    fi
+
+    local cred_dir="${TM_HOME}/.credentials"
+    mkdir -p "${cred_dir}"
+    chown "${TM_USER}:${TM_USER}" "${cred_dir}"
+    chmod 700 "${cred_dir}"
+
+    echo ""
+    echo -e "  ${BOLD}Database Credential Setup${NC}"
+    echo -e "  ${DIM}Credentials are stored securely in ${cred_dir} (mode 700)${NC}"
+    echo ""
+
+    IFS=',' read -ra db_array <<< "${DETECTED_DBS}"
+    for db in "${db_array[@]}"; do
+        case "${db}" in
+            mysql)  _setup_cred_mysql "${cred_dir}" ;;
+            postgresql) _setup_cred_postgresql ;;
+            mongodb) _setup_cred_mongodb "${cred_dir}" ;;
+            redis)  _setup_cred_redis "${cred_dir}" ;;
+            sqlite) info "SQLite: no credentials needed (file-based)" ;;
+        esac
+    done
+}
+
+_setup_cred_mysql() {
+    local cred_dir="$1"
+    local pw_file="${cred_dir}/mysql.pw"
+
+    echo ""
+    echo -e "  ${CYAN}━ MySQL / MariaDB ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Check if credentials already exist
+    if [[ -f "${pw_file}" ]]; then
+        info "MySQL credentials already configured at ${pw_file}"
+        return
+    fi
+
+    # Check for existing /root/mysql.pw (common convention)
+    if [[ -f /root/mysql.pw ]]; then
+        local existing_pw
+        existing_pw=$(cat /root/mysql.pw 2>/dev/null)
+        if [[ -n "${existing_pw}" ]]; then
+            info "Found existing MySQL password in /root/mysql.pw"
+            echo "${existing_pw}" > "${pw_file}"
+            chown "${TM_USER}:${TM_USER}" "${pw_file}"
+            chmod 600 "${pw_file}"
+            step_done "MySQL credentials imported from /root/mysql.pw (user: root)"
+            return
+        fi
+    fi
+
+    # Also check /root/.my.cnf
+    if [[ -f /root/.my.cnf ]]; then
+        local mycnf_pw
+        mycnf_pw=$(grep -oP '^\s*password\s*=\s*\K.*' /root/.my.cnf 2>/dev/null | head -1 | tr -d '"'"'" || true)
+        if [[ -n "${mycnf_pw}" ]]; then
+            info "Found existing MySQL password in /root/.my.cnf"
+            echo "${mycnf_pw}" > "${pw_file}"
+            chown "${TM_USER}:${TM_USER}" "${pw_file}"
+            chmod 600 "${pw_file}"
+            step_done "MySQL credentials imported from /root/.my.cnf (user: root)"
+            return
+        fi
+    fi
+
+    echo "  TimeMachine connects to MySQL as ${BOLD}root${NC}."
+    echo "  Enter the MySQL root password (or leave empty to skip):"
+    echo ""
+    local mysql_pw
+    mysql_pw=$(read_input "  MySQL root password: " "")
+
+    if [[ -n "${mysql_pw}" ]]; then
+        echo "${mysql_pw}" > "${pw_file}"
+        chown "${TM_USER}:${TM_USER}" "${pw_file}"
+        chmod 600 "${pw_file}"
+        step_done "MySQL credentials saved to ${pw_file}"
+    else
+        warn "MySQL password not set. Configure later:"
+        echo "    echo 'yourpassword' | sudo tee ${pw_file} && sudo chmod 600 ${pw_file}"
+    fi
+}
+
+_setup_cred_postgresql() {
+    echo ""
+    echo -e "  ${CYAN}━ PostgreSQL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    info "PostgreSQL uses peer authentication (no password needed)"
+    step_done "PostgreSQL: no credentials required"
+}
+
+_setup_cred_mongodb() {
+    local cred_dir="$1"
+    local cred_file="${cred_dir}/mongodb.conf"
+
+    echo ""
+    echo -e "  ${CYAN}━ MongoDB ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    if [[ -f "${cred_file}" ]]; then
+        info "MongoDB credentials already configured at ${cred_file}"
+        return
+    fi
+
+    echo "  If MongoDB has authentication enabled, enter credentials."
+    echo "  Leave empty if MongoDB has no auth (open access)."
+    echo ""
+    local mongo_user
+    mongo_user=$(read_input "  MongoDB admin username: " "")
+
+    if [[ -n "${mongo_user}" ]]; then
+        local mongo_pw
+        mongo_pw=$(read_input "  MongoDB admin password: " "")
+        if [[ -n "${mongo_pw}" ]]; then
+            echo "${mongo_user}:${mongo_pw}" > "${cred_file}"
+            chown "${TM_USER}:${TM_USER}" "${cred_file}"
+            chmod 600 "${cred_file}"
+            step_done "MongoDB credentials saved to ${cred_file}"
+        else
+            warn "MongoDB password empty, skipping credential setup"
+        fi
+    else
+        info "MongoDB: no auth configured (assumes open access)"
+    fi
+}
+
+_setup_cred_redis() {
+    local cred_dir="$1"
+    local pw_file="${cred_dir}/redis.pw"
+
+    echo ""
+    echo -e "  ${CYAN}━ Redis ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    if [[ -f "${pw_file}" ]]; then
+        info "Redis credentials already configured at ${pw_file}"
+        return
+    fi
+
+    # Try to detect if Redis has a password set
+    local redis_needs_auth=0
+    if redis-cli ping 2>/dev/null | grep -q "NOAUTH" 2>/dev/null; then
+        redis_needs_auth=1
+    fi
+
+    if [[ ${redis_needs_auth} -eq 1 ]]; then
+        echo "  Redis requires authentication (NOAUTH detected)."
+    else
+        echo "  Enter Redis password if requirepass is set (leave empty to skip):"
+    fi
+    echo ""
+    local redis_pw
+    redis_pw=$(read_input "  Redis password: " "")
+
+    if [[ -n "${redis_pw}" ]]; then
+        echo "${redis_pw}" > "${pw_file}"
+        chown "${TM_USER}:${TM_USER}" "${pw_file}"
+        chmod 600 "${pw_file}"
+        step_done "Redis credentials saved to ${pw_file}"
+    else
+        info "Redis: no password configured (assumes no requirepass)"
+    fi
+}
+
+# ============================================================
 # CLIENT: DATABASE SCRIPTS
 # ============================================================
 
@@ -904,29 +1116,34 @@ install_client() {
         client_do_uninstall
     fi
 
-    local total=4
-    [[ ${WITH_DB} -eq 1 ]] && total=5
-
-    step 1 ${total} "Setting up timemachine user"
+    step 1 7 "Setting up timemachine user"
     client_setup_user
     step_done "User configured"
 
-    step 2 ${total} "Configuring SSH access"
+    step 2 7 "Configuring SSH access"
     client_setup_ssh
     step_done "SSH access configured"
 
-    step 3 ${total} "Setting up sudoers"
+    step 3 7 "Setting up sudoers"
     client_setup_sudoers
     step_done "Sudoers configured"
 
-    step 4 ${total} "Creating directories"
+    step 4 7 "Creating directories"
     client_setup_directories
     step_done "Directories created"
 
+    step 5 7 "Detecting installed databases"
+    client_detect_databases
+
+    step 6 7 "Configuring database credentials"
+    client_setup_db_credentials
+
+    step 7 7 "Deploying database scripts"
     if [[ ${WITH_DB} -eq 1 ]]; then
-        step 5 ${total} "Deploying database scripts"
         client_deploy_db_scripts
         step_done "Database scripts deployed"
+    else
+        info "No databases detected; skipping DB script deployment"
     fi
 
     show_complete "Client"

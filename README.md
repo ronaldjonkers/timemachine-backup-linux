@@ -141,18 +141,23 @@ The dashboard is now available at `http://<backup-server>:7600`.
 **Automatic** (downloads SSH key from the backup server API):
 
 ```bash
-# Files only
+# Standard install — auto-detects databases and asks for credentials
 sudo ./install.sh client --server backup.example.com
 
-# With database support (auto-detects installed DB engines)
-sudo ./install.sh client --server backup.example.com --with-db
-
-# With specific database types
-sudo ./install.sh client --server backup.example.com --db-type mysql,postgresql
-
 # With autonomous DB dump cronjob
-sudo ./install.sh client --server backup.example.com --with-db --db-cronjob
+sudo ./install.sh client --server backup.example.com --db-cronjob
+
+# Force specific database types (skip auto-detection)
+sudo ./install.sh client --server backup.example.com --db-type mysql,postgresql
 ```
+
+The installer automatically detects installed database engines (MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite) and prompts for credentials per database. Existing credentials are auto-imported:
+
+- **MySQL**: checks `/root/mysql.pw` and `/root/.my.cnf` before asking
+- **PostgreSQL**: uses peer auth (no password needed)
+- **MongoDB**: asks for username + password if auth is enabled
+- **Redis**: asks for password if `requirepass` is set
+- **SQLite**: no credentials needed
 
 **Manual** (provide SSH key directly):
 
