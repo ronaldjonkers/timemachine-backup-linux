@@ -590,6 +590,15 @@ server_ask_email() {
 server_configure_firewall() {
     local api_port="${TM_API_PORT:-7600}"
 
+    # SELinux: allow nginx to proxy to backend ports (RHEL/CentOS/Rocky/Alma)
+    if command -v setsebool &>/dev/null; then
+        if ! getsebool httpd_can_network_connect 2>/dev/null | grep -q "on$"; then
+            info "Enabling SELinux httpd_can_network_connect..."
+            setsebool -P httpd_can_network_connect 1 2>/dev/null || true
+            info "SELinux: nginx can now proxy to backend services"
+        fi
+    fi
+
     # 1) binadit-firewall (auto-configure)
     #    Binary may be at /usr/local/sbin which is not always in PATH
     local bf_cmd=""

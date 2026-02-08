@@ -369,18 +369,25 @@ server {
     auth_basic "TimeMachine Dashboard";
     auth_basic_user_file ${HTPASSWD_FILE};
 ${ssh_key_location}
-    # Proxy all requests to TimeMachine service
-    location / {
+    # Serve static dashboard files directly from disk (correct MIME types)
+    location = / {
+        root ${TM_PROJECT_ROOT}/web;
+        try_files /index.html =404;
+    }
+    location ~* ^/(index\\.html|style\\.css|app\\.js|favicon\\.ico)\$ {
+        root ${TM_PROJECT_ROOT}/web;
+        add_header Cache-Control "no-cache";
+    }
+
+    # Proxy all /api/ requests to TimeMachine service
+    location /api/ {
         proxy_pass http://127.0.0.1:${TM_API_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-
-        # WebSocket support (future)
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection "";
     }
 }
 NGINX_EOF
@@ -563,6 +570,16 @@ secure_api_bind() {
     fi
 
     info "API bind set to 127.0.0.1 (only accessible via nginx)"
+
+    # SELinux: allow nginx to read static files from the web directory
+    if command -v semanage &>/dev/null; then
+        semanage fcontext -a -t httpd_sys_content_t "${TM_PROJECT_ROOT}/web(/.*)?" 2>/dev/null || true
+        restorecon -Rv "${TM_PROJECT_ROOT}/web" 2>/dev/null || true
+        info "SELinux: web directory context set to httpd_sys_content_t"
+    elif command -v chcon &>/dev/null; then
+        chcon -R -t httpd_sys_content_t "${TM_PROJECT_ROOT}/web" 2>/dev/null || true
+        info "SELinux: web directory context set (chcon)"
+    fi
 }
 
 # ============================================================
@@ -734,7 +751,18 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;${auth_block}${ssh_key_location}
 
-    location / {
+    # Serve static dashboard files directly from disk (correct MIME types)
+    location = / {
+        root ${TM_PROJECT_ROOT}/web;
+        try_files /index.html =404;
+    }
+    location ~* ^/(index\\.html|style\\.css|app\\.js|favicon\\.ico)\$ {
+        root ${TM_PROJECT_ROOT}/web;
+        add_header Cache-Control "no-cache";
+    }
+
+    # Proxy all /api/ requests to TimeMachine service
+    location /api/ {
         proxy_pass http://127.0.0.1:${TM_API_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
