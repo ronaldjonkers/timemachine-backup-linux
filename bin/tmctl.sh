@@ -538,74 +538,185 @@ cmd_uninstall() {
     echo ""
 }
 
+_get_current_version() {
+    local project_root="$1"
+
+    # Try git tags first
+    local ver
+    ver=$(cd "${project_root}" && git describe --tags --abbrev=0 2>/dev/null || true)
+    if [[ -n "${ver}" ]]; then
+        echo "${ver}"
+        return
+    fi
+
+    # Fallback: read from CHANGELOG.md
+    if [[ -f "${project_root}/CHANGELOG.md" ]]; then
+        ver=$(grep -m1 '^## \[' "${project_root}/CHANGELOG.md" | sed 's/^## \[\(.*\)\].*/v\1/' || true)
+        if [[ -n "${ver}" ]]; then
+            echo "${ver}"
+            return
+        fi
+    fi
+
+    echo "unknown"
+}
+
+_update_via_curl() {
+    local project_root="$1"
+    local tarball_url="https://github.com/ronaldjonkers/timemachine-backup-linux/archive/refs/heads/main.tar.gz"
+
+    echo "  Downloading latest version via curl..."
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    if ! curl -sSL "${tarball_url}" | tar -xz -C "${tmp_dir}" 2>/dev/null; then
+        rm -rf "${tmp_dir}"
+        echo "  ${RED}Error:${NC} Download failed. Check internet connectivity."
+        return 1
+    fi
+
+    local extracted="${tmp_dir}/timemachine-backup-linux-main"
+    if [[ ! -d "${extracted}" ]]; then
+        rm -rf "${tmp_dir}"
+        echo "  ${RED}Error:${NC} Unexpected archive structure."
+        return 1
+    fi
+
+    # Preserve .env, servers.conf, and .git
+    echo "  Updating files..."
+    rsync -a --exclude='.env' --exclude='config/servers.conf' --exclude='.git' \
+        "${extracted}/" "${project_root}/"
+
+    rm -rf "${tmp_dir}"
+    return 0
+}
+
 cmd_update() {
     local project_root="${SCRIPT_DIR}/.."
 
     echo "  ${BOLD}TimeMachine Backup — Update${NC}"
     echo ""
 
-    # Check if git is available
-    if ! command -v git &>/dev/null; then
-        echo "  ${RED}Error:${NC} git is not installed"
-        exit 1
-    fi
-
-    # Check if this is a git repo
-    if [[ ! -d "${project_root}/.git" ]]; then
-        echo "  ${RED}Error:${NC} Not a git repository. Was TimeMachine installed via get.sh?"
-        echo "  Re-install with:"
-        echo "    curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash"
-        exit 1
-    fi
-
-    # Show current version
+    # Determine current version
     local current_version
-    current_version=$(cd "${project_root}" && git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+    current_version=$(_get_current_version "${project_root}")
     echo "  Current version: ${BOLD}${current_version}${NC}"
 
-    # Pull latest
-    echo "  Fetching latest version..."
-    if ! (cd "${project_root}" && git fetch --tags --quiet 2>/dev/null); then
-        echo "  ${RED}Error:${NC} Could not reach remote repository (offline?)"
+    # Method 1: git-based update (preferred)
+    if command -v git &>/dev/null && [[ -d "${project_root}/.git" ]]; then
+
+        # Unshallow if needed (shallow clones can't describe tags)
+        if [[ -f "${project_root}/.git/shallow" ]]; then
+            echo "  Unshallowing repository..."
+            (cd "${project_root}" && git fetch --unshallow --quiet 2>/dev/null) || true
+        fi
+
+        # Fetch latest tags and commits
+        echo "  Fetching latest version..."
+        local fetch_output
+        fetch_output=$(cd "${project_root}" && git fetch --tags 2>&1) || true
+
+        # Check if fetch succeeded (remote reachable)
+        if (cd "${project_root}" && git rev-parse origin/main &>/dev/null 2>&1); then
+            local latest_version
+            latest_version=$(cd "${project_root}" && git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "unknown")
+
+            if [[ "${current_version}" == "${latest_version}" ]]; then
+                echo "  ${GREEN}Already up to date${NC} (${current_version})"
+                return 0
+            fi
+
+            echo "  New version available: ${BOLD}${latest_version}${NC}"
+            echo ""
+
+            # Pull changes (handle dirty working tree)
+            if ! (cd "${project_root}" && git reset --hard origin/main --quiet 2>/dev/null); then
+                echo "  ${YELLOW}Warning:${NC} git reset failed, trying pull..."
+                if ! (cd "${project_root}" && git pull --force --quiet 2>/dev/null); then
+                    echo "  ${RED}Error:${NC} git pull failed."
+                    echo "  Falling back to curl-based update..."
+                    echo ""
+                    _update_via_curl "${project_root}" || exit 1
+                fi
+            fi
+
+            # Ensure tags are available locally
+            (cd "${project_root}" && git fetch --tags --quiet 2>/dev/null) || true
+
+            # Re-set script permissions
+            find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
+            chmod +x "${project_root}/get.sh" "${project_root}/install.sh" "${project_root}/uninstall.sh" 2>/dev/null || true
+
+            # Restart service if running
+            if command -v systemctl &>/dev/null && systemctl is-active timemachine &>/dev/null; then
+                echo "  Restarting timemachine service..."
+                systemctl restart timemachine 2>/dev/null || true
+                sleep 1
+                if systemctl is-active timemachine &>/dev/null; then
+                    echo "  ${GREEN}Service restarted${NC}"
+                else
+                    echo "  ${YELLOW}Warning:${NC} Service may not have restarted. Check: journalctl -u timemachine"
+                fi
+            fi
+
+            local new_version
+            new_version=$(_get_current_version "${project_root}")
+            echo ""
+            echo "  ${GREEN}Updated successfully:${NC} ${current_version} → ${new_version}"
+
+            # Show changelog
+            if [[ -f "${project_root}/CHANGELOG.md" ]]; then
+                echo ""
+                echo "  ${BOLD}What's new:${NC}"
+                sed -n "/^## \[${new_version#v}\]/,/^## \[/p" "${project_root}/CHANGELOG.md" | head -20 | sed '$d' | sed 's/^/  /'
+            fi
+            return 0
+        fi
+
+        # git fetch failed — show the actual error and fall through to curl
+        echo "  ${YELLOW}Warning:${NC} Could not reach git remote"
+        if [[ -n "${fetch_output}" ]]; then
+            echo "  ${fetch_output}" | head -3 | sed 's/^/  /'
+        fi
+        echo ""
+        echo "  Falling back to curl-based update..."
+        echo ""
+    fi
+
+    # Method 2: curl-based update (fallback — no git needed)
+    if ! command -v curl &>/dev/null; then
+        echo "  ${RED}Error:${NC} Neither git nor curl available. Install one and retry."
         exit 1
     fi
 
-    local latest_version
-    latest_version=$(cd "${project_root}" && git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "unknown")
-
-    if [[ "${current_version}" == "${latest_version}" ]]; then
-        echo "  ${GREEN}Already up to date${NC} (${current_version})"
-        return 0
-    fi
-
-    echo "  New version available: ${BOLD}${latest_version}${NC}"
-    echo ""
-
-    # Pull changes
-    if ! (cd "${project_root}" && git pull --quiet 2>/dev/null); then
-        echo "  ${RED}Error:${NC} git pull failed. Check for local changes."
-        exit 1
-    fi
+    _update_via_curl "${project_root}" || exit 1
 
     # Re-set script permissions
     find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
+    chmod +x "${project_root}/get.sh" "${project_root}/install.sh" "${project_root}/uninstall.sh" 2>/dev/null || true
 
     # Restart service if running
     if command -v systemctl &>/dev/null && systemctl is-active timemachine &>/dev/null; then
         echo "  Restarting timemachine service..."
-        systemctl restart timemachine
-        echo "  ${GREEN}Service restarted${NC}"
+        systemctl restart timemachine 2>/dev/null || true
+        sleep 1
+        if systemctl is-active timemachine &>/dev/null; then
+            echo "  ${GREEN}Service restarted${NC}"
+        else
+            echo "  ${YELLOW}Warning:${NC} Service may not have restarted. Check: journalctl -u timemachine"
+        fi
     fi
 
+    local new_version
+    new_version=$(_get_current_version "${project_root}")
     echo ""
-    echo "  ${GREEN}Updated successfully:${NC} ${current_version} → ${latest_version}"
+    echo "  ${GREEN}Updated successfully:${NC} ${current_version} → ${new_version}"
 
-    # Show changelog for new version
+    # Show changelog
     if [[ -f "${project_root}/CHANGELOG.md" ]]; then
         echo ""
         echo "  ${BOLD}What's new:${NC}"
-        # Show lines between the latest version header and the next version header
-        sed -n "/^## \[${latest_version#v}\]/,/^## \[/p" "${project_root}/CHANGELOG.md" | head -20 | sed '$d' | sed 's/^/  /'
+        sed -n "/^## \[${new_version#v}\]/,/^## \[/p" "${project_root}/CHANGELOG.md" | head -20 | sed '$d' | sed 's/^/  /'
     fi
 }
 

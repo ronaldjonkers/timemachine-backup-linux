@@ -87,15 +87,24 @@ fi
 INSTALL_DIR="${TM_INSTALL_DIR:-/opt/timemachine-backup-linux}"
 REPO_URL="https://github.com/ronaldjonkers/timemachine-backup-linux.git"
 
-if [[ -d "${INSTALL_DIR}" ]]; then
+if [[ -d "${INSTALL_DIR}/.git" ]]; then
     info "Installation directory already exists: ${INSTALL_DIR}"
     info "Updating..."
     cd "${INSTALL_DIR}"
+    git fetch --tags --quiet 2>/dev/null || true
     git pull --quiet 2>/dev/null || warn "Could not update repository (offline?)"
+elif [[ -d "${INSTALL_DIR}" ]]; then
+    # Directory exists but is not a git repo — re-clone
+    warn "Existing directory is not a git repo, re-cloning..."
+    rm -rf "${INSTALL_DIR}"
+    git clone --quiet "${REPO_URL}" "${INSTALL_DIR}"
+    cd "${INSTALL_DIR}"
+    git fetch --tags --quiet 2>/dev/null || true
 else
     info "Cloning TimeMachine Backup..."
     git clone --quiet "${REPO_URL}" "${INSTALL_DIR}"
     cd "${INSTALL_DIR}"
+    git fetch --tags --quiet 2>/dev/null || true
 fi
 
 # ============================================================
