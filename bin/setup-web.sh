@@ -205,17 +205,56 @@ install_deps() {
             apt-get update -qq
             apt-get install -y -qq nginx certbot python3-certbot-nginx apache2-utils > /dev/null
             ;;
-        centos|rhel|rocky|almalinux|fedora)
+        centos|rhel|rocky|almalinux)
+            # EPEL is required for certbot on RHEL-based distros
             if command -v dnf &>/dev/null; then
-                dnf install -y -q nginx certbot python3-certbot-nginx httpd-tools
+                dnf install -y -q epel-release 2>/dev/null || true
+                dnf install -y -q nginx httpd-tools || true
+                dnf install -y -q certbot python3-certbot-nginx 2>/dev/null || true
             else
-                yum install -y -q nginx certbot python3-certbot-nginx httpd-tools
+                yum install -y -q epel-release 2>/dev/null || true
+                yum install -y -q nginx httpd-tools || true
+                yum install -y -q certbot python3-certbot-nginx 2>/dev/null || true
             fi
             ;;
+        fedora)
+            dnf install -y -q nginx certbot python3-certbot-nginx httpd-tools
+            ;;
         *)
-            error "Unsupported OS: ${os}. Install nginx, certbot, and apache2-utils/httpd-tools manually."
+            warn "Unsupported OS: ${os}. Attempting generic install..."
             ;;
     esac
+
+    # Fallback: install certbot via snap if not available
+    if ! command -v certbot &>/dev/null; then
+        info "certbot not found via package manager, trying snap..."
+        if command -v snap &>/dev/null; then
+            snap install --classic certbot 2>/dev/null || true
+            ln -sf /snap/bin/certbot /usr/bin/certbot 2>/dev/null || true
+        fi
+    fi
+
+    # Fallback: install certbot via pip if still not available
+    if ! command -v certbot &>/dev/null; then
+        info "certbot not found via snap, trying pip..."
+        if command -v pip3 &>/dev/null; then
+            pip3 install certbot certbot-nginx 2>/dev/null || true
+        elif command -v python3 &>/dev/null; then
+            python3 -m pip install certbot certbot-nginx 2>/dev/null || true
+        fi
+    fi
+
+    if ! command -v certbot &>/dev/null; then
+        warn "certbot could not be installed automatically."
+        warn "Install it manually: https://certbot.eff.org/"
+        warn "Continuing without SSL — you can run 'tmctl setup-web' later."
+    else
+        info "certbot: $(certbot --version 2>&1 | head -1)"
+    fi
+
+    if ! command -v nginx &>/dev/null; then
+        error "nginx could not be installed. Install it manually and re-run."
+    fi
 
     # Ensure nginx is enabled
     systemctl enable nginx 2>/dev/null || true
@@ -361,6 +400,26 @@ NGINX_EOF
 # ============================================================
 
 obtain_ssl() {
+    # Check if certbot is available
+    if ! command -v certbot &>/dev/null; then
+        warn "certbot not available — falling back to self-signed certificate"
+        generate_self_signed
+        # Rewrite nginx config to use self-signed cert paths
+        local site_conf=""
+        if [[ -d "${NGINX_CONF_DIR}/sites-available" ]]; then
+            site_conf="${NGINX_CONF_DIR}/sites-available/${NGINX_SITE_NAME}"
+        else
+            site_conf="${NGINX_CONF_DIR}/conf.d/${NGINX_SITE_NAME}.conf"
+        fi
+        sed -i.bak "s|/etc/letsencrypt/live/${DOMAIN}/fullchain.pem|/etc/ssl/timemachine/fullchain.pem|g" "${site_conf}" 2>/dev/null || \
+        sed -i '' "s|/etc/letsencrypt/live/${DOMAIN}/fullchain.pem|/etc/ssl/timemachine/fullchain.pem|g" "${site_conf}"
+        sed -i.bak "s|/etc/letsencrypt/live/${DOMAIN}/privkey.pem|/etc/ssl/timemachine/privkey.pem|g" "${site_conf}" 2>/dev/null || \
+        sed -i '' "s|/etc/letsencrypt/live/${DOMAIN}/privkey.pem|/etc/ssl/timemachine/privkey.pem|g" "${site_conf}"
+        rm -f "${site_conf}.bak"
+        warn "Using self-signed certificate. Install certbot later and run 'sudo tmctl setup-web' to switch to Let's Encrypt."
+        return
+    fi
+
     info "Obtaining Let's Encrypt SSL certificate..."
 
     # First, start nginx with just the HTTP block for the ACME challenge
