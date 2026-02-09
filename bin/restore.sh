@@ -283,12 +283,26 @@ restore_files() {
 
     # Archive format: create tar.gz or zip on the server
     if [[ "${RESTORE_FORMAT}" == "tar.gz" || "${RESTORE_FORMAT}" == "zip" ]]; then
-        _restore_as_archive "${source_dir}" "${target}" "files" "${snapshot_dir}"
+        if [[ -n "${RESTORE_PATHS}" ]]; then
+            # Archive only the specific path(s)
+            local IFS=','
+            for rpath in ${RESTORE_PATHS}; do
+                rpath=$(echo "${rpath}" | sed 's|^/||')
+                local src="${source_dir}/${rpath}"
+                if [[ ! -e "${src}" ]]; then
+                    tm_log "ERROR" "Path not found in backup: ${rpath}"
+                    continue
+                fi
+                _restore_as_archive "${src}" "${target}" "${rpath}" "${snapshot_dir}"
+            done
+        else
+            _restore_as_archive "${source_dir}" "${target}" "files" "${snapshot_dir}"
+        fi
         return $?
     fi
 
     if [[ -n "${RESTORE_PATHS}" ]]; then
-        # Restore specific paths
+        # Restore specific paths as files
         local IFS=','
         for rpath in ${RESTORE_PATHS}; do
             rpath=$(echo "${rpath}" | sed 's|^/||')
@@ -331,31 +345,40 @@ _restore_as_archive() {
     local target_dir="$2"
     local label="$3"
     local snapshot_dir="$4"
-    local archive_name="${HOSTNAME}-$(basename "${snapshot_dir}")-${label}"
+    # Sanitize label for filename (replace / with -)
+    local safe_label
+    safe_label=$(echo "${label}" | sed 's|/|-|g')
+    local archive_name="${HOSTNAME}-$(basename "${snapshot_dir}")-${safe_label}"
 
     mkdir -p "${target_dir}"
 
+    local archive=""
+    local rc=0
     if [[ "${RESTORE_FORMAT}" == "zip" ]]; then
-        local archive="${target_dir}/${archive_name}.zip"
+        archive="${target_dir}/${archive_name}.zip"
         tm_log "INFO" "Creating zip archive: ${archive}"
         if command -v zip &>/dev/null; then
-            (cd "$(dirname "${source_dir}")" && zip -r "${archive}" "$(basename "${source_dir}")") 2>&1 | tail -5
+            (cd "$(dirname "${source_dir}")" && sudo zip -r "${archive}" "$(basename "${source_dir}")") >> "${TM_LOG_DIR}/restore-archive.log" 2>&1
+            rc=$?
+            sudo chown "$(id -u):$(id -g)" "${archive}" 2>/dev/null
         else
             tm_log "ERROR" "zip command not available on server"
             return 1
         fi
     else
-        local archive="${target_dir}/${archive_name}.tar.gz"
+        archive="${target_dir}/${archive_name}.tar.gz"
         tm_log "INFO" "Creating tar.gz archive: ${archive}"
-        tar -czf "${archive}" -C "$(dirname "${source_dir}")" "$(basename "${source_dir}")" 2>&1
+        sudo tar -czf "${archive}" -C "$(dirname "${source_dir}")" "$(basename "${source_dir}")" 2>&1
+        rc=$?
+        sudo chown "$(id -u):$(id -g)" "${archive}" 2>/dev/null
     fi
 
-    if [[ $? -eq 0 ]]; then
+    if [[ ${rc} -eq 0 && -f "${archive}" ]]; then
         local sz
         sz=$(du -sh "${archive}" 2>/dev/null | cut -f1)
         tm_log "INFO" "Archive created: ${archive} (${sz})"
     else
-        tm_log "ERROR" "Failed to create archive"
+        tm_log "ERROR" "Failed to create archive (exit code: ${rc})"
         return 1
     fi
 }

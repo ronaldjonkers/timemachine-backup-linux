@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-02-09
+
+### Fixed
+- **Archive only selected path** — When restoring a specific folder (e.g. `root`), the tar/zip now archives only that folder, not the entire `files/` directory
+- **Permission denied on archive creation** — `tar` and `zip` now run with `sudo` to read root-owned backup files like `/etc/shadow`, `/usr/bin/sudo`, etc. Archive is chowned back to the timemachine user after creation
+- **Sanitized archive filenames** — Paths with `/` in the label are converted to `-` in the archive filename (e.g. `root` → `hostname-date-root.tar.gz`)
+- **Fixed `$?` check in archive creation** — Exit code is now properly captured before the chown step, preventing false success/failure reports
+
 ## [2.6.0] - 2026-02-09
 
 ### Changed
