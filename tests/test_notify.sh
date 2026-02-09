@@ -91,12 +91,12 @@ TM_ALERT_ENABLED="true"
 TM_NOTIFY_METHODS="email"
 TM_ALERT_EMAIL=""
 
-output=$(_tm_notify_email "Test Subject" "Test Body" 2>&1 || true)
-assert_contains "Email skipped without TM_ALERT_EMAIL" "not set" "${output}"
+output=$(_tm_notify_email "Test Subject" "Test Body" "" "" 2>&1 || true)
+assert_contains "Email skipped without TM_ALERT_EMAIL" "No email recipients" "${output}"
 
 TM_ALERT_EMAIL="test@example.com"
 # mail command may not exist in test env, that's OK
-output=$(_tm_notify_email "Test Subject" "Test Body" 2>&1 || true)
+output=$(_tm_notify_email "Test Subject" "Test Body" "" "" 2>&1 || true)
 # Should either send or warn about missing mail command
 TESTS_RUN=$((TESTS_RUN + 1))
 if [[ "${output}" == *"sent"* || "${output}" == *"not found"* ]]; then

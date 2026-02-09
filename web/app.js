@@ -519,12 +519,21 @@ function copyInstaller() {
 
 async function refreshSettings() {
     var data = await apiGet('/api/settings');
-    if (data) {
-        var hourEl = document.getElementById('setting-schedule-hour');
-        var retEl = document.getElementById('setting-retention-days');
-        if (hourEl) hourEl.value = data.schedule_hour;
-        if (retEl) retEl.value = data.retention_days;
-    }
+    if (!data) return;
+
+    var el = function(id) { return document.getElementById(id); };
+    if (el('setting-schedule-hour')) el('setting-schedule-hour').value = data.schedule_hour;
+    if (el('setting-retention-days')) el('setting-retention-days').value = data.retention_days;
+    if (el('setting-alert-enabled')) el('setting-alert-enabled').checked = (data.alert_enabled === 'true');
+    if (el('setting-alert-email')) el('setting-alert-email').value = data.alert_email || '';
+    if (el('setting-notify-backup-ok')) el('setting-notify-backup-ok').checked = (data.notify_backup_ok !== 'false');
+    if (el('setting-notify-backup-fail')) el('setting-notify-backup-fail').checked = (data.notify_backup_fail !== 'false');
+    if (el('setting-notify-restore-ok')) el('setting-notify-restore-ok').checked = (data.notify_restore_ok !== 'false');
+    if (el('setting-notify-restore-fail')) el('setting-notify-restore-fail').checked = (data.notify_restore_fail !== 'false');
+    if (el('setting-email-backup-ok')) el('setting-email-backup-ok').value = data.alert_email_backup_ok || '';
+    if (el('setting-email-backup-fail')) el('setting-email-backup-fail').value = data.alert_email_backup_fail || '';
+    if (el('setting-email-restore-ok')) el('setting-email-restore-ok').value = data.alert_email_restore_ok || '';
+    if (el('setting-email-restore-fail')) el('setting-email-restore-fail').value = data.alert_email_restore_fail || '';
 }
 
 async function saveSettings() {
@@ -541,11 +550,26 @@ async function saveSettings() {
         return;
     }
 
+    var payload = {
+        schedule_hour: hour,
+        retention_days: retention,
+        alert_enabled: document.getElementById('setting-alert-enabled').checked ? 'true' : 'false',
+        alert_email: document.getElementById('setting-alert-email').value.trim(),
+        notify_backup_ok: document.getElementById('setting-notify-backup-ok').checked ? 'true' : 'false',
+        notify_backup_fail: document.getElementById('setting-notify-backup-fail').checked ? 'true' : 'false',
+        notify_restore_ok: document.getElementById('setting-notify-restore-ok').checked ? 'true' : 'false',
+        notify_restore_fail: document.getElementById('setting-notify-restore-fail').checked ? 'true' : 'false',
+        alert_email_backup_ok: document.getElementById('setting-email-backup-ok').value.trim(),
+        alert_email_backup_fail: document.getElementById('setting-email-backup-fail').value.trim(),
+        alert_email_restore_ok: document.getElementById('setting-email-restore-ok').value.trim(),
+        alert_email_restore_fail: document.getElementById('setting-email-restore-fail').value.trim()
+    };
+
     statusEl.textContent = 'Saving...';
-    var result = await apiPut('/api/settings', { schedule_hour: hour, retention_days: retention });
+    var result = await apiPut('/api/settings', payload);
     if (result && result.status === 'saved') {
         statusEl.textContent = 'Saved';
-        toast('Settings saved (schedule: ' + hour + ':00, retention: ' + retention + ' days)', 'success');
+        toast('Settings saved', 'success');
         setTimeout(function() { statusEl.textContent = ''; }, 3000);
     } else {
         statusEl.textContent = 'Failed';
@@ -777,6 +801,10 @@ function editServer(hostname) {
             '<div class="form-group">' +
                 '<label><input type="checkbox" id="edit-no-rotate"' + (srv.no_rotate ? ' checked' : '') + '> Skip backup rotation</label>' +
             '</div>' +
+            '<div class="form-group">' +
+                '<label>Notification email <span class="text-muted">(extra recipient for this server)</span></label>' +
+                '<input type="email" id="edit-notify-email" value="' + esc(srv.notify_email || '') + '" placeholder="admin@example.com">' +
+            '</div>' +
             '<div class="form-actions">' +
                 '<button class="btn btn-primary" onclick="saveServerSettings(\'' + esc(hostname) + '\')">Save</button>' +
                 '<button class="btn" onclick="closeModal()">Cancel</button>' +
@@ -792,12 +820,14 @@ async function saveServerSettings(hostname) {
     var priority = parseInt(document.getElementById('edit-priority').value) || 10;
     var dbInterval = parseInt(document.getElementById('edit-db-interval').value) || 0;
     var noRotate = document.getElementById('edit-no-rotate').checked;
+    var notifyEmail = document.getElementById('edit-notify-email').value.trim();
 
     var result = await apiPut('/api/servers/' + hostname, {
         mode: mode,
         priority: priority,
         db_interval: dbInterval,
-        no_rotate: noRotate
+        no_rotate: noRotate,
+        notify_email: notifyEmail
     });
 
     if (result && result.status === 'updated') {

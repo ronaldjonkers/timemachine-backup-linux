@@ -291,8 +291,63 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </section>
+
+            <!-- Notification Settings -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F514; Notifications</h2>
+                </div>
+                <div class="settings-form">
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <label>
+                                <input type="checkbox" id="setting-alert-enabled">
+                                Enable email notifications
+                            </label>
+                        </div>
+                        <div class="settings-field">
+                            <label for="setting-alert-email">Default email address</label>
+                            <input type="email" id="setting-alert-email" placeholder="admin@example.com" class="settings-text-input">
+                        </div>
+                    </div>
+
+                    <div class="settings-section-title">Per-event notifications</div>
+                    <table class="settings-table">
+                        <thead>
+                            <tr>
+                                <th>Event</th>
+                                <th>Enabled</th>
+                                <th>Email override <span class="text-muted">(leave empty for default)</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Backup success</td>
+                                <td><input type="checkbox" id="setting-notify-backup-ok" checked></td>
+                                <td><input type="email" id="setting-email-backup-ok" placeholder="ops@example.com" class="settings-text-input"></td>
+                            </tr>
+                            <tr>
+                                <td>Backup failure</td>
+                                <td><input type="checkbox" id="setting-notify-backup-fail" checked></td>
+                                <td><input type="email" id="setting-email-backup-fail" placeholder="oncall@example.com" class="settings-text-input"></td>
+                            </tr>
+                            <tr>
+                                <td>Restore success</td>
+                                <td><input type="checkbox" id="setting-notify-restore-ok" checked></td>
+                                <td><input type="email" id="setting-email-restore-ok" placeholder="" class="settings-text-input"></td>
+                            </tr>
+                            <tr>
+                                <td>Restore failure</td>
+                                <td><input type="checkbox" id="setting-notify-restore-fail" checked></td>
+                                <td><input type="email" id="setting-email-restore-fail" placeholder="" class="settings-text-input"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
                     <div class="settings-actions">
-                        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                        <button class="btn btn-primary" onclick="saveSettings()">Save All Settings</button>
                         <span class="text-muted" id="settings-status"></span>
                     </div>
                 </div>

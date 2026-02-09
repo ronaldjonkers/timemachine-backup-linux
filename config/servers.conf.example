@@ -12,6 +12,8 @@
 #                     Servers with lower numbers run first.
 #   --db-interval Xh  Extra DB-only backups every X hours
 #                     (e.g. --db-interval 4h = 6 DB backups/day)
+#   --notify EMAIL    Extra notification recipient for this server
+#                     (receives backup/restore emails in addition to global)
 #
 # Lines starting with # are comments.
 # Blank lines are ignored.

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-02-09
+
+### Added
+- **Per-event notification control** — Enable/disable notifications independently for: backup success, backup failure, restore success, restore failure. Each event type can have its own email address override (falls back to global `TM_ALERT_EMAIL`)
+- **Per-server notification email** — New `--notify email@...` option in `servers.conf`. The server-specific recipient receives emails in addition to the global/per-event address. Configurable via the server edit modal in the UI
+- **Notification settings UI** — Settings page now has a full "Notifications" panel with: global enable/disable toggle, default email, per-event enable/disable checkboxes, per-event email override fields
+- **Notification email routing** — `notify.sh` resolves recipients in priority order: per-event email → global email → plus per-server email as additional CC
+
+### Changed
+- `tm_notify()` now accepts `event_type` and `server_hostname` parameters for routing
+- `GET/PUT /api/settings` extended with all notification fields
+- `GET /api/servers` now returns `notify_email` field
+- `PUT /api/servers/:host` accepts `notify_email` to set `--notify` in servers.conf
+- `.env.example` updated with all new notification variables
+
 ## [2.9.0] - 2026-02-09
 
 ### Added

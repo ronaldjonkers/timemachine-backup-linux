@@ -573,7 +573,7 @@ Target:   ${TARGET_DIR:-default}
 --- Restore Log ---
 ${log_content}"
 
-        tm_notify "Restore OK: ${HOSTNAME}" "${summary}" "info"
+        tm_notify "Restore OK: ${HOSTNAME}" "${summary}" "info" "restore_ok" "${HOSTNAME}"
     else
         tm_log "ERROR" "Restore completed with errors"
 
@@ -587,7 +587,7 @@ Target:   ${TARGET_DIR:-default}
 --- Restore Log ---
 ${log_content}"
 
-        tm_notify "Restore FAILED: ${HOSTNAME}" "${summary}" "error"
+        tm_notify "Restore FAILED: ${HOSTNAME}" "${summary}" "error" "restore_fail" "${HOSTNAME}"
     fi
 
     exit ${exit_code}

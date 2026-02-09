@@ -207,11 +207,11 @@ Snap size:  ${snap_size:-unknown}
 Snapshots:  ${snap_count}
 Disk free:  ${disk_free:-unknown}"
 
-        tm_notify "Backup OK: ${HOSTNAME}" "${summary}" "info"
+        tm_notify "Backup OK: ${HOSTNAME}" "${summary}" "info" "backup_ok" "${HOSTNAME}"
     else
         tm_log "ERROR" "Backup completed with errors for ${HOSTNAME} (${duration}s)"
         tm_notify "Backup FAILED: ${HOSTNAME}" \
-            "Backup for ${HOSTNAME} completed with errors after ${duration} seconds." "error"
+            "Backup for ${HOSTNAME} completed with errors after ${duration} seconds." "error" "backup_fail" "${HOSTNAME}"
     fi
 
     return ${exit_code}

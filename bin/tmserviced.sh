@@ -805,9 +805,12 @@ _handle_request() {
                     echo "${srv_opts}" | grep -q '\-\-files-only' && srv_files_only="true"
                     echo "${srv_opts}" | grep -q '\-\-db-only' && srv_db_only="true"
                     echo "${srv_opts}" | grep -q '\-\-no-rotate' && srv_no_rotate="true"
+                    local srv_notify=""
+                    srv_notify=$(echo "${srv_opts}" | grep -oP '(?<=--notify\s)\S+' 2>/dev/null || \
+                        echo "${srv_opts}" | sed -n 's/.*--notify[[:space:]]\+\([^[:space:]]*\).*/\1/p')
                     [[ ${first} -eq 1 ]] && first=0 || servers+=','
-                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s,"files_only":%s,"db_only":%s,"no_rotate":%s}' \
-                        "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}" "${srv_files_only}" "${srv_db_only}" "${srv_no_rotate}")
+                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s,"files_only":%s,"db_only":%s,"no_rotate":%s,"notify_email":"%s"}' \
+                        "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}" "${srv_files_only}" "${srv_db_only}" "${srv_no_rotate}" "${srv_notify}")
                 done < "${servers_conf}"
             fi
             servers+=']'
@@ -855,11 +858,12 @@ _handle_request() {
                     "{\"error\":\"Server '${target_host}' not found\"}"
             else
                 # Parse settings from JSON body
-                local new_prio new_db_int new_mode new_no_rotate
+                local new_prio new_db_int new_mode new_no_rotate new_notify
                 new_prio=$(echo "${body}" | grep -o '"priority":[0-9]*' | cut -d: -f2)
                 new_db_int=$(echo "${body}" | grep -o '"db_interval":[0-9]*' | cut -d: -f2)
                 new_mode=$(echo "${body}" | grep -o '"mode":"[^"]*"' | cut -d'"' -f4)
                 new_no_rotate=$(echo "${body}" | grep -o '"no_rotate":[a-z]*' | cut -d: -f2)
+                new_notify=$(echo "${body}" | grep -o '"notify_email":"[^"]*"' | cut -d'"' -f4)
 
                 # Build new options string
                 local opts=""
@@ -870,6 +874,7 @@ _handle_request() {
                     db-only)    opts+="--db-only " ;;
                 esac
                 [[ "${new_no_rotate}" == "true" ]] && opts+="--no-rotate "
+                [[ -n "${new_notify}" ]] && opts+="--notify ${new_notify} "
                 opts=$(echo "${opts}" | sed 's/ *$//')
 
                 # Build new line
@@ -908,62 +913,101 @@ _handle_request() {
             ;;
 
         "GET /api/settings")
-            # Read current settings from .env and defaults
             local env_file="${TM_PROJECT_ROOT}/.env"
-            local s_schedule_hour="${TM_SCHEDULE_HOUR:-11}"
-            local s_retention_days="${TM_RETENTION_DAYS:-7}"
-            # Try to read from .env if values were overridden there
-            if [[ -f "${env_file}" ]]; then
-                local v
-                v=$(grep -E '^TM_SCHEDULE_HOUR=' "${env_file}" 2>/dev/null | tail -1 | cut -d'=' -f2-)
-                [[ -n "${v}" ]] && s_schedule_hour="${v}"
-                v=$(grep -E '^TM_RETENTION_DAYS=' "${env_file}" 2>/dev/null | tail -1 | cut -d'=' -f2-)
-                [[ -n "${v}" ]] && s_retention_days="${v}"
-            fi
-            _http_response "200 OK" "application/json" \
-                "{\"schedule_hour\":${s_schedule_hour},\"retention_days\":${s_retention_days}}"
+            # Helper: read a var from .env or fall back to current env
+            _env_val() {
+                local key="$1" default="$2"
+                if [[ -f "${env_file}" ]]; then
+                    local v
+                    v=$(grep -E "^${key}=" "${env_file}" 2>/dev/null | tail -1 | cut -d'=' -f2-)
+                    [[ -n "${v}" ]] && { echo "${v}"; return; }
+                fi
+                echo "${default}"
+            }
+            local resp
+            resp=$(printf '{
+                "schedule_hour":%s,
+                "retention_days":%s,
+                "alert_enabled":"%s",
+                "alert_email":"%s",
+                "notify_backup_ok":"%s",
+                "notify_backup_fail":"%s",
+                "notify_restore_ok":"%s",
+                "notify_restore_fail":"%s",
+                "alert_email_backup_ok":"%s",
+                "alert_email_backup_fail":"%s",
+                "alert_email_restore_ok":"%s",
+                "alert_email_restore_fail":"%s"
+            }' \
+                "$(_env_val TM_SCHEDULE_HOUR "${TM_SCHEDULE_HOUR:-11}")" \
+                "$(_env_val TM_RETENTION_DAYS "${TM_RETENTION_DAYS:-7}")" \
+                "$(_env_val TM_ALERT_ENABLED "${TM_ALERT_ENABLED:-false}")" \
+                "$(_env_val TM_ALERT_EMAIL "${TM_ALERT_EMAIL:-}")" \
+                "$(_env_val TM_NOTIFY_BACKUP_OK "${TM_NOTIFY_BACKUP_OK:-true}")" \
+                "$(_env_val TM_NOTIFY_BACKUP_FAIL "${TM_NOTIFY_BACKUP_FAIL:-true}")" \
+                "$(_env_val TM_NOTIFY_RESTORE_OK "${TM_NOTIFY_RESTORE_OK:-true}")" \
+                "$(_env_val TM_NOTIFY_RESTORE_FAIL "${TM_NOTIFY_RESTORE_FAIL:-true}")" \
+                "$(_env_val TM_ALERT_EMAIL_BACKUP_OK "${TM_ALERT_EMAIL_BACKUP_OK:-}")" \
+                "$(_env_val TM_ALERT_EMAIL_BACKUP_FAIL "${TM_ALERT_EMAIL_BACKUP_FAIL:-}")" \
+                "$(_env_val TM_ALERT_EMAIL_RESTORE_OK "${TM_ALERT_EMAIL_RESTORE_OK:-}")" \
+                "$(_env_val TM_ALERT_EMAIL_RESTORE_FAIL "${TM_ALERT_EMAIL_RESTORE_FAIL:-}")" \
+            )
+            # Compact JSON (remove whitespace)
+            resp=$(echo "${resp}" | tr -d '\n' | sed 's/  */ /g')
+            _http_response "200 OK" "application/json" "${resp}"
             ;;
 
         "PUT /api/settings")
-            # Update settings in .env file
             local env_file="${TM_PROJECT_ROOT}/.env"
-            local new_hour new_retention
-            new_hour=$(echo "${body}" | grep -o '"schedule_hour":[0-9]*' | cut -d':' -f2)
-            new_retention=$(echo "${body}" | grep -o '"retention_days":[0-9]*' | cut -d':' -f2)
+            [[ ! -f "${env_file}" ]] && touch "${env_file}"
 
-            if [[ -z "${new_hour}" && -z "${new_retention}" ]]; then
-                _http_response "400 Bad Request" "application/json" \
-                    '{"error":"No valid settings provided"}'
-            else
-                # Ensure .env exists
-                [[ ! -f "${env_file}" ]] && touch "${env_file}"
-
-                if [[ -n "${new_hour}" ]]; then
-                    if grep -q '^TM_SCHEDULE_HOUR=' "${env_file}" 2>/dev/null; then
-                        sed -i.bak "s/^TM_SCHEDULE_HOUR=.*/TM_SCHEDULE_HOUR=${new_hour}/" "${env_file}" 2>/dev/null || \
-                        sed -i '' "s/^TM_SCHEDULE_HOUR=.*/TM_SCHEDULE_HOUR=${new_hour}/" "${env_file}" 2>/dev/null
-                    else
-                        echo "TM_SCHEDULE_HOUR=${new_hour}" >> "${env_file}"
-                    fi
+            # Helper: update or append a key=value in .env and export
+            _env_set() {
+                local key="$1" val="$2"
+                [[ -z "${val}" ]] && return
+                if grep -q "^${key}=" "${env_file}" 2>/dev/null; then
+                    sed -i.bak "s|^${key}=.*|${key}=${val}|" "${env_file}" 2>/dev/null || \
+                    sed -i '' "s|^${key}=.*|${key}=${val}|" "${env_file}" 2>/dev/null
                     rm -f "${env_file}.bak"
-                    TM_SCHEDULE_HOUR="${new_hour}"
+                else
+                    echo "${key}=${val}" >> "${env_file}"
                 fi
+                export "${key}=${val}"
+            }
 
-                if [[ -n "${new_retention}" ]]; then
-                    if grep -q '^TM_RETENTION_DAYS=' "${env_file}" 2>/dev/null; then
-                        sed -i.bak "s/^TM_RETENTION_DAYS=.*/TM_RETENTION_DAYS=${new_retention}/" "${env_file}" 2>/dev/null || \
-                        sed -i '' "s/^TM_RETENTION_DAYS=.*/TM_RETENTION_DAYS=${new_retention}/" "${env_file}" 2>/dev/null
-                    else
-                        echo "TM_RETENTION_DAYS=${new_retention}" >> "${env_file}"
-                    fi
-                    rm -f "${env_file}.bak"
-                    TM_RETENTION_DAYS="${new_retention}"
-                fi
-
-                tm_log "INFO" "API: settings updated (schedule_hour=${new_hour:-unchanged}, retention_days=${new_retention:-unchanged})"
-                _http_response "200 OK" "application/json" \
-                    "{\"status\":\"saved\",\"schedule_hour\":${TM_SCHEDULE_HOUR},\"retention_days\":${TM_RETENTION_DAYS}}"
+            # Extract all possible fields from JSON body
+            local jv
+            jv=$(echo "${body}" | grep -o '"schedule_hour":[0-9]*' | cut -d: -f2)
+            [[ -n "${jv}" ]] && _env_set TM_SCHEDULE_HOUR "${jv}"
+            jv=$(echo "${body}" | grep -o '"retention_days":[0-9]*' | cut -d: -f2)
+            [[ -n "${jv}" ]] && _env_set TM_RETENTION_DAYS "${jv}"
+            jv=$(echo "${body}" | grep -o '"alert_enabled":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_ALERT_ENABLED "${jv}"
+            jv=$(echo "${body}" | grep -o '"alert_email":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL "${jv}"
+            # Allow clearing email by setting to empty
+            if echo "${body}" | grep -q '"alert_email":""'; then
+                _env_set TM_ALERT_EMAIL ""
             fi
+            jv=$(echo "${body}" | grep -o '"notify_backup_ok":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_NOTIFY_BACKUP_OK "${jv}"
+            jv=$(echo "${body}" | grep -o '"notify_backup_fail":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_NOTIFY_BACKUP_FAIL "${jv}"
+            jv=$(echo "${body}" | grep -o '"notify_restore_ok":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_NOTIFY_RESTORE_OK "${jv}"
+            jv=$(echo "${body}" | grep -o '"notify_restore_fail":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_NOTIFY_RESTORE_FAIL "${jv}"
+            jv=$(echo "${body}" | grep -o '"alert_email_backup_ok":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_BACKUP_OK "${jv}"
+            jv=$(echo "${body}" | grep -o '"alert_email_backup_fail":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_BACKUP_FAIL "${jv}"
+            jv=$(echo "${body}" | grep -o '"alert_email_restore_ok":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_RESTORE_OK "${jv}"
+            jv=$(echo "${body}" | grep -o '"alert_email_restore_fail":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_RESTORE_FAIL "${jv}"
+
+            tm_log "INFO" "API: settings updated"
+            _http_response "200 OK" "application/json" '{"status":"saved"}'
             ;;
 
         "GET /api/ssh-key")
