@@ -9,6 +9,7 @@
 #   sudo ./install.sh                          # Interactive mode selection
 #   sudo ./install.sh server                   # Install backup server
 #   sudo ./install.sh client [OPTIONS]         # Install client
+#   sudo ./install.sh --reconfigure            # Re-apply config (sudoers, perms, service)
 #
 # Client options:
 #   --server <host>     Backup server hostname/IP (auto-downloads SSH key)
@@ -161,6 +162,7 @@ WITH_DB=0
 DB_TYPE="auto"
 DB_CRONJOB=0
 UNINSTALL=0
+RECONFIGURE=0
 
 parse_args() {
     # First positional argument is the mode
@@ -199,6 +201,10 @@ parse_args() {
                 ;;
             --uninstall)
                 UNINSTALL=1
+                shift
+                ;;
+            --reconfigure)
+                RECONFIGURE=1
                 shift
                 ;;
             *)
@@ -914,6 +920,51 @@ CRON_EOF
             echo "     sudo tmctl auto-update on"
             ;;
     esac
+}
+
+# ============================================================
+# SERVER: RECONFIGURE (non-interactive, called by tmctl update)
+# ============================================================
+
+reconfigure_server() {
+    echo ""
+    echo -e "  ${MAGENTA}${BOLD}Reconfiguring Server${NC}"
+    echo ""
+
+    local total=5
+
+    step 1 ${total} "Setting file permissions & symlinks"
+    server_setup_permissions
+    step_done "Permissions and symlinks configured"
+
+    step 2 ${total} "Setting up sudoers"
+    server_setup_sudoers
+    step_done "Sudoers configured"
+
+    step 3 ${total} "Updating systemd service"
+    server_setup_service
+
+    step 4 ${total} "Fixing all permissions"
+    server_fix_permissions
+    step_done "All permissions verified"
+
+    step 5 ${total} "Restarting service"
+    if command -v systemctl &>/dev/null; then
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl restart timemachine 2>/dev/null || true
+        sleep 1
+        if systemctl is-active timemachine &>/dev/null; then
+            step_done "TimeMachine service restarted"
+        else
+            warn "Service may not have started. Check: journalctl -u timemachine -n 20"
+        fi
+    else
+        step_done "No systemd — skipped"
+    fi
+
+    echo ""
+    echo -e "  ${GREEN}${BOLD}Reconfiguration complete${NC}"
+    echo ""
 }
 
 # ============================================================
@@ -1656,6 +1707,11 @@ main() {
     require_root
     parse_args "$@"
     select_mode
+
+    if [[ ${RECONFIGURE} -eq 1 ]]; then
+        reconfigure_server
+        return
+    fi
 
     case "${INSTALL_MODE}" in
         server) install_server ;;

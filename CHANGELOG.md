@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.3] - 2026-02-09
+
+### Changed
+- **`tmctl update` now applies all configuration changes** — After pulling new code, `tmctl update` automatically re-applies sudoers rules, file permissions, symlinks, systemd service config, and restarts the service. No more need to manually re-run `install.sh` after an update
+- **New `install.sh --reconfigure` flag** — Non-interactive mode that re-applies all server configuration (sudoers, permissions, symlinks, service) without prompting. Called automatically by `tmctl update`
+
 ## [2.6.2] - 2026-02-09
 
 ### Fixed

@@ -567,7 +567,7 @@ cmd_server_edit() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v2.6.2"
+    echo "TimeMachine Backup v2.6.3"
 }
 
 cmd_fix_permissions() {
@@ -926,22 +926,15 @@ cmd_update() {
         fi
     fi
 
-    # Restore ownership to timemachine user (update may run as root)
-    if [[ "$(id -u)" -eq 0 ]] && id "${tm_user}" &>/dev/null 2>&1; then
-        chown -R "${tm_user}:${tm_user}" "${project_root}"
-        echo "  Ownership restored to ${tm_user}"
-    fi
-
-    # Restart service if running
-    if command -v systemctl &>/dev/null && systemctl is-active timemachine &>/dev/null; then
-        echo "  Restarting timemachine service..."
-        systemctl restart timemachine 2>/dev/null || true
-        sleep 1
-        if systemctl is-active timemachine &>/dev/null; then
-            echo "  ${GREEN}Service restarted${NC}"
-        else
-            echo "  ${YELLOW}Warning:${NC} Service may not have restarted. Check: journalctl -u timemachine"
-        fi
+    # Apply all configuration changes (sudoers, permissions, symlinks, service)
+    if [[ "$(id -u)" -eq 0 ]]; then
+        echo ""
+        echo "  ${BOLD}Applying configuration changes...${NC}"
+        bash "${project_root}/install.sh" --reconfigure
+    else
+        echo ""
+        echo "  ${YELLOW}Warning:${NC} Not running as root — skipping reconfiguration."
+        echo "  Run 'sudo tmctl update' to apply all configuration changes."
     fi
 
     local new_version
