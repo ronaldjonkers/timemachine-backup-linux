@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-02-09
+
+### Fixed
+- **`install.sh --reconfigure` hung on interactive prompt** — The `select_mode()` function ran before the `--reconfigure` check, causing it to wait for user input. Now `--reconfigure` is checked immediately after parsing args
+- **`tar` and `zip` added to server dependencies** — All package manager install lines now include `tar` and `zip` to ensure they're always available
+- **`reconfigure_server` installs missing dependencies** — The reconfigure step now checks for and installs `tar`/`zip` if missing, so `tmctl update` ensures these tools are present
+
 ## [2.7.0] - 2026-02-09
 
 ### Added

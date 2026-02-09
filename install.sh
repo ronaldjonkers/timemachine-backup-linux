@@ -260,36 +260,36 @@ server_install_dependencies() {
             apt-get update -qq \
                 -o Dpkg::Options::="--force-confdef" \
                 -o Dpkg::Options::="--force-confold" 2>/dev/null || true
-            apt-get install -y -qq rsync openssh-server socat curl mailutils gnupg2 2>/dev/null || true
+            apt-get install -y -qq rsync openssh-server socat curl mailutils gnupg2 tar zip 2>/dev/null || true
             step_done "apt packages installed"
             ;;
         centos|rhel|rocky|almalinux|ol)
             info "Using yum..."
-            yum install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || {
+            yum install -y -q rsync openssh-server socat curl s-nail gnupg2 tar zip 2>/dev/null || {
                 yum install -y -q mailx 2>/dev/null || true
             }
             step_done "yum packages installed"
             ;;
         fedora)
             info "Using dnf..."
-            dnf install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || {
+            dnf install -y -q rsync openssh-server socat curl s-nail gnupg2 tar zip 2>/dev/null || {
                 dnf install -y -q mailx 2>/dev/null || true
             }
             step_done "dnf packages installed"
             ;;
         opensuse*|sles|suse)
             info "Using zypper..."
-            zypper --non-interactive install rsync openssh socat curl mailx gpg2 2>/dev/null || true
+            zypper --non-interactive install rsync openssh socat curl mailx gpg2 tar zip 2>/dev/null || true
             step_done "zypper packages installed"
             ;;
         arch|manjaro|endeavouros)
             info "Using pacman..."
-            pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg 2>/dev/null || true
+            pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg tar zip 2>/dev/null || true
             step_done "pacman packages installed"
             ;;
         alpine)
             info "Using apk..."
-            apk add --no-cache rsync openssh socat curl gnupg mailx 2>/dev/null || true
+            apk add --no-cache rsync openssh socat curl gnupg mailx tar zip 2>/dev/null || true
             step_done "apk packages installed"
             ;;
         macos)
@@ -304,17 +304,17 @@ server_install_dependencies() {
             warn "Unknown OS '${os}'. Trying to auto-detect package manager..."
             if command -v apt-get &>/dev/null; then
                 apt-get update -qq 2>/dev/null || true
-                apt-get install -y -qq rsync openssh-server socat curl mailutils gnupg2 2>/dev/null || true
+                apt-get install -y -qq rsync openssh-server socat curl mailutils gnupg2 tar zip 2>/dev/null || true
             elif command -v dnf &>/dev/null; then
-                dnf install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || true
+                dnf install -y -q rsync openssh-server socat curl s-nail gnupg2 tar zip 2>/dev/null || true
             elif command -v yum &>/dev/null; then
-                yum install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || true
+                yum install -y -q rsync openssh-server socat curl s-nail gnupg2 tar zip 2>/dev/null || true
             elif command -v zypper &>/dev/null; then
-                zypper --non-interactive install rsync openssh socat curl mailx gpg2 2>/dev/null || true
+                zypper --non-interactive install rsync openssh socat curl mailx gpg2 tar zip 2>/dev/null || true
             elif command -v pacman &>/dev/null; then
-                pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg 2>/dev/null || true
+                pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg tar zip 2>/dev/null || true
             elif command -v apk &>/dev/null; then
-                apk add --no-cache rsync openssh socat curl gnupg mailx 2>/dev/null || true
+                apk add --no-cache rsync openssh socat curl gnupg mailx tar zip 2>/dev/null || true
             else
                 warn "No supported package manager found. Install rsync, openssh, socat, and curl manually."
             fi
@@ -931,24 +931,44 @@ reconfigure_server() {
     echo -e "  ${MAGENTA}${BOLD}Reconfiguring Server${NC}"
     echo ""
 
-    local total=5
+    local total=6
 
-    step 1 ${total} "Setting file permissions & symlinks"
+    step 1 ${total} "Checking dependencies"
+    # Ensure tar and zip are installed (added in v2.7.1)
+    if ! command -v tar &>/dev/null || ! command -v zip &>/dev/null; then
+        info "Installing missing dependencies (tar, zip)..."
+        if command -v apt-get &>/dev/null; then
+            apt-get install -y -qq tar zip 2>/dev/null || true
+        elif command -v dnf &>/dev/null; then
+            dnf install -y -q tar zip 2>/dev/null || true
+        elif command -v yum &>/dev/null; then
+            yum install -y -q tar zip 2>/dev/null || true
+        elif command -v zypper &>/dev/null; then
+            zypper --non-interactive install tar zip 2>/dev/null || true
+        elif command -v pacman &>/dev/null; then
+            pacman -Sy --noconfirm --needed tar zip 2>/dev/null || true
+        elif command -v apk &>/dev/null; then
+            apk add --no-cache tar zip 2>/dev/null || true
+        fi
+    fi
+    step_done "Dependencies OK"
+
+    step 2 ${total} "Setting file permissions & symlinks"
     server_setup_permissions
     step_done "Permissions and symlinks configured"
 
-    step 2 ${total} "Setting up sudoers"
+    step 3 ${total} "Setting up sudoers"
     server_setup_sudoers
     step_done "Sudoers configured"
 
-    step 3 ${total} "Updating systemd service"
+    step 4 ${total} "Updating systemd service"
     server_setup_service
 
-    step 4 ${total} "Fixing all permissions"
+    step 5 ${total} "Fixing all permissions"
     server_fix_permissions
     step_done "All permissions verified"
 
-    step 5 ${total} "Restarting service"
+    step 6 ${total} "Restarting service"
     if command -v systemctl &>/dev/null; then
         systemctl daemon-reload 2>/dev/null || true
         systemctl restart timemachine 2>/dev/null || true
@@ -1706,12 +1726,13 @@ main() {
     show_banner
     require_root
     parse_args "$@"
-    select_mode
 
     if [[ ${RECONFIGURE} -eq 1 ]]; then
         reconfigure_server
         return
     fi
+
+    select_mode
 
     case "${INSTALL_MODE}" in
         server) install_server ;;
