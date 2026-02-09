@@ -459,11 +459,17 @@ _handle_request() {
             local snap_dir="${TM_BACKUP_ROOT}/${target_host}"
             local snaps='['
             local first=1
+            # Only show snapshots from the last 3 months
+            local cutoff_date
+            cutoff_date=$(date -d '3 months ago' '+%Y-%m-%d' 2>/dev/null || \
+                          date -v-3m '+%Y-%m-%d' 2>/dev/null || echo "0000-00-00")
             if [[ -d "${snap_dir}" ]]; then
                 for d in "${snap_dir}"/????-??-??; do
                     [[ -d "${d}" ]] || continue
                     local dn
                     dn=$(basename "${d}")
+                    # Skip snapshots older than 3 months
+                    [[ "${dn}" < "${cutoff_date}" ]] && continue
                     local sz
                     sz=$(du -sh "${d}" 2>/dev/null | cut -f1)
                     local hf="false" hs="false"
@@ -692,9 +698,11 @@ _handle_request() {
 
                 # Escape description for JSON
                 rdesc=$(echo "${rdesc}" | sed 's/"/\\"/g')
+                local rid
+                rid=$(basename "${sf}" .state)
                 [[ ${first} -eq 1 ]] && first=0 || restores+=','
-                restores+=$(printf '{"pid":%s,"hostname":"%s","description":"%s","started":"%s","status":"%s","logfile":"%s"}' \
-                    "${rpid}" "${rhost}" "${rdesc}" "${rstarted}" "${rstatus}" "$(basename "${rlogfile:-}" 2>/dev/null)")
+                restores+=$(printf '{"id":"%s","pid":%s,"hostname":"%s","description":"%s","started":"%s","status":"%s","logfile":"%s"}' \
+                    "${rid}" "${rpid}" "${rhost}" "${rdesc}" "${rstarted}" "${rstatus}" "$(basename "${rlogfile:-}" 2>/dev/null)")
             done
             restores+=']'
             _http_response "200 OK" "application/json" "${restores}"
@@ -729,6 +737,43 @@ _handle_request() {
 
                 _http_response "200 OK" "application/json" \
                     "{\"logfile\":\"${log_name}\",\"lines\":\"${content}\",\"running\":${is_running}}"
+            fi
+            ;;
+
+        "DELETE /api/restore/"*)
+            # Delete a restore task state file (and optionally its log)
+            local restore_id="${path#/api/restore/}"
+            local found=0
+            for sf in "${STATE_DIR}"/restore-*.state; do
+                [[ -f "${sf}" ]] || continue
+                local sf_base
+                sf_base=$(basename "${sf}" .state)
+                if [[ "${sf_base}" == "${restore_id}" ]]; then
+                    # Don't delete running tasks
+                    local sf_status sf_pid
+                    sf_status=$(cut -d'|' -f5 "${sf}")
+                    sf_pid=$(cut -d'|' -f1 "${sf}")
+                    if [[ "${sf_status}" == "running" ]] && kill -0 "${sf_pid}" 2>/dev/null; then
+                        _http_response "409 Conflict" "application/json" \
+                            '{"error":"Cannot delete a running restore task"}'
+                        found=2
+                        break
+                    fi
+                    # Remove state file and optionally log file
+                    local sf_log
+                    sf_log=$(cut -d'|' -f6 "${sf}")
+                    rm -f "${sf}"
+                    [[ -n "${sf_log}" && -f "${sf_log}" ]] && rm -f "${sf_log}"
+                    found=1
+                    break
+                fi
+            done
+            if [[ ${found} -eq 1 ]]; then
+                _http_response "200 OK" "application/json" \
+                    '{"status":"deleted"}'
+            elif [[ ${found} -eq 0 ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    '{"error":"Restore task not found"}'
             fi
             ;;
 

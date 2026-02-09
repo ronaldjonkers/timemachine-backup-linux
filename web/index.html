@@ -142,7 +142,10 @@
         <section class="panel" id="restores-panel" style="display:none">
             <div class="panel-header">
                 <h2>&#x1F501; Restore Tasks</h2>
-                <button class="btn btn-sm" onclick="refreshRestores()">Refresh</button>
+                <div>
+                    <button class="btn btn-sm btn-danger" id="restores-clear-btn" style="display:none" onclick="clearFinishedRestores()">Clear Finished</button>
+                    <button class="btn btn-sm" onclick="refreshRestores()">Refresh</button>
+                </div>
             </div>
             <table>
                 <thead>

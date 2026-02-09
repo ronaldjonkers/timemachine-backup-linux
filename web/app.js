@@ -298,26 +298,53 @@ async function refreshRestores() {
     var data = await apiGet('/api/restores');
     var panel = document.getElementById('restores-panel');
     var tbody = document.getElementById('restores-body');
+    var clearBtn = document.getElementById('restores-clear-btn');
 
     if (!data || data.length === 0) {
         panel.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">No restore tasks</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No restore tasks</td></tr>';
         return;
     }
 
     panel.style.display = '';
+    var hasFinished = data.some(function(r) { return r.status !== 'running'; });
+    if (clearBtn) clearBtn.style.display = hasFinished ? '' : 'none';
+
     tbody.innerHTML = data.map(function(r) {
         var sc = r.status || 'unknown';
         var statusClass = sc === 'completed' ? 'success' : (sc === 'failed' ? 'failed' : sc);
+        var canDelete = r.status !== 'running';
         return '<tr>' +
             '<td><strong>' + esc(r.hostname) + '</strong></td>' +
             '<td>' + esc(r.description) + '</td>' +
             '<td>' + esc(r.started) + '</td>' +
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + esc(r.status) + '</span></td>' +
             '<td>' +
-                '<button class="btn btn-sm" onclick="viewRestoreLog(\'' + esc(r.logfile) + '\',\'' + esc(r.hostname) + '\')">Logs</button>' +
+                '<button class="btn btn-sm" onclick="viewRestoreLog(\'' + esc(r.logfile) + '\',\'' + esc(r.hostname) + '\')">Logs</button> ' +
+                (canDelete ? '<button class="btn btn-sm btn-danger" onclick="deleteRestore(\'' + esc(r.id) + '\')">Delete</button>' : '') +
             '</td></tr>';
     }).join('');
+}
+
+async function deleteRestore(id) {
+    var result = await apiDelete('/api/restore/' + id);
+    if (result && result.status === 'deleted') {
+        toast('Restore task deleted', 'info');
+        refreshRestores();
+    } else {
+        toast('Failed to delete restore task', 'error');
+    }
+}
+
+async function clearFinishedRestores() {
+    var data = await apiGet('/api/restores');
+    if (!data) return;
+    var finished = data.filter(function(r) { return r.status !== 'running'; });
+    for (var i = 0; i < finished.length; i++) {
+        await apiDelete('/api/restore/' + finished[i].id);
+    }
+    toast('Cleared ' + finished.length + ' finished restore task(s)', 'info');
+    refreshRestores();
 }
 
 async function viewRestoreLog(logfile, hostname) {
@@ -733,14 +760,30 @@ async function saveServerSettings(hostname) {
     }
 }
 
-async function viewSnapshots(hostname) {
-    var data = await apiGet('/api/snapshots/' + hostname);
-    if (!data || data.length === 0) {
-        toast('No snapshots found for ' + hostname, 'info');
-        return;
-    }
+var _snapPage = 0;
+var _snapPerPage = 15;
+var _snapData = [];
+var _snapHost = '';
 
-    var rows = data.map(function(s) {
+async function viewSnapshots(hostname, page) {
+    if (hostname !== _snapHost || typeof page === 'undefined') {
+        var data = await apiGet('/api/snapshots/' + hostname);
+        if (!data || data.length === 0) {
+            toast('No snapshots found for ' + hostname, 'info');
+            return;
+        }
+        // Sort newest first
+        _snapData = data.reverse();
+        _snapHost = hostname;
+        _snapPage = 0;
+    }
+    if (typeof page !== 'undefined') _snapPage = page;
+
+    var totalPages = Math.ceil(_snapData.length / _snapPerPage);
+    var start = _snapPage * _snapPerPage;
+    var pageData = _snapData.slice(start, start + _snapPerPage);
+
+    var rows = pageData.map(function(s) {
         return '<tr>' +
             '<td>' + esc(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
@@ -753,12 +796,25 @@ async function viewSnapshots(hostname) {
             '</tr>';
     }).join('');
 
+    var pagination = '';
+    if (totalPages > 1) {
+        pagination = '<div class="form-actions" style="margin-top:0.75rem;justify-content:center">';
+        if (_snapPage > 0) {
+            pagination += '<button class="btn btn-sm" onclick="viewSnapshots(\'' + esc(hostname) + '\',' + (_snapPage - 1) + ')">Previous</button> ';
+        }
+        pagination += '<span class="text-muted" style="padding:0.3rem 0.5rem;font-size:0.82rem">Page ' + (_snapPage + 1) + ' of ' + totalPages + ' (' + _snapData.length + ' snapshots)</span>';
+        if (_snapPage < totalPages - 1) {
+            pagination += ' <button class="btn btn-sm" onclick="viewSnapshots(\'' + esc(hostname) + '\',' + (_snapPage + 1) + ')">Next</button>';
+        }
+        pagination += '</div>';
+    }
+
     var html = '<table>' +
         '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>SQL</th><th>Actions</th></tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
-        '</table>';
+        '</table>' + pagination;
 
-    openModal('Snapshots: ' + hostname, html);
+    openModal('Snapshots: ' + hostname + ' (last 3 months)', html);
 }
 
 /* ============================================================

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.3] - 2026-02-09
+
+### Added
+- **Delete restore tasks** — Each finished restore task now has a "Delete" button to remove it (and its log file) from the list. Running tasks cannot be deleted
+- **Clear Finished button** — Bulk-delete all completed/failed restore tasks in one click
+- **Snapshot pagination** — Snapshots viewer now shows 15 per page (newest first) with Previous/Next navigation
+- **API: `DELETE /api/restore/<id>`** — Remove a restore task state file and its associated log
+
+### Changed
+- Snapshots API limited to last 3 months (older snapshots are still on disk, just not shown in the web portal)
+- Restore tasks API now includes `id` field for referencing individual tasks
+- Snapshots modal title shows "(last 3 months)" for clarity
+
 ## [2.5.2] - 2026-02-09
 
 ### Fixed
