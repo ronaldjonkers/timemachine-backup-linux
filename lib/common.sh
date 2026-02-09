@@ -151,19 +151,23 @@ tm_self_restart() {
     local caller="$1"
     shift
 
-    if [[ ! "${caller}" =~ /tmp/tm-self-restart/ ]]; then
-        local tmp_dir="/tmp/tm-self-restart"
-        mkdir -p "${tmp_dir}"
-        local dist
-        dist="${tmp_dir}/$(basename "${caller}").$$"
-        install -m 700 "${caller}" "${dist}"
-        exec "${dist}" "$@"
-        exit
-    else
-        # Running from temp copy; register cleanup
+    # Already running from temp copy — just register cleanup
+    if [[ -n "${_TM_ORIG_SCRIPT_DIR:-}" ]]; then
+        SCRIPT_DIR="${_TM_ORIG_SCRIPT_DIR}"
         # shellcheck disable=SC2064
         trap "rm -f '${caller}'" EXIT
+        return
     fi
+
+    # First run: copy script to temp dir and re-exec
+    local tmp_dir="${TMPDIR:-/tmp}/tm-self-restart"
+    mkdir -p "${tmp_dir}"
+    local dist
+    dist="${tmp_dir}/$(basename "${caller}").$$"
+    install -m 700 "${caller}" "${dist}"
+    export _TM_ORIG_SCRIPT_DIR="${SCRIPT_DIR}"
+    exec "${dist}" "$@"
+    exit
 }
 
 # ============================================================

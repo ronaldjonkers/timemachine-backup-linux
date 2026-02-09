@@ -8,9 +8,10 @@
 # ============================================================
 
 # Self-restart in temp file
-if [[ ! "$0" =~ /tmp/tm-self-restart/ ]]; then
-    mkdir -p "/tmp/tm-self-restart"
-    DIST="/tmp/tm-self-restart/$(basename "$0").$$"
+_TM_TMP="${TMPDIR:-/tmp}/tm-self-restart"
+if [[ ! "$0" =~ tm-self-restart ]]; then
+    mkdir -p "${_TM_TMP}"
+    DIST="${_TM_TMP}/$(basename "$0").$$"
     install -m 700 "$0" "${DIST}"
     exec "${DIST}" "$@"
     exit

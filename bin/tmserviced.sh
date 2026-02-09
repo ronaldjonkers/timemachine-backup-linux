@@ -52,12 +52,12 @@ echo $$ > "${TM_RUN_DIR}/tmserviced.pid"
 # ============================================================
 
 # Register a running backup process
-# Usage: _register_process <hostname> <pid> <mode>
+# State format: pid|hostname|mode|started|status|logfile
 _register_process() {
-    local hostname="$1" pid="$2" mode="${3:-full}"
+    local hostname="$1" pid="$2" mode="${3:-full}" logfile="${4:-}"
     local ts
     ts=$(date +'%Y-%m-%d %H:%M:%S')
-    echo "${pid}|${hostname}|${mode}|${ts}|running" > "${STATE_DIR}/proc-${hostname}.state"
+    echo "${pid}|${hostname}|${mode}|${ts}|running|${logfile}" > "${STATE_DIR}/proc-${hostname}.state"
 }
 
 # Update process state
@@ -67,9 +67,33 @@ _update_process() {
     if [[ -f "${state_file}" ]]; then
         local content
         content=$(cat "${state_file}")
-        # Replace status field (5th field)
-        echo "${content}" | sed "s/|[^|]*$/|${status}/" > "${state_file}"
+        # Replace status field (5th field), keep logfile (6th)
+        local f1 f2 f3 f4 f6
+        f1=$(echo "${content}" | cut -d'|' -f1)
+        f2=$(echo "${content}" | cut -d'|' -f2)
+        f3=$(echo "${content}" | cut -d'|' -f3)
+        f4=$(echo "${content}" | cut -d'|' -f4)
+        f6=$(echo "${content}" | cut -d'|' -f6)
+        echo "${f1}|${f2}|${f3}|${f4}|${status}|${f6}" > "${state_file}"
     fi
+}
+
+# Check if a finished process failed by inspecting its log file
+_check_process_exit() {
+    local hostname="$1"
+    local state_file="${STATE_DIR}/proc-${hostname}.state"
+    [[ -f "${state_file}" ]] || return
+    local logfile
+    logfile=$(cut -d'|' -f6 "${state_file}")
+    if [[ -n "${logfile}" && -f "${logfile}" ]]; then
+        # Check last 30 lines for ERROR/FAIL indicators
+        if tail -30 "${logfile}" 2>/dev/null | grep -qiE '(\[ERROR\]|FAIL|fatal|Permission denied|cannot create)'; then
+            _update_process "${hostname}" "failed"
+            return 1
+        fi
+    fi
+    _update_process "${hostname}" "completed"
+    return 0
 }
 
 # Get all process states as JSON
@@ -80,22 +104,23 @@ _get_processes_json() {
         [[ -f "${state_file}" ]] || continue
         local content
         content=$(cat "${state_file}")
-        local pid hostname mode started status
+        local pid hostname mode started status logfile
         pid=$(echo "${content}" | cut -d'|' -f1)
         hostname=$(echo "${content}" | cut -d'|' -f2)
         mode=$(echo "${content}" | cut -d'|' -f3)
         started=$(echo "${content}" | cut -d'|' -f4)
         status=$(echo "${content}" | cut -d'|' -f5)
+        logfile=$(echo "${content}" | cut -d'|' -f6)
 
         # Check if process is actually still running
         if [[ "${status}" == "running" ]] && ! kill -0 "${pid}" 2>/dev/null; then
-            status="completed"
-            _update_process "${hostname}" "completed"
+            _check_process_exit "${hostname}"
+            status=$(cut -d'|' -f5 "${state_file}")
         fi
 
         [[ ${first} -eq 1 ]] && first=0 || echo ','
-        printf '{"pid":%s,"hostname":"%s","mode":"%s","started":"%s","status":"%s"}' \
-            "${pid}" "${hostname}" "${mode}" "${started}" "${status}"
+        printf '{"pid":%s,"hostname":"%s","mode":"%s","started":"%s","status":"%s","logfile":"%s"}' \
+            "${pid}" "${hostname}" "${mode}" "${started}" "${status}" "$(basename "${logfile:-}" 2>/dev/null)"
     done
     echo ']'
 }
@@ -111,8 +136,30 @@ run_backup() {
 
     tm_log "INFO" "Service: starting backup for ${hostname} ${opts}"
 
-    "${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} \
-        >> "${TM_LOG_DIR}/service-${hostname}.log" 2>&1 &
+    # Per-backup timestamped log file
+    local ts
+    ts=$(date +'%Y-%m-%d_%H%M%S')
+    local logfile="${TM_LOG_DIR}/backup-${hostname}-${ts}.log"
+
+    # Wrapper subshell: runs backup, captures exit code, updates state, sends notification on failure
+    (
+        local exit_code=0
+        "${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} >> "${logfile}" 2>&1 || exit_code=$?
+
+        if [[ ${exit_code} -ne 0 ]]; then
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] Backup exited with code ${exit_code}" >> "${logfile}"
+            echo "${exit_code}" > "${STATE_DIR}/exit-${hostname}.code"
+            # Send failure notification
+            if [[ "${TM_ALERT_ENABLED:-false}" == "true" ]]; then
+                local body
+                body="Backup for ${hostname} failed (exit code ${exit_code}).\n\nLast 20 lines of log:\n$(tail -20 "${logfile}" 2>/dev/null)"
+                source "${SCRIPT_DIR}/../lib/notify.sh" 2>/dev/null || true
+                tm_notify "Backup FAILED: ${hostname}" "${body}" "error" 2>/dev/null || true
+            fi
+        else
+            echo "0" > "${STATE_DIR}/exit-${hostname}.code"
+        fi
+    ) &
     local pid=$!
     disown ${pid} 2>/dev/null || true
 
@@ -120,8 +167,8 @@ run_backup() {
     [[ "${opts}" == *"--files-only"* ]] && mode="files-only"
     [[ "${opts}" == *"--db-only"* ]] && mode="db-only"
 
-    _register_process "${hostname}" "${pid}" "${mode}"
-    tm_log "INFO" "Service: backup started for ${hostname} (PID ${pid})"
+    _register_process "${hostname}" "${pid}" "${mode}" "${logfile}"
+    tm_log "INFO" "Service: backup started for ${hostname} (PID ${pid}, log: ${logfile})"
     echo "${pid}"
 }
 
@@ -530,14 +577,30 @@ _handle_request() {
 
         "GET /api/logs/"*)
             local target_host="${path#/api/logs/}"
-            local logfile="${TM_LOG_DIR}/service-${target_host}.log"
+            # Find the latest per-backup log, fall back to old service-<host>.log
+            local logfile=""
+            logfile=$(ls -t "${TM_LOG_DIR}"/backup-"${target_host}"-*.log 2>/dev/null | head -1)
+            if [[ -z "${logfile}" || ! -f "${logfile}" ]]; then
+                logfile="${TM_LOG_DIR}/service-${target_host}.log"
+            fi
             if [[ -f "${logfile}" ]]; then
                 local content
-                content=$(tail -100 "${logfile}")
+                content=$(tail -200 "${logfile}")
                 # Escape for JSON
                 content=$(echo "${content}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+                local log_name
+                log_name=$(basename "${logfile}")
+                # List all available log files for this host
+                local log_list='['
+                local lfirst=1
+                local lf
+                for lf in $(ls -t "${TM_LOG_DIR}"/backup-"${target_host}"-*.log 2>/dev/null | head -30); do
+                    [[ ${lfirst} -eq 1 ]] && lfirst=0 || log_list+=','
+                    log_list+="\"$(basename "${lf}")\""
+                done
+                log_list+=']'
                 _http_response "200 OK" "application/json" \
-                    "{\"hostname\":\"${target_host}\",\"lines\":\"${content}\"}"
+                    "{\"hostname\":\"${target_host}\",\"logfile\":\"${log_name}\",\"lines\":\"${content}\",\"available\":${log_list}}"
             else
                 _http_response "404 Not Found" "application/json" \
                     "{\"error\":\"No logs for ${target_host}\"}"
@@ -575,22 +638,46 @@ _handle_request() {
             ;;
 
         "GET /api/failures")
-            # Recent failed backups from log files
+            # Recent failed backups — check per-backup logs and state files
             local failures='['
             local first=1
             if [[ -d "${TM_LOG_DIR}" ]]; then
+                # Collect unique hostnames from per-backup logs
+                local seen_hosts=""
                 local logfile
+                for logfile in $(ls -t "${TM_LOG_DIR}"/backup-*.log 2>/dev/null | head -50); do
+                    [[ -f "${logfile}" ]] || continue
+                    local lname
+                    lname=$(basename "${logfile}" .log)
+                    # Extract hostname: backup-<hostname>-<timestamp>
+                    local lhost
+                    lhost=$(echo "${lname}" | sed 's/^backup-//;s/-[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}_[0-9]\{6\}$//')
+                    # Only check latest log per host
+                    if echo "${seen_hosts}" | grep -qw "${lhost}" 2>/dev/null; then
+                        continue
+                    fi
+                    seen_hosts="${seen_hosts} ${lhost}"
+                    # Check for errors in this log
+                    local fail_lines
+                    fail_lines=$(tail -50 "${logfile}" 2>/dev/null | grep -iE "(\[ERROR\]|FAIL|fatal|Permission denied|cannot create)" | tail -3)
+                    while IFS= read -r fline; do
+                        [[ -z "${fline}" ]] && continue
+                        fline=$(echo "${fline}" | sed 's/"/\\"/g' | tr -d '\n')
+                        [[ ${first} -eq 1 ]] && first=0 || failures+=','
+                        failures+=$(printf '{"hostname":"%s","message":"%s","logfile":"%s"}' "${lhost}" "${fline}" "$(basename "${logfile}")")
+                    done <<< "${fail_lines}"
+                done
+                # Also check old-style service-*.log for hosts not yet seen
                 for logfile in "${TM_LOG_DIR}"/service-*.log; do
                     [[ -f "${logfile}" ]] || continue
                     local lhost
                     lhost=$(basename "${logfile}" .log)
                     lhost="${lhost#service-}"
-                    # Search for FAIL/ERROR lines in last 200 lines
+                    echo "${seen_hosts}" | grep -qw "${lhost}" 2>/dev/null && continue
                     local fail_lines
-                    fail_lines=$(tail -200 "${logfile}" 2>/dev/null | grep -iE "(FAIL|ERROR|fatal)" | tail -5)
+                    fail_lines=$(tail -50 "${logfile}" 2>/dev/null | grep -iE "(\[ERROR\]|FAIL|fatal|Permission denied)" | tail -3)
                     while IFS= read -r fline; do
                         [[ -z "${fline}" ]] && continue
-                        # Escape quotes and newlines for JSON
                         fline=$(echo "${fline}" | sed 's/"/\\"/g' | tr -d '\n')
                         [[ ${first} -eq 1 ]] && first=0 || failures+=','
                         failures+=$(printf '{"hostname":"%s","message":"%s"}' "${lhost}" "${fline}")
@@ -629,13 +716,17 @@ _handle_request() {
                         # Total size
                         total_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
                     fi
-                    # Check if last backup had errors
+                    # Check if last backup had errors (check per-backup log first, then old format)
                     local last_status="ok"
-                    local logfile="${TM_LOG_DIR}/service-${hist_host}.log"
-                    if [[ -f "${logfile}" ]]; then
+                    local latest_log
+                    latest_log=$(ls -t "${TM_LOG_DIR}"/backup-"${hist_host}"-*.log 2>/dev/null | head -1)
+                    if [[ -z "${latest_log}" ]]; then
+                        latest_log="${TM_LOG_DIR}/service-${hist_host}.log"
+                    fi
+                    if [[ -f "${latest_log}" ]]; then
                         local last_lines
-                        last_lines=$(tail -20 "${logfile}" 2>/dev/null)
-                        if echo "${last_lines}" | grep -qiE "(FAIL|ERROR|fatal)"; then
+                        last_lines=$(tail -30 "${latest_log}" 2>/dev/null)
+                        if echo "${last_lines}" | grep -qiE "(\[ERROR\]|FAIL|fatal|Permission denied)"; then
                             last_status="error"
                         fi
                     fi
@@ -737,6 +828,7 @@ _generate_handler_script() {
         declare -f _get_processes_json
         declare -f _register_process
         declare -f _update_process
+        declare -f _check_process_exit
         declare -f run_backup
         declare -f kill_backup
         declare -f _parse_priority
