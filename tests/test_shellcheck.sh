@@ -37,7 +37,7 @@ while IFS= read -r -d '' script; do
         echo "  FAIL: ${rel_path}"
         FAILED=$((FAILED + 1))
     fi
-done < <(find "${PROJECT_ROOT}" -name "*.sh" -not -path "*/.sh-tmp/*" -not -path "*/.git/*" -print0)
+done < <(find "${PROJECT_ROOT}" -name "*.sh" -not -path "*/.git/*" -print0)
 
 echo ""
 echo "============================================"

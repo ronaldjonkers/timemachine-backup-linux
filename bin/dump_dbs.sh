@@ -18,9 +18,9 @@
 # ============================================================
 
 # Self-restart in temp file (allows editing while running)
-if [[ ! "$(dirname "$0")" =~ /.sh-tmp$ ]]; then
-    mkdir -p "$(dirname "$0")/.sh-tmp/"
-    DIST="$(dirname "$0")/.sh-tmp/$(basename "$0").$$"
+if [[ ! "$0" =~ /tmp/tm-self-restart/ ]]; then
+    mkdir -p "/tmp/tm-self-restart"
+    DIST="/tmp/tm-self-restart/$(basename "$0").$$"
     install -m 700 "$0" "${DIST}"
     exec "${DIST}" "$@"
     exit

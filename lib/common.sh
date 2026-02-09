@@ -151,10 +151,11 @@ tm_self_restart() {
     local caller="$1"
     shift
 
-    if [[ ! "$(dirname "${caller}")" =~ /.sh-tmp$ ]]; then
-        mkdir -p "$(dirname "${caller}")/.sh-tmp/"
+    if [[ ! "${caller}" =~ /tmp/tm-self-restart/ ]]; then
+        local tmp_dir="/tmp/tm-self-restart"
+        mkdir -p "${tmp_dir}"
         local dist
-        dist="$(dirname "${caller}")/.sh-tmp/$(basename "${caller}").$$"
+        dist="${tmp_dir}/$(basename "${caller}").$$"
         install -m 700 "${caller}" "${dist}"
         exec "${dist}" "$@"
         exit

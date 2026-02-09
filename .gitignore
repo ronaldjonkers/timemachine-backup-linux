@@ -18,7 +18,6 @@ run/
 sql/
 
 # Temporary files
-.sh-tmp/
 *.tmp
 *.swp
 *.swo
