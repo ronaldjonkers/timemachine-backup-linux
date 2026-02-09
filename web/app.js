@@ -514,6 +514,46 @@ function copyInstaller() {
 }
 
 /* ============================================================
+   SETTINGS
+   ============================================================ */
+
+async function refreshSettings() {
+    var data = await apiGet('/api/settings');
+    if (data) {
+        var hourEl = document.getElementById('setting-schedule-hour');
+        var retEl = document.getElementById('setting-retention-days');
+        if (hourEl) hourEl.value = data.schedule_hour;
+        if (retEl) retEl.value = data.retention_days;
+    }
+}
+
+async function saveSettings() {
+    var hour = parseInt(document.getElementById('setting-schedule-hour').value, 10);
+    var retention = parseInt(document.getElementById('setting-retention-days').value, 10);
+    var statusEl = document.getElementById('settings-status');
+
+    if (isNaN(hour) || hour < 0 || hour > 23) {
+        toast('Schedule hour must be 0-23', 'error');
+        return;
+    }
+    if (isNaN(retention) || retention < 1 || retention > 365) {
+        toast('Retention days must be 1-365', 'error');
+        return;
+    }
+
+    statusEl.textContent = 'Saving...';
+    var result = await apiPut('/api/settings', { schedule_hour: hour, retention_days: retention });
+    if (result && result.status === 'saved') {
+        statusEl.textContent = 'Saved';
+        toast('Settings saved (schedule: ' + hour + ':00, retention: ' + retention + ' days)', 'success');
+        setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    } else {
+        statusEl.textContent = 'Failed';
+        toast('Failed to save settings', 'error');
+    }
+}
+
+/* ============================================================
    LOG VIEWER (live streaming)
    ============================================================ */
 
@@ -1156,4 +1196,5 @@ async function refreshAll() {
 }
 
 refreshAll();
+refreshSettings();
 setInterval(refreshAll, REFRESH_INTERVAL);

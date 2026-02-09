@@ -149,6 +149,21 @@
                 </table>
             </section>
 
+            <!-- Client Installer -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F4E5; Add New Client</h2>
+                    <button class="btn btn-sm" onclick="copyInstaller()">Copy</button>
+                </div>
+                <div class="installer-block">
+                    <div class="installer-label">Run this on any server to add it as a backup client:</div>
+                    <pre id="installer-cmd" class="code-block">Loading...</pre>
+                </div>
+                <div class="hint">
+                    This one-liner downloads the installer, adds this server's SSH key, and sets up the backup agent.
+                </div>
+            </section>
+
             <!-- Quick Backup -->
             <section class="panel">
                 <div class="panel-header">
@@ -254,18 +269,32 @@
              ============================================================ -->
         <div class="page" id="page-settings">
 
-            <!-- Client Installer -->
+            <!-- Backup Settings -->
             <section class="panel">
                 <div class="panel-header">
-                    <h2>&#x1F4E5; Add New Client</h2>
-                    <button class="btn btn-sm" onclick="copyInstaller()">Copy</button>
+                    <h2>&#x23F0; Backup Schedule</h2>
                 </div>
-                <div class="installer-block">
-                    <div class="installer-label">Run this on any server to add it as a backup client:</div>
-                    <pre id="installer-cmd" class="code-block">Loading...</pre>
-                </div>
-                <div class="hint">
-                    This one-liner downloads the installer, adds this server's SSH key, and sets up the backup agent.
+                <div class="settings-form">
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <label for="setting-schedule-hour">Daily backup start hour</label>
+                            <div class="settings-input-group">
+                                <input type="number" id="setting-schedule-hour" min="0" max="23" value="11" style="width:80px">
+                                <span class="text-muted">:00 (24h format, 0-23)</span>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label for="setting-retention-days">Retention (days)</label>
+                            <div class="settings-input-group">
+                                <input type="number" id="setting-retention-days" min="1" max="365" value="7" style="width:80px">
+                                <span class="text-muted">snapshots older than this are deleted</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                        <span class="text-muted" id="settings-status"></span>
+                    </div>
                 </div>
             </section>
 

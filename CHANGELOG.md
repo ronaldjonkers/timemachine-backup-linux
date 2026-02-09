@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-02-09
+
+### Added
+- **Backup Schedule settings** — Settings page now has configurable "Daily backup start hour" (0-23) and "Retention days" (1-365) with a Save button. Values are persisted to `.env` via new `GET/PUT /api/settings` endpoints
+- **"Add New Client" moved to Dashboard** — The client installer one-liner is now on the Dashboard page for quick access, instead of buried in Settings
+
+### Changed
+- Settings page now shows: Backup Schedule, SSH Key, System Info
+- Dashboard page now shows: Status, System, Disk, Failed Backups, Active Processes, Add New Client, Quick Backup
+
 ## [2.8.0] - 2026-02-09
 
 ### Added

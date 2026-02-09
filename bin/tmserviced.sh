@@ -907,6 +907,65 @@ _handle_request() {
             fi
             ;;
 
+        "GET /api/settings")
+            # Read current settings from .env and defaults
+            local env_file="${TM_PROJECT_ROOT}/.env"
+            local s_schedule_hour="${TM_SCHEDULE_HOUR:-11}"
+            local s_retention_days="${TM_RETENTION_DAYS:-7}"
+            # Try to read from .env if values were overridden there
+            if [[ -f "${env_file}" ]]; then
+                local v
+                v=$(grep -E '^TM_SCHEDULE_HOUR=' "${env_file}" 2>/dev/null | tail -1 | cut -d'=' -f2-)
+                [[ -n "${v}" ]] && s_schedule_hour="${v}"
+                v=$(grep -E '^TM_RETENTION_DAYS=' "${env_file}" 2>/dev/null | tail -1 | cut -d'=' -f2-)
+                [[ -n "${v}" ]] && s_retention_days="${v}"
+            fi
+            _http_response "200 OK" "application/json" \
+                "{\"schedule_hour\":${s_schedule_hour},\"retention_days\":${s_retention_days}}"
+            ;;
+
+        "PUT /api/settings")
+            # Update settings in .env file
+            local env_file="${TM_PROJECT_ROOT}/.env"
+            local new_hour new_retention
+            new_hour=$(echo "${body}" | grep -o '"schedule_hour":[0-9]*' | cut -d':' -f2)
+            new_retention=$(echo "${body}" | grep -o '"retention_days":[0-9]*' | cut -d':' -f2)
+
+            if [[ -z "${new_hour}" && -z "${new_retention}" ]]; then
+                _http_response "400 Bad Request" "application/json" \
+                    '{"error":"No valid settings provided"}'
+            else
+                # Ensure .env exists
+                [[ ! -f "${env_file}" ]] && touch "${env_file}"
+
+                if [[ -n "${new_hour}" ]]; then
+                    if grep -q '^TM_SCHEDULE_HOUR=' "${env_file}" 2>/dev/null; then
+                        sed -i.bak "s/^TM_SCHEDULE_HOUR=.*/TM_SCHEDULE_HOUR=${new_hour}/" "${env_file}" 2>/dev/null || \
+                        sed -i '' "s/^TM_SCHEDULE_HOUR=.*/TM_SCHEDULE_HOUR=${new_hour}/" "${env_file}" 2>/dev/null
+                    else
+                        echo "TM_SCHEDULE_HOUR=${new_hour}" >> "${env_file}"
+                    fi
+                    rm -f "${env_file}.bak"
+                    TM_SCHEDULE_HOUR="${new_hour}"
+                fi
+
+                if [[ -n "${new_retention}" ]]; then
+                    if grep -q '^TM_RETENTION_DAYS=' "${env_file}" 2>/dev/null; then
+                        sed -i.bak "s/^TM_RETENTION_DAYS=.*/TM_RETENTION_DAYS=${new_retention}/" "${env_file}" 2>/dev/null || \
+                        sed -i '' "s/^TM_RETENTION_DAYS=.*/TM_RETENTION_DAYS=${new_retention}/" "${env_file}" 2>/dev/null
+                    else
+                        echo "TM_RETENTION_DAYS=${new_retention}" >> "${env_file}"
+                    fi
+                    rm -f "${env_file}.bak"
+                    TM_RETENTION_DAYS="${new_retention}"
+                fi
+
+                tm_log "INFO" "API: settings updated (schedule_hour=${new_hour:-unchanged}, retention_days=${new_retention:-unchanged})"
+                _http_response "200 OK" "application/json" \
+                    "{\"status\":\"saved\",\"schedule_hour\":${TM_SCHEDULE_HOUR},\"retention_days\":${TM_RETENTION_DAYS}}"
+            fi
+            ;;
+
         "GET /api/ssh-key")
             local pub_key_file="${TM_SSH_KEY}.pub"
             if [[ -f "${pub_key_file}" ]]; then
