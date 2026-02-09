@@ -6,6 +6,19 @@ const API_BASE = window.location.origin;
 const REFRESH_INTERVAL = 10000;
 
 /* ============================================================
+   PAGE NAVIGATION
+   ============================================================ */
+
+function showPage(page) {
+    document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+    var pageEl = document.getElementById('page-' + page);
+    if (pageEl) pageEl.classList.add('active');
+    var tabEl = document.querySelector('.nav-tab[data-page="' + page + '"]');
+    if (tabEl) tabEl.classList.add('active');
+}
+
+/* ============================================================
    API HELPERS
    ============================================================ */
 
@@ -296,17 +309,14 @@ async function refreshProcesses() {
 
 async function refreshRestores() {
     var data = await apiGet('/api/restores');
-    var panel = document.getElementById('restores-panel');
     var tbody = document.getElementById('restores-body');
     var clearBtn = document.getElementById('restores-clear-btn');
 
     if (!data || data.length === 0) {
-        panel.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No restore tasks</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No restore tasks</td></tr>';
+        if (clearBtn) clearBtn.style.display = 'none';
         return;
     }
-
-    panel.style.display = '';
     var hasFinished = data.some(function(r) { return r.status !== 'running'; });
     if (clearBtn) clearBtn.style.display = hasFinished ? '' : 'none';
 
@@ -457,9 +467,9 @@ async function refreshServers() {
             '<td>' + esc(totalSize) + '</td>' +
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + statusLabel + '</span></td>' +
             '<td>' +
+                '<button class="btn btn-sm btn-primary" onclick="openServerDetail(\'' + esc(srv.hostname) + '\')">Details</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(srv.hostname) + '\')">Backup</button> ' +
                 '<button class="btn btn-sm" onclick="editServer(\'' + esc(srv.hostname) + '\')">Edit</button> ' +
-                '<button class="btn btn-sm" onclick="viewSnapshots(\'' + esc(srv.hostname) + '\')">Snaps</button> ' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(srv.hostname) + '\')">Logs</button> ' +
                 '<button class="btn btn-sm btn-danger" onclick="removeServer(\'' + esc(srv.hostname) + '\')">&#x2715;</button>' +
             '</td></tr>';
@@ -764,6 +774,72 @@ var _snapPage = 0;
 var _snapPerPage = 15;
 var _snapData = [];
 var _snapHost = '';
+
+async function openServerDetail(hostname) {
+    var panel = document.getElementById('server-detail-panel');
+    var title = document.getElementById('server-detail-title');
+    var body = document.getElementById('server-detail-body');
+
+    title.innerHTML = '&#x1F5A5; ' + esc(hostname);
+    body.innerHTML = '<div style="padding:1.25rem" class="text-muted">Loading snapshots...</div>';
+    panel.style.display = '';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    var data = await apiGet('/api/snapshots/' + hostname);
+    if (!data || data.length === 0) {
+        body.innerHTML = '<div style="padding:1.25rem" class="text-muted">No snapshots found for this server</div>';
+        return;
+    }
+
+    _snapData = data.reverse();
+    _snapHost = hostname;
+    _snapPage = 0;
+    _renderServerDetail();
+}
+
+function closeServerDetail() {
+    document.getElementById('server-detail-panel').style.display = 'none';
+}
+
+function _renderServerDetail() {
+    var body = document.getElementById('server-detail-body');
+    var hostname = _snapHost;
+    var totalPages = Math.ceil(_snapData.length / _snapPerPage);
+    var start = _snapPage * _snapPerPage;
+    var pageData = _snapData.slice(start, start + _snapPerPage);
+
+    var rows = pageData.map(function(s) {
+        return '<tr>' +
+            '<td>' + esc(s.date) + '</td>' +
+            '<td>' + esc(s.size) + '</td>' +
+            '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' + (s.has_sql ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' +
+                '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button> ' +
+                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'\')">Restore</button>' +
+            '</td>' +
+            '</tr>';
+    }).join('');
+
+    var pagination = '';
+    if (totalPages > 1) {
+        pagination = '<div class="form-actions" style="margin-top:0.75rem;justify-content:center;border-top:none">';
+        if (_snapPage > 0) {
+            pagination += '<button class="btn btn-sm" onclick="_snapPage=' + (_snapPage - 1) + ';_renderServerDetail()">Previous</button> ';
+        }
+        pagination += '<span class="text-muted" style="padding:0.3rem 0.5rem;font-size:0.82rem">Page ' + (_snapPage + 1) + ' of ' + totalPages + ' (' + _snapData.length + ' snapshots)</span>';
+        if (_snapPage < totalPages - 1) {
+            pagination += ' <button class="btn btn-sm" onclick="_snapPage=' + (_snapPage + 1) + ';_renderServerDetail()">Next</button>';
+        }
+        pagination += '</div>';
+    }
+
+    body.innerHTML = '<table>' +
+        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>SQL</th><th>Actions</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+        '</table>' + pagination;
+}
 
 async function viewSnapshots(hostname, page) {
     if (hostname !== _snapHost || typeof page === 'undefined') {

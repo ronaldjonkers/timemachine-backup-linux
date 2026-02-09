@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-02-09
+
+### Added
+- **Navigation menu** — Top navigation bar with 4 pages: Dashboard, Servers, Restores, Settings
+- **Dashboard page** — Status cards, system metrics, disk usage, active backup processes, failed backups, quick backup
+- **Servers page** — Full server list with backup history. Click "Details" to see all snapshots inline with Browse, Download, and Restore buttons per snapshot
+- **Restores page** — Dedicated page for restore task management (no longer hidden when empty)
+- **Settings page** — Client installer, SSH key, system info
+- **Server detail panel** — Inline expandable panel on the Servers page showing paginated snapshots per server with direct actions
+
+### Changed
+- Servers table now has a "Details" button instead of "Snaps" — opens inline detail panel instead of modal
+- Restore tasks panel is always visible on the Restores page (no longer conditionally hidden)
+- Responsive navigation: tabs wrap on tablets, compact on mobile
+
 ## [2.6.3] - 2026-02-09
 
 ### Changed

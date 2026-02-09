@@ -14,6 +14,12 @@
                 <span class="logo-icon">&#x23f0;</span>
                 <span class="logo-text">TimeMachine</span>
             </div>
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-page="dashboard" onclick="showPage('dashboard')">&#x1F4CA; Dashboard</button>
+                <button class="nav-tab" data-page="servers" onclick="showPage('servers')">&#x1F4E1; Servers</button>
+                <button class="nav-tab" data-page="restores" onclick="showPage('restores')">&#x1F501; Restores</button>
+                <button class="nav-tab" data-page="settings" onclick="showPage('settings')">&#x2699; Settings</button>
+            </nav>
             <div id="service-status" class="badge badge-unknown">
                 <span class="pulse"></span>
                 <span class="badge-text">Connecting...</span>
@@ -22,254 +28,291 @@
     </header>
 
     <main>
-        <!-- Row 1: Service info cards -->
-        <section class="cards">
-            <div class="card">
-                <div class="card-icon">&#x23F1;</div>
-                <div class="card-body">
-                    <div class="card-label">Uptime</div>
-                    <div class="card-value" id="uptime">--</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-icon">&#x1F5A5;</div>
-                <div class="card-body">
-                    <div class="card-label">Hostname</div>
-                    <div class="card-value" id="hostname">--</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-icon">&#x26A1;</div>
-                <div class="card-body">
-                    <div class="card-label">Active Jobs</div>
-                    <div class="card-value" id="active-jobs">0</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-icon">&#x1F4E1;</div>
-                <div class="card-body">
-                    <div class="card-label">Servers</div>
-                    <div class="card-value" id="server-count">0</div>
-                </div>
-            </div>
-        </section>
+        <!-- ============================================================
+             PAGE: DASHBOARD
+             ============================================================ -->
+        <div class="page active" id="page-dashboard">
 
-        <!-- Row 2: System metrics -->
-        <section class="cards cards-6">
-            <div class="card">
-                <div class="card-icon">&#x1F4BB;</div>
-                <div class="card-body">
-                    <div class="card-label">CPU Load (1m)</div>
-                    <div class="card-value" id="sys-load1">--</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-icon">&#x1F4CA;</div>
-                <div class="card-body">
-                    <div class="card-label">CPU Load (5m)</div>
-                    <div class="card-value" id="sys-load5">--</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-icon">&#x1F9E0;</div>
-                <div class="card-body">
-                    <div class="card-label">Memory</div>
-                    <div class="card-value"><span id="sys-mem-used">--</span><span class="card-unit" id="sys-mem-detail"></span></div>
-                    <div class="progress-bar progress-bar-sm">
-                        <div class="progress-fill" id="mem-bar" style="width:0%"></div>
+            <!-- Row 1: Service info cards -->
+            <section class="cards">
+                <div class="card">
+                    <div class="card-icon">&#x23F1;</div>
+                    <div class="card-body">
+                        <div class="card-label">Uptime</div>
+                        <div class="card-value" id="uptime">--</div>
                     </div>
                 </div>
-            </div>
-            <div class="card card-wide">
-                <div class="card-icon">&#x1F4BE;</div>
-                <div class="card-body" style="flex:1">
-                    <div class="card-label">Disk Usage</div>
-                    <div class="disk-row">
-                        <span class="card-value" id="disk-used">--</span>
-                        <span class="disk-detail" id="disk-detail">/ --</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="disk-bar" style="width:0%"></div>
+                <div class="card">
+                    <div class="card-icon">&#x1F5A5;</div>
+                    <div class="card-body">
+                        <div class="card-label">Hostname</div>
+                        <div class="card-value" id="hostname">--</div>
                     </div>
                 </div>
-            </div>
-        </section>
-
-        <!-- Failed Backups -->
-        <section class="panel" id="failures-panel" style="display:none">
-            <div class="panel-header panel-header-danger">
-                <h2>&#x26A0; Failed Backups</h2>
-                <button class="btn btn-sm" onclick="refreshFailures()">Refresh</button>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Server</th>
-                        <th>Error</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="failures-body">
-                    <tr><td colspan="3" class="empty">No failures detected</td></tr>
-                </tbody>
-            </table>
-        </section>
-
-        <!-- Backup Processes -->
-        <section class="panel">
-            <div class="panel-header">
-                <h2>&#x1F504; Backup Processes</h2>
-                <button class="btn btn-sm" onclick="refreshProcesses()">Refresh</button>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Hostname</th>
-                        <th>PID</th>
-                        <th>Mode</th>
-                        <th>Started</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="processes-body">
-                    <tr><td colspan="6" class="empty">No active processes</td></tr>
-                </tbody>
-            </table>
-        </section>
-
-        <!-- Restore Tasks -->
-        <section class="panel" id="restores-panel" style="display:none">
-            <div class="panel-header">
-                <h2>&#x1F501; Restore Tasks</h2>
-                <div>
-                    <button class="btn btn-sm btn-danger" id="restores-clear-btn" style="display:none" onclick="clearFinishedRestores()">Clear Finished</button>
-                    <button class="btn btn-sm" onclick="refreshRestores()">Refresh</button>
+                <div class="card">
+                    <div class="card-icon">&#x26A1;</div>
+                    <div class="card-body">
+                        <div class="card-label">Active Jobs</div>
+                        <div class="card-value" id="active-jobs">0</div>
+                    </div>
                 </div>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Server</th>
-                        <th>Description</th>
-                        <th>Started</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="restores-body">
-                    <tr><td colspan="5" class="empty">No restore tasks</td></tr>
-                </tbody>
-            </table>
-        </section>
+                <div class="card">
+                    <div class="card-icon">&#x1F4E1;</div>
+                    <div class="card-body">
+                        <div class="card-label">Servers</div>
+                        <div class="card-value" id="server-count">0</div>
+                    </div>
+                </div>
+            </section>
 
-        <!-- Configured Servers with backup history -->
-        <section class="panel">
-            <div class="panel-header">
-                <h2>&#x1F4E1; Servers &amp; Backup History</h2>
-                <button class="btn btn-sm" id="toggle-add-server" onclick="toggleAddServer()">+ Add</button>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Hostname</th>
-                        <th>Last Backup</th>
-                        <th>Snapshots</th>
-                        <th>Total Size</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="servers-body">
-                    <tr><td colspan="6" class="empty">Loading...</td></tr>
-                </tbody>
-            </table>
-            <div class="quick-action hidden" id="add-server-form">
-                <input type="text" id="add-server-hostname" placeholder="hostname.example.com">
-                <select id="add-server-options">
-                    <option value="">Full (files + DB)</option>
-                    <option value="--files-only">Files only</option>
-                    <option value="--db-only">Database only</option>
-                    <option value="--no-rotate">No rotation</option>
-                </select>
-                <input type="number" id="add-server-priority" placeholder="Priority (1-99)" min="1" max="99" style="width:130px">
-                <input type="number" id="add-server-db-interval" placeholder="DB interval (h)" min="1" max="24" style="width:130px">
-                <button class="btn btn-primary" onclick="addServer()">Add Server</button>
-            </div>
-        </section>
+            <!-- Row 2: System metrics -->
+            <section class="cards cards-6">
+                <div class="card">
+                    <div class="card-icon">&#x1F4BB;</div>
+                    <div class="card-body">
+                        <div class="card-label">CPU Load (1m)</div>
+                        <div class="card-value" id="sys-load1">--</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">&#x1F4CA;</div>
+                    <div class="card-body">
+                        <div class="card-label">CPU Load (5m)</div>
+                        <div class="card-value" id="sys-load5">--</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">&#x1F9E0;</div>
+                    <div class="card-body">
+                        <div class="card-label">Memory</div>
+                        <div class="card-value"><span id="sys-mem-used">--</span><span class="card-unit" id="sys-mem-detail"></span></div>
+                        <div class="progress-bar progress-bar-sm">
+                            <div class="progress-fill" id="mem-bar" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card card-wide">
+                    <div class="card-icon">&#x1F4BE;</div>
+                    <div class="card-body" style="flex:1">
+                        <div class="card-label">Disk Usage</div>
+                        <div class="disk-row">
+                            <span class="card-value" id="disk-used">--</span>
+                            <span class="disk-detail" id="disk-detail">/ --</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="disk-bar" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-        <!-- Client Installer -->
-        <section class="panel">
-            <div class="panel-header">
-                <h2>&#x1F4E5; Add New Client</h2>
-                <button class="btn btn-sm" onclick="copyInstaller()">Copy</button>
-            </div>
-            <div class="installer-block">
-                <div class="installer-label">Run this on any server to add it as a backup client:</div>
-                <pre id="installer-cmd" class="code-block">Loading...</pre>
-            </div>
-            <div class="hint">
-                This one-liner downloads the installer, adds this server's SSH key, and sets up the backup agent.
-            </div>
-        </section>
+            <!-- Failed Backups -->
+            <section class="panel" id="failures-panel" style="display:none">
+                <div class="panel-header panel-header-danger">
+                    <h2>&#x26A0; Failed Backups</h2>
+                    <button class="btn btn-sm" onclick="refreshFailures()">Refresh</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Server</th>
+                            <th>Error</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="failures-body">
+                        <tr><td colspan="3" class="empty">No failures detected</td></tr>
+                    </tbody>
+                </table>
+            </section>
 
-        <!-- SSH Key -->
-        <section class="panel">
-            <div class="panel-header">
-                <h2>&#x1F511; SSH Public Key</h2>
-                <button class="btn btn-sm" onclick="copySSHKey()">Copy Key</button>
-            </div>
-            <pre id="ssh-key" class="code-block">Loading...</pre>
-        </section>
+            <!-- Backup Processes -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F504; Backup Processes</h2>
+                    <button class="btn btn-sm" onclick="refreshProcesses()">Refresh</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hostname</th>
+                            <th>PID</th>
+                            <th>Mode</th>
+                            <th>Started</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="processes-body">
+                        <tr><td colspan="6" class="empty">No active processes</td></tr>
+                    </tbody>
+                </table>
+            </section>
 
-        <!-- Quick Backup -->
-        <section class="panel">
-            <div class="panel-header">
-                <h2>&#x26A1; Quick Backup</h2>
-            </div>
-            <div class="quick-action">
-                <input type="text" id="backup-hostname" placeholder="hostname.example.com">
-                <select id="backup-mode">
-                    <option value="">Full (files + DB)</option>
-                    <option value="?files-only">Files only</option>
-                    <option value="?db-only">Database only</option>
-                </select>
-                <button class="btn btn-primary" onclick="startBackup()">Start Backup</button>
-            </div>
-        </section>
+            <!-- Quick Backup -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x26A1; Quick Backup</h2>
+                </div>
+                <div class="quick-action">
+                    <input type="text" id="backup-hostname" placeholder="hostname.example.com">
+                    <select id="backup-mode">
+                        <option value="">Full (files + DB)</option>
+                        <option value="?files-only">Files only</option>
+                        <option value="?db-only">Database only</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="startBackup()">Start Backup</button>
+                </div>
+            </section>
 
-        <!-- System Info -->
-        <section class="panel">
-            <div class="panel-header">
-                <h2>&#x2699; System Info</h2>
-            </div>
-            <div class="sysinfo-grid">
-                <div class="sysinfo-item">
-                    <span class="sysinfo-label">Operating System</span>
-                    <span class="sysinfo-value" id="sys-os">--</span>
+        </div>
+
+        <!-- ============================================================
+             PAGE: SERVERS
+             ============================================================ -->
+        <div class="page" id="page-servers">
+
+            <!-- Configured Servers with backup history -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F4E1; Servers &amp; Backup History</h2>
+                    <button class="btn btn-sm" id="toggle-add-server" onclick="toggleAddServer()">+ Add Server</button>
                 </div>
-                <div class="sysinfo-item">
-                    <span class="sysinfo-label">Kernel</span>
-                    <span class="sysinfo-value" id="sys-kernel">--</span>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hostname</th>
+                            <th>Last Backup</th>
+                            <th>Snapshots</th>
+                            <th>Total Size</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="servers-body">
+                        <tr><td colspan="6" class="empty">Loading...</td></tr>
+                    </tbody>
+                </table>
+                <div class="quick-action hidden" id="add-server-form">
+                    <input type="text" id="add-server-hostname" placeholder="hostname.example.com">
+                    <select id="add-server-options">
+                        <option value="">Full (files + DB)</option>
+                        <option value="--files-only">Files only</option>
+                        <option value="--db-only">Database only</option>
+                        <option value="--no-rotate">No rotation</option>
+                    </select>
+                    <input type="number" id="add-server-priority" placeholder="Priority (1-99)" min="1" max="99" style="width:130px">
+                    <input type="number" id="add-server-db-interval" placeholder="DB interval (h)" min="1" max="24" style="width:130px">
+                    <button class="btn btn-primary" onclick="addServer()">Add Server</button>
                 </div>
-                <div class="sysinfo-item">
-                    <span class="sysinfo-label">CPU Cores</span>
-                    <span class="sysinfo-value" id="sys-cpus">--</span>
+            </section>
+
+            <!-- Server Detail (shown when clicking a server) -->
+            <section class="panel" id="server-detail-panel" style="display:none">
+                <div class="panel-header">
+                    <h2 id="server-detail-title">&#x1F5A5; Server Details</h2>
+                    <button class="btn btn-sm" onclick="closeServerDetail()">Close</button>
                 </div>
-                <div class="sysinfo-item">
-                    <span class="sysinfo-label">Total Memory</span>
-                    <span class="sysinfo-value" id="sys-mem-total">--</span>
+                <div id="server-detail-body"></div>
+            </section>
+
+        </div>
+
+        <!-- ============================================================
+             PAGE: RESTORES
+             ============================================================ -->
+        <div class="page" id="page-restores">
+
+            <section class="panel" id="restores-panel">
+                <div class="panel-header">
+                    <h2>&#x1F501; Restore Tasks</h2>
+                    <div>
+                        <button class="btn btn-sm btn-danger" id="restores-clear-btn" style="display:none" onclick="clearFinishedRestores()">Clear Finished</button>
+                        <button class="btn btn-sm" onclick="refreshRestores()">Refresh</button>
+                    </div>
                 </div>
-                <div class="sysinfo-item">
-                    <span class="sysinfo-label">System Uptime</span>
-                    <span class="sysinfo-value" id="sys-uptime">--</span>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Server</th>
+                            <th>Description</th>
+                            <th>Started</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="restores-body">
+                        <tr><td colspan="5" class="empty">No restore tasks</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+        </div>
+
+        <!-- ============================================================
+             PAGE: SETTINGS
+             ============================================================ -->
+        <div class="page" id="page-settings">
+
+            <!-- Client Installer -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F4E5; Add New Client</h2>
+                    <button class="btn btn-sm" onclick="copyInstaller()">Copy</button>
                 </div>
-                <div class="sysinfo-item">
-                    <span class="sysinfo-label">Load Average</span>
-                    <span class="sysinfo-value" id="sys-load-full">--</span>
+                <div class="installer-block">
+                    <div class="installer-label">Run this on any server to add it as a backup client:</div>
+                    <pre id="installer-cmd" class="code-block">Loading...</pre>
                 </div>
-            </div>
-        </section>
+                <div class="hint">
+                    This one-liner downloads the installer, adds this server's SSH key, and sets up the backup agent.
+                </div>
+            </section>
+
+            <!-- SSH Key -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F511; SSH Public Key</h2>
+                    <button class="btn btn-sm" onclick="copySSHKey()">Copy Key</button>
+                </div>
+                <pre id="ssh-key" class="code-block">Loading...</pre>
+            </section>
+
+            <!-- System Info -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x2699; System Info</h2>
+                </div>
+                <div class="sysinfo-grid">
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Operating System</span>
+                        <span class="sysinfo-value" id="sys-os">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Kernel</span>
+                        <span class="sysinfo-value" id="sys-kernel">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">CPU Cores</span>
+                        <span class="sysinfo-value" id="sys-cpus">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Total Memory</span>
+                        <span class="sysinfo-value" id="sys-mem-total">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">System Uptime</span>
+                        <span class="sysinfo-value" id="sys-uptime">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Load Average</span>
+                        <span class="sysinfo-value" id="sys-load-full">--</span>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
     </main>
 
     <footer>
