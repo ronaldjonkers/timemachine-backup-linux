@@ -484,6 +484,13 @@ dump_sqlite() {
 
 log "INFO" "Database types to dump: ${DB_TYPES:-none}"
 
+# Exit early if no databases detected
+if [[ -z "${DB_TYPES}" ]]; then
+    log "INFO" "No databases to dump — skipping"
+    rm -f "${PIDFILE}"
+    exit 0
+fi
+
 IFS=',' read -ra DB_TYPE_ARRAY <<< "${DB_TYPES}"
 for db_type in "${DB_TYPE_ARRAY[@]}"; do
     db_type=$(echo "${db_type}" | sed 's/^ *//;s/ *$//')

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-02-09
+
+### Fixed
+- **DB backup on servers without databases** — `dump_dbs.sh` now exits early with clear "No databases to dump — skipping" message when no DB engines are detected. `timemachine.sh` detects this and skips the SQL sync phase entirely, avoiding confusing "Phase 2: Database backup" + "All database dumps completed successfully" logs on DB-less servers
+- **Remote dump output visibility** — All remote `dump_dbs.sh` output is now forwarded to the backup log with `[remote]` prefix for better debugging
+
+### Changed
+- **Backup button in web dashboard** — Clicking "Backup" on a server row now opens a mode selection modal (Full / Files only / Database only) instead of immediately starting a full backup
+
 ## [2.3.0] - 2026-02-09
 
 ### Added

@@ -145,17 +145,28 @@ main() {
         tm_log "INFO" "Phase 2: Database backup"
 
         # Trigger remote database dump via SSH
-        if ! tm_trigger_remote_dump "${HOSTNAME}"; then
+        local db_output
+        db_output=$(tm_trigger_remote_dump "${HOSTNAME}" 2>&1)
+        local db_rc=$?
+
+        if [[ ${db_rc} -ne 0 ]]; then
             tm_log "ERROR" "Remote database dump failed on ${HOSTNAME}"
             exit_code=1
-        fi
-
-        # Sync the SQL dumps back
-        if [[ ${exit_code} -eq 0 ]]; then
+        elif echo "${db_output}" | grep -q "No databases to dump"; then
+            tm_log "INFO" "No databases detected on ${HOSTNAME} — skipping DB sync"
+        else
+            # Sync the SQL dumps back
             if ! tm_rsync_sql "${HOSTNAME}" "${BACKUP_BASE}"; then
                 tm_log "ERROR" "SQL sync failed for ${HOSTNAME}"
                 exit_code=1
             fi
+        fi
+
+        # Log remote output for visibility
+        if [[ -n "${db_output}" ]]; then
+            while IFS= read -r line; do
+                [[ -n "${line}" ]] && tm_log "INFO" "  [remote] ${line}"
+            done <<< "${db_output}"
         fi
     fi
 

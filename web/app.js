@@ -431,8 +431,28 @@ async function startBackup() {
     }
 }
 
-async function startBackupFor(hostname) {
-    var result = await apiPost('/api/backup/' + hostname);
+function startBackupFor(hostname) {
+    var html = '<div class="edit-server-form">' +
+        '<div class="form-group">' +
+            '<label>Backup Mode</label>' +
+            '<select id="backup-for-mode">' +
+                '<option value="">Full (files + DB)</option>' +
+                '<option value="?files-only">Files only</option>' +
+                '<option value="?db-only">Database only</option>' +
+            '</select>' +
+        '</div>' +
+        '<div class="form-actions">' +
+            '<button class="btn btn-primary btn-success" onclick="runBackupFor(\'' + esc(hostname) + '\')">Start Backup</button>' +
+            '<button class="btn" onclick="closeModal()">Cancel</button>' +
+        '</div>' +
+    '</div>';
+    openModal('Backup: ' + hostname, html);
+}
+
+async function runBackupFor(hostname) {
+    var mode = document.getElementById('backup-for-mode').value;
+    closeModal();
+    var result = await apiPost('/api/backup/' + hostname + mode);
     if (result) {
         toast('Backup started for ' + hostname, 'success');
     } else {
