@@ -268,6 +268,16 @@ restore_files() {
     # Determine target
     local target="${TARGET_DIR:-}"
 
+    # Ensure target directory is writable; fall back to TM_HOME/restores/
+    if [[ -n "${target}" ]]; then
+        if ! mkdir -p "${target}" 2>/dev/null; then
+            local fallback="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")"
+            tm_log "WARN" "Cannot write to ${target} — falling back to ${fallback}"
+            target="${fallback}"
+            mkdir -p "${target}"
+        fi
+    fi
+
     if [[ -n "${RESTORE_PATHS}" ]]; then
         # Restore specific paths
         local IFS=','
@@ -331,6 +341,11 @@ restore_databases() {
 
     # If target dir is set, just copy SQL files there
     if [[ -n "${target_dir}" ]]; then
+        if ! mkdir -p "${target_dir}" 2>/dev/null; then
+            local fallback="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")/sql"
+            tm_log "WARN" "Cannot write to ${target_dir} — falling back to ${fallback}"
+            target_dir="${fallback}"
+        fi
         tm_ensure_dir "${target_dir}"
 
         if [[ -n "${DB_NAMES}" ]]; then

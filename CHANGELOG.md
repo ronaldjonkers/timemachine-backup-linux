@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2026-02-09
+
+### Fixed
+- **Restore format choice now available** — Restore modal shows "Restore Format" dropdown with Files (direct restore), tar.gz, or zip options. Previously tar/zip was only available via the separate download flow
+- **Permission denied on restore** — When target directory is not writable (e.g. `/home/ronald`), restore now falls back to `$TM_HOME/restores/<hostname>/<date>/` instead of failing with `mkdir: Permission denied`
+- **Simplified restore modal** — Removed confusing action toggle (restore vs download). Single unified form with format, mode, and target directory fields
+
+### Changed
+- `restore.sh` checks target directory writability before starting, with automatic fallback for both file and database restores
+- Restore modal placeholder updated to show `/home/timemachine/restores` as example target
+
 ## [2.5.1] - 2026-02-09
 
 ### Fixed

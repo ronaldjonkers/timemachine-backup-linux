@@ -950,66 +950,38 @@ function restoreItem(hostname, snapshot, itemPath) {
     var html = '<div class="edit-server-form">' +
         '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to <strong>' + esc(hostname) + '</strong></p>' +
         '<div class="form-group">' +
-            '<label>Action</label>' +
-            '<select id="restore-action" onchange="toggleRestoreFields()">' +
-                '<option value="restore">Restore to server</option>' +
-                '<option value="download">Download archive</option>' +
+            '<label>Restore Format</label>' +
+            '<select id="restore-format">' +
+                '<option value="files">Files (restore directly)</option>' +
+                '<option value="tar.gz">tar.gz archive</option>' +
+                '<option value="zip">zip archive</option>' +
             '</select>' +
         '</div>' +
-        '<div id="restore-fields">' +
-            '<div class="form-group">' +
-                '<label>Restore Mode</label>' +
-                '<select id="restore-mode">' +
-                    '<option value=""' + (defaultMode === '' ? ' selected' : '') + '>Full (files + DB)</option>' +
-                    '<option value="files-only"' + (defaultMode === 'files-only' ? ' selected' : '') + '>Files only</option>' +
-                    '<option value="db-only"' + (defaultMode === 'db-only' ? ' selected' : '') + '>Database only</option>' +
-                '</select>' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label>Target Directory <span class="text-muted">(leave empty for original location)</span></label>' +
-                '<input type="text" id="restore-target" placeholder="/tmp/restore" style="width:100%;box-sizing:border-box;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem">' +
-            '</div>' +
+        '<div class="form-group">' +
+            '<label>Restore Mode</label>' +
+            '<select id="restore-mode">' +
+                '<option value=""' + (defaultMode === '' ? ' selected' : '') + '>Full (files + DB)</option>' +
+                '<option value="files-only"' + (defaultMode === 'files-only' ? ' selected' : '') + '>Files only</option>' +
+                '<option value="db-only"' + (defaultMode === 'db-only' ? ' selected' : '') + '>Database only</option>' +
+            '</select>' +
         '</div>' +
-        '<div id="download-fields" style="display:none">' +
-            '<div class="form-group">' +
-                '<label>Format</label>' +
-                '<select id="restore-dl-format">' +
-                    '<option value="tar.gz">tar.gz (recommended)</option>' +
-                    '<option value="zip">zip</option>' +
-                '</select>' +
-            '</div>' +
+        '<div class="form-group">' +
+            '<label>Target Directory <span class="text-muted">(leave empty for default location)</span></label>' +
+            '<input type="text" id="restore-target" placeholder="/home/timemachine/restores" style="width:100%;box-sizing:border-box;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem">' +
         '</div>' +
         '<div class="form-actions">' +
-            '<button class="btn btn-primary" id="restore-submit" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\',\'' + esc(dlPath) + '\')">Restore to Server</button>' +
+            '<button class="btn btn-primary" id="restore-submit" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\',\'' + esc(dlPath) + '\')">Restore</button>' +
             '<button class="btn" onclick="closeModal()">Cancel</button>' +
         '</div>' +
     '</div>';
     openModal('Restore: ' + hostname, html);
 }
 
-function toggleRestoreFields() {
-    var action = document.getElementById('restore-action').value;
-    var restoreFields = document.getElementById('restore-fields');
-    var downloadFields = document.getElementById('download-fields');
-    var submitBtn = document.getElementById('restore-submit');
-    if (action === 'download') {
-        restoreFields.style.display = 'none';
-        downloadFields.style.display = '';
-        submitBtn.textContent = 'Download';
-        submitBtn.className = 'btn btn-success';
-    } else {
-        restoreFields.style.display = '';
-        downloadFields.style.display = 'none';
-        submitBtn.textContent = 'Restore to Server';
-        submitBtn.className = 'btn btn-primary';
-    }
-}
-
 async function doRestore(hostname, snapshot, itemPath, dlPath) {
-    var action = document.getElementById('restore-action').value;
+    var format = document.getElementById('restore-format').value;
 
-    if (action === 'download') {
-        var format = document.getElementById('restore-dl-format').value;
+    // If format is tar.gz or zip, download the archive instead of restoring files
+    if (format === 'tar.gz' || format === 'zip') {
         closeModal();
         downloadSnapshot(hostname, snapshot, dlPath, format);
         return;
