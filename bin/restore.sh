@@ -56,6 +56,7 @@ DB_ONLY=0
 DB_NAMES=""
 RESTORE_PATHS=""
 TARGET_DIR=""
+RESTORE_FORMAT="files"
 DRY_RUN=0
 LIST_SNAPSHOTS=0
 LIST_FILES=0
@@ -76,6 +77,7 @@ while [[ $# -gt 0 ]]; do
         --db)           DB_NAMES="$2"; shift 2 ;;
         --path)         RESTORE_PATHS="$2"; shift 2 ;;
         --target)       TARGET_DIR="$2"; shift 2 ;;
+        --format)       RESTORE_FORMAT="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=1; shift ;;
         --list)         LIST_SNAPSHOTS=1; shift ;;
         --list-files)   LIST_FILES=1; shift ;;
@@ -267,15 +269,22 @@ restore_files() {
 
     # Determine target
     local target="${TARGET_DIR:-}"
+    if [[ -z "${target}" ]]; then
+        target="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")"
+    fi
 
     # Ensure target directory is writable; fall back to TM_HOME/restores/
-    if [[ -n "${target}" ]]; then
-        if ! mkdir -p "${target}" 2>/dev/null; then
-            local fallback="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")"
-            tm_log "WARN" "Cannot write to ${target} — falling back to ${fallback}"
-            target="${fallback}"
-            mkdir -p "${target}"
-        fi
+    if ! mkdir -p "${target}" 2>/dev/null; then
+        local fallback="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")"
+        tm_log "WARN" "Cannot write to ${target} — falling back to ${fallback}"
+        target="${fallback}"
+        mkdir -p "${target}"
+    fi
+
+    # Archive format: create tar.gz or zip on the server
+    if [[ "${RESTORE_FORMAT}" == "tar.gz" || "${RESTORE_FORMAT}" == "zip" ]]; then
+        _restore_as_archive "${source_dir}" "${target}" "files" "${snapshot_dir}"
+        return $?
     fi
 
     if [[ -n "${RESTORE_PATHS}" ]]; then
@@ -284,13 +293,7 @@ restore_files() {
         for rpath in ${RESTORE_PATHS}; do
             rpath=$(echo "${rpath}" | sed 's|^/||')
             local src="${source_dir}/${rpath}"
-            local dst
-
-            if [[ -n "${target}" ]]; then
-                dst="${target}/${rpath}"
-            else
-                dst="/${rpath}"
-            fi
+            local dst="${target}/${rpath}"
 
             if [[ ! -e "${src}" ]]; then
                 tm_log "ERROR" "Path not found in backup: ${rpath}"
@@ -312,11 +315,6 @@ restore_files() {
             fi
         done
     else
-        # Restore all files
-        if [[ -z "${target}" ]]; then
-            target="/"
-        fi
-
         if [[ ${DRY_RUN} -eq 1 ]]; then
             tm_log "INFO" "[DRY-RUN] Would restore all files from $(basename "${snapshot_dir}") to ${target}"
             rsync "${TM_RSYNC_FLAGS[@]}" --dry-run "${source_dir}/" "${target}/" 2>&1 | head -20
@@ -325,6 +323,40 @@ restore_files() {
 
         tm_log "INFO" "Restoring all files to ${target}"
         rsync "${TM_RSYNC_FLAGS[@]}" "${source_dir}/" "${target}/"
+    fi
+}
+
+_restore_as_archive() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local label="$3"
+    local snapshot_dir="$4"
+    local archive_name="${HOSTNAME}-$(basename "${snapshot_dir}")-${label}"
+
+    mkdir -p "${target_dir}"
+
+    if [[ "${RESTORE_FORMAT}" == "zip" ]]; then
+        local archive="${target_dir}/${archive_name}.zip"
+        tm_log "INFO" "Creating zip archive: ${archive}"
+        if command -v zip &>/dev/null; then
+            (cd "$(dirname "${source_dir}")" && zip -r "${archive}" "$(basename "${source_dir}")") 2>&1 | tail -5
+        else
+            tm_log "ERROR" "zip command not available on server"
+            return 1
+        fi
+    else
+        local archive="${target_dir}/${archive_name}.tar.gz"
+        tm_log "INFO" "Creating tar.gz archive: ${archive}"
+        tar -czf "${archive}" -C "$(dirname "${source_dir}")" "$(basename "${source_dir}")" 2>&1
+    fi
+
+    if [[ $? -eq 0 ]]; then
+        local sz
+        sz=$(du -sh "${archive}" 2>/dev/null | cut -f1)
+        tm_log "INFO" "Archive created: ${archive} (${sz})"
+    else
+        tm_log "ERROR" "Failed to create archive"
+        return 1
     fi
 }
 
@@ -338,94 +370,49 @@ restore_databases() {
     fi
 
     local target_dir="${TARGET_DIR:-}"
-
-    # If target dir is set, just copy SQL files there
-    if [[ -n "${target_dir}" ]]; then
-        if ! mkdir -p "${target_dir}" 2>/dev/null; then
-            local fallback="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")/sql"
-            tm_log "WARN" "Cannot write to ${target_dir} — falling back to ${fallback}"
-            target_dir="${fallback}"
-        fi
-        tm_ensure_dir "${target_dir}"
-
-        if [[ -n "${DB_NAMES}" ]]; then
-            local IFS=','
-            for db in ${DB_NAMES}; do
-                db=$(echo "${db}" | tr -d ' ')
-                local src="${sql_dir}/${db}.sql"
-                if [[ ! -f "${src}" ]]; then
-                    tm_log "ERROR" "Database dump not found: ${db}"
-                    continue
-                fi
-                if [[ ${DRY_RUN} -eq 1 ]]; then
-                    tm_log "INFO" "[DRY-RUN] Would copy: ${src} -> ${target_dir}/"
-                else
-                    cp "${src}" "${target_dir}/"
-                    tm_log "INFO" "Copied ${db}.sql to ${target_dir}/"
-                fi
-            done
-        else
-            if [[ ${DRY_RUN} -eq 1 ]]; then
-                tm_log "INFO" "[DRY-RUN] Would copy all SQL dumps to ${target_dir}/"
-            else
-                cp "${sql_dir}"/*.sql "${target_dir}/" 2>/dev/null || true
-                tm_log "INFO" "Copied all SQL dumps to ${target_dir}/"
-            fi
-        fi
-        return 0
+    if [[ -z "${target_dir}" ]]; then
+        target_dir="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")"
     fi
 
-    # Remote restore: push SQL files to the server and import
-    tm_log "INFO" "Restoring databases to ${HOSTNAME}"
+    # Archive format: create tar.gz or zip of sql dumps on the server
+    if [[ "${RESTORE_FORMAT}" == "tar.gz" || "${RESTORE_FORMAT}" == "zip" ]]; then
+        _restore_as_archive "${sql_dir}" "${target_dir}" "sql" "${snapshot_dir}"
+        return $?
+    fi
 
-    local db_files=()
+    # Copy SQL files to target dir
+    if ! mkdir -p "${target_dir}" 2>/dev/null; then
+        local fallback="${TM_HOME}/restores/${HOSTNAME}/$(basename "${snapshot_dir}")/sql"
+        tm_log "WARN" "Cannot write to ${target_dir} — falling back to ${fallback}"
+        target_dir="${fallback}"
+    fi
+    tm_ensure_dir "${target_dir}"
+
     if [[ -n "${DB_NAMES}" ]]; then
         local IFS=','
         for db in ${DB_NAMES}; do
             db=$(echo "${db}" | tr -d ' ')
-            if [[ -f "${sql_dir}/${db}.sql" ]]; then
-                db_files+=("${sql_dir}/${db}.sql")
-            else
+            local src="${sql_dir}/${db}.sql"
+            if [[ ! -f "${src}" ]]; then
                 tm_log "ERROR" "Database dump not found: ${db}"
+                continue
+            fi
+            if [[ ${DRY_RUN} -eq 1 ]]; then
+                tm_log "INFO" "[DRY-RUN] Would copy: ${src} -> ${target_dir}/"
+            else
+                cp "${src}" "${target_dir}/"
+                tm_log "INFO" "Copied ${db}.sql to ${target_dir}/"
             fi
         done
     else
-        for f in "${sql_dir}"/*.sql; do
-            [[ -f "${f}" ]] && db_files+=("${f}")
-        done
-    fi
-
-    for sql_file in "${db_files[@]}"; do
-        local db_name
-        db_name=$(basename "${sql_file}" .sql)
-
         if [[ ${DRY_RUN} -eq 1 ]]; then
-            tm_log "INFO" "[DRY-RUN] Would restore database: ${db_name} on ${HOSTNAME}"
-            continue
+            tm_log "INFO" "[DRY-RUN] Would copy all SQL dumps to ${target_dir}/"
+        else
+            cp "${sql_dir}"/*.sql "${target_dir}/" 2>/dev/null || true
+            tm_log "INFO" "Copied all SQL dumps to ${target_dir}/"
         fi
-
-        tm_log "INFO" "Restoring database: ${db_name} on ${HOSTNAME}"
-
-        # Push SQL file to remote and import
-        scp -P "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
-            -o StrictHostKeyChecking=no \
-            "${sql_file}" \
-            "${TM_USER}@${HOSTNAME}:/tmp/${db_name}.sql"
-
-        ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
-            -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
-            -o StrictHostKeyChecking=no \
-            "${TM_USER}@${HOSTNAME}" \
-            "DBPASS=\$(sudo cat ${TM_MYSQL_PW_FILE}) && \
-             mysql --defaults-extra-file=<(printf '[client]\nuser=root\npassword=%s' \"\${DBPASS}\") \
-             ${db_name} < /tmp/${db_name}.sql && \
-             rm -f /tmp/${db_name}.sql" || {
-                tm_log "ERROR" "Failed to restore database: ${db_name}"
-                continue
-            }
-
-        tm_log "INFO" "Database restored: ${db_name}"
-    done
+    fi
+    return 0
 }
 
 # ============================================================

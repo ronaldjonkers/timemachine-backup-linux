@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-02-09
+
+### Changed
+- **Restore always goes to the server** — Choosing tar.gz or zip now creates the archive *on the backup server* in the target directory, not as a browser download. Use the separate "Download" button if you want to download to your browser
+- **Removed Restore Mode dropdown** — Files and databases are now separate restore flows. Clicking "Restore" on a file item uses `--files-only`, clicking "Restore" on a database item uses `--db-only` automatically
+- **Database restore creates archive on server** — Restore button on SQL items packages the database dumps as files, tar.gz, or zip on the server in the target directory
+- **`restore.sh` supports `--format` flag** — New option: `--format files|tar.gz|zip` to control how restored content is placed on the server
+- **Default restore target** — When no target directory is specified, restores go to `$TM_HOME/restores/<hostname>/<date>/` instead of trying to write to `/`
+- Removed dead code for remote database import via SSH (was unreachable)
+
 ## [2.5.3] - 2026-02-09
 
 ### Added

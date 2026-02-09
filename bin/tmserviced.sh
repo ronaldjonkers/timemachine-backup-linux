@@ -613,12 +613,13 @@ _handle_request() {
             local target_host="${path#/api/restore/}"
             target_host=$(echo "${target_host}" | cut -d'?' -f1)
 
-            # Parse JSON body: snapshot, path, target, mode
-            local snap_date rest_path rest_target rest_mode
+            # Parse JSON body: snapshot, path, target, mode, format
+            local snap_date rest_path rest_target rest_mode rest_format
             snap_date=$(echo "${body}" | grep -o '"snapshot":"[^"]*"' | cut -d'"' -f4)
             rest_path=$(echo "${body}" | grep -o '"path":"[^"]*"' | cut -d'"' -f4)
             rest_target=$(echo "${body}" | grep -o '"target":"[^"]*"' | cut -d'"' -f4)
             rest_mode=$(echo "${body}" | grep -o '"mode":"[^"]*"' | cut -d'"' -f4)
+            rest_format=$(echo "${body}" | grep -o '"format":"[^"]*"' | cut -d'"' -f4)
 
             if [[ -z "${snap_date}" ]]; then
                 _http_response "400 Bad Request" "application/json" \
@@ -627,6 +628,7 @@ _handle_request() {
                 local opts="--date ${snap_date} --no-confirm"
                 [[ -n "${rest_path}" ]] && opts+=" --path ${rest_path}"
                 [[ -n "${rest_target}" ]] && opts+=" --target ${rest_target}"
+                [[ -n "${rest_format}" ]] && opts+=" --format ${rest_format}"
                 case "${rest_mode}" in
                     files-only) opts+=" --files-only" ;;
                     db-only)    opts+=" --db-only" ;;

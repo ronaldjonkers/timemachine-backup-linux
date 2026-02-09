@@ -993,77 +993,58 @@ function restoreItem(hostname, snapshot, itemPath) {
     // Detect if this is a database restore
     var isDb = itemPath && itemPath.indexOf('__sql__') === 0;
     var displayPath = itemPath || '/ (all files)';
-    var dlPath = 'files' + (itemPath ? '/' + itemPath : '');
-    var defaultMode = 'files-only';
+    var mode = 'files-only';
 
     if (isDb) {
         var sqlItem = itemPath.replace('__sql__/', '').replace('__sql__', '');
         displayPath = sqlItem ? 'sql/' + sqlItem : 'sql/ (all databases)';
-        dlPath = sqlItem ? 'sql/' + sqlItem : 'sql';
-        defaultMode = 'db-only';
+        mode = 'db-only';
     }
 
+    var typeLabel = isDb ? 'database backup' : 'files';
+
     var html = '<div class="edit-server-form">' +
-        '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to <strong>' + esc(hostname) + '</strong></p>' +
+        '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to server <strong>' + esc(hostname) + '</strong></p>' +
         '<div class="form-group">' +
-            '<label>Restore Format</label>' +
+            '<label>Restore as</label>' +
             '<select id="restore-format">' +
-                '<option value="files">Files (restore directly)</option>' +
+                '<option value="files">Files (copy directly)</option>' +
                 '<option value="tar.gz">tar.gz archive</option>' +
                 '<option value="zip">zip archive</option>' +
             '</select>' +
         '</div>' +
         '<div class="form-group">' +
-            '<label>Restore Mode</label>' +
-            '<select id="restore-mode">' +
-                '<option value=""' + (defaultMode === '' ? ' selected' : '') + '>Full (files + DB)</option>' +
-                '<option value="files-only"' + (defaultMode === 'files-only' ? ' selected' : '') + '>Files only</option>' +
-                '<option value="db-only"' + (defaultMode === 'db-only' ? ' selected' : '') + '>Database only</option>' +
-            '</select>' +
-        '</div>' +
-        '<div class="form-group">' +
-            '<label>Target Directory <span class="text-muted">(leave empty for default location)</span></label>' +
+            '<label>Target Directory <span class="text-muted">(on the server, leave empty for default)</span></label>' +
             '<input type="text" id="restore-target" placeholder="/home/timemachine/restores" style="width:100%;box-sizing:border-box;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem">' +
         '</div>' +
         '<div class="form-actions">' +
-            '<button class="btn btn-primary" id="restore-submit" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\',\'' + esc(dlPath) + '\')">Restore</button>' +
+            '<button class="btn btn-primary" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\',\'' + esc(mode) + '\')">Restore to Server</button>' +
             '<button class="btn" onclick="closeModal()">Cancel</button>' +
         '</div>' +
     '</div>';
-    openModal('Restore: ' + hostname, html);
+    openModal('Restore ' + typeLabel + ': ' + hostname, html);
 }
 
-async function doRestore(hostname, snapshot, itemPath, dlPath) {
+async function doRestore(hostname, snapshot, itemPath, mode) {
     var format = document.getElementById('restore-format').value;
-
-    // If format is tar.gz or zip, download the archive instead of restoring files
-    if (format === 'tar.gz' || format === 'zip') {
-        closeModal();
-        downloadSnapshot(hostname, snapshot, dlPath, format);
-        return;
-    }
-
-    var mode = document.getElementById('restore-mode').value;
     var target = document.getElementById('restore-target').value.trim();
 
-    // Handle __sql__ prefix: convert to db-only restore
+    // Handle __sql__ prefix: clean path for API
     var isDb = itemPath && itemPath.indexOf('__sql__') === 0;
     var cleanPath = itemPath;
     if (isDb) {
         cleanPath = itemPath.replace('__sql__/', '').replace('__sql__', '');
-        if (!mode) mode = 'db-only';
     }
 
-    var body = { snapshot: snapshot };
+    var body = { snapshot: snapshot, mode: mode };
     if (cleanPath) body.path = cleanPath;
     if (target) body.target = target;
-    if (mode) body.mode = mode;
-    if (isDb) body.db_restore = true;
+    if (format !== 'files') body.format = format;
 
     closeModal();
     var result = await apiPost('/api/restore/' + hostname, body);
     if (result && result.status === 'started') {
-        toast('Restore started for ' + hostname + ' (snapshot ' + snapshot + ')', 'success');
+        toast('Restore started for ' + hostname + ' (' + format + ')', 'success');
         setTimeout(refreshRestores, 1500);
     } else {
         toast('Failed to start restore', 'error');
