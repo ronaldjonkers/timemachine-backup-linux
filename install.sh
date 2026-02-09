@@ -259,12 +259,16 @@ server_install_dependencies() {
             ;;
         centos|rhel|rocky|almalinux|ol)
             info "Using yum..."
-            yum install -y -q rsync openssh-server socat curl mailx gnupg2 2>/dev/null || true
+            yum install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || {
+                yum install -y -q mailx 2>/dev/null || true
+            }
             step_done "yum packages installed"
             ;;
         fedora)
             info "Using dnf..."
-            dnf install -y -q rsync openssh-server socat curl mailx gnupg2 2>/dev/null || true
+            dnf install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || {
+                dnf install -y -q mailx 2>/dev/null || true
+            }
             step_done "dnf packages installed"
             ;;
         opensuse*|sles|suse)
@@ -294,17 +298,17 @@ server_install_dependencies() {
             warn "Unknown OS '${os}'. Trying to auto-detect package manager..."
             if command -v apt-get &>/dev/null; then
                 apt-get update -qq 2>/dev/null || true
-                apt-get install -y -qq rsync openssh-server socat curl gnupg2 2>/dev/null || true
+                apt-get install -y -qq rsync openssh-server socat curl mailutils gnupg2 2>/dev/null || true
             elif command -v dnf &>/dev/null; then
-                dnf install -y -q rsync openssh-server socat curl gnupg2 2>/dev/null || true
+                dnf install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || true
             elif command -v yum &>/dev/null; then
-                yum install -y -q rsync openssh-server socat curl gnupg2 2>/dev/null || true
+                yum install -y -q rsync openssh-server socat curl s-nail gnupg2 2>/dev/null || true
             elif command -v zypper &>/dev/null; then
-                zypper --non-interactive install rsync openssh socat curl gpg2 2>/dev/null || true
+                zypper --non-interactive install rsync openssh socat curl mailx gpg2 2>/dev/null || true
             elif command -v pacman &>/dev/null; then
                 pacman -Sy --noconfirm --needed rsync openssh socat curl gnupg 2>/dev/null || true
             elif command -v apk &>/dev/null; then
-                apk add --no-cache rsync openssh socat curl gnupg 2>/dev/null || true
+                apk add --no-cache rsync openssh socat curl gnupg mailx 2>/dev/null || true
             else
                 warn "No supported package manager found. Install rsync, openssh, socat, and curl manually."
             fi

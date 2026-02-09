@@ -57,12 +57,20 @@ _tm_notify_email() {
         return 1
     fi
 
-    if ! command -v mail &>/dev/null; then
-        tm_log "WARN" "mail command not found; skipping email"
+    # Try multiple mail tools in order of preference
+    if command -v mail &>/dev/null; then
+        echo "${body}" | mail -s "${subject}" "${TM_ALERT_EMAIL}"
+    elif command -v mailx &>/dev/null; then
+        echo "${body}" | mailx -s "${subject}" "${TM_ALERT_EMAIL}"
+    elif command -v msmtp &>/dev/null; then
+        printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${subject}" "${body}" | msmtp "${TM_ALERT_EMAIL}"
+    elif command -v sendmail &>/dev/null; then
+        printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${subject}" "${body}" | sendmail "${TM_ALERT_EMAIL}"
+    else
+        tm_log "WARN" "No mail tool found (tried: mail, mailx, msmtp, sendmail); cannot send email"
         return 1
     fi
 
-    echo "${body}" | mail -s "${subject}" "${TM_ALERT_EMAIL}"
     tm_log "INFO" "Email sent to ${TM_ALERT_EMAIL}: ${subject}"
     return 0
 }

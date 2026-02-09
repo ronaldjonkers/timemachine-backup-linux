@@ -211,12 +211,14 @@ if [[ -z "$(type -t tm_notify 2>/dev/null)" ]]; then
         # Try multiple mail tools in order of preference
         if command -v mail &>/dev/null; then
             echo "${body}" | mail -s "${full_subject}" "${TM_ALERT_EMAIL}"
+        elif command -v mailx &>/dev/null; then
+            echo "${body}" | mailx -s "${full_subject}" "${TM_ALERT_EMAIL}"
         elif command -v msmtp &>/dev/null; then
             printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | msmtp "${TM_ALERT_EMAIL}"
         elif command -v sendmail &>/dev/null; then
             printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | sendmail "${TM_ALERT_EMAIL}"
         else
-            tm_log "WARN" "No mail tool found (tried: mail, msmtp, sendmail); cannot send notification"
+            tm_log "WARN" "No mail tool found (tried: mail, mailx, msmtp, sendmail); cannot send notification"
             return 1
         fi
         tm_log "INFO" "Alert sent to ${TM_ALERT_EMAIL}: ${full_subject}"

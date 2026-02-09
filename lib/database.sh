@@ -20,31 +20,42 @@
 tm_trigger_remote_dump() {
     local hostname="$1"
     local remote_user="${TM_USER}"
+    local script_dir="${TM_INSTALL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+    local dump_script="${script_dir}/bin/dump_dbs.sh"
 
     tm_log "INFO" "Triggering remote database dump on ${hostname}"
 
-    # Pass database config to the remote script via environment
-    local env_vars=""
-    env_vars+="TM_DB_TYPES='${TM_DB_TYPES}' "
-    env_vars+="TM_MYSQL_PW_FILE='${TM_MYSQL_PW_FILE}' "
-    env_vars+="TM_MYSQL_HOST='${TM_MYSQL_HOST}' "
-    env_vars+="TM_PG_USER='${TM_PG_USER}' "
-    env_vars+="TM_PG_HOST='${TM_PG_HOST}' "
-    env_vars+="TM_MONGO_HOST='${TM_MONGO_HOST}' "
-    env_vars+="TM_MONGO_AUTH_DB='${TM_MONGO_AUTH_DB}' "
-    env_vars+="TM_REDIS_HOST='${TM_REDIS_HOST}' "
-    env_vars+="TM_REDIS_PORT='${TM_REDIS_PORT}' "
-    env_vars+="TM_SQLITE_PATHS='${TM_SQLITE_PATHS}' "
-    env_vars+="TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}' "
+    if [[ ! -f "${dump_script}" ]]; then
+        tm_log "ERROR" "dump_dbs.sh not found at ${dump_script}"
+        return 1
+    fi
 
-    # Try multiple possible locations for dump_dbs.sh on the client
-    local dump_script="/home/${remote_user}/dump_dbs.sh"
-
-    ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
+    # Pipe the dump script via SSH stdin so the server always controls
+    # what runs on the client. This avoids version mismatch and
+    # self-restart permission issues on the client side.
+    # Extract the script body (skip the self-restart block, lines 1-31)
+    # and prepend the env vars so they override defaults.
+    {
+        echo "#!/usr/bin/env bash"
+        echo "# Piped from server — no self-restart needed"
+        echo "export TM_DB_TYPES='${TM_DB_TYPES}'"
+        echo "export TM_MYSQL_PW_FILE='${TM_MYSQL_PW_FILE}'"
+        echo "export TM_MYSQL_HOST='${TM_MYSQL_HOST}'"
+        echo "export TM_PG_USER='${TM_PG_USER}'"
+        echo "export TM_PG_HOST='${TM_PG_HOST}'"
+        echo "export TM_MONGO_HOST='${TM_MONGO_HOST}'"
+        echo "export TM_MONGO_AUTH_DB='${TM_MONGO_AUTH_DB}'"
+        echo "export TM_REDIS_HOST='${TM_REDIS_HOST}'"
+        echo "export TM_REDIS_PORT='${TM_REDIS_PORT}'"
+        echo "export TM_SQLITE_PATHS='${TM_SQLITE_PATHS}'"
+        echo "export TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}'"
+        # Output the script body after the self-restart block (from "# CONFIGURATION" onward)
+        sed -n '/^# ===.*CONFIGURATION/,$p' "${dump_script}"
+    } | ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
         -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
         -o StrictHostKeyChecking=no \
         "${remote_user}@${hostname}" \
-        "${env_vars} bash -c 'if [[ -f ${dump_script} ]]; then bash ${dump_script}; elif [[ -f /opt/timemachine-backup-linux/bin/dump_dbs.sh ]]; then bash /opt/timemachine-backup-linux/bin/dump_dbs.sh; else echo \"dump_dbs.sh not found on client (tried ${dump_script} and /opt/timemachine-backup-linux/bin/dump_dbs.sh)\"; exit 1; fi'" 2>&1
+        "bash -s" 2>&1
 
     return $?
 }

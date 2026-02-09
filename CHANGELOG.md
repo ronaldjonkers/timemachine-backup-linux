@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-02-09
+
+### Fixed
+- **Database dump self-restart permission denied on client** — Server now pipes `dump_dbs.sh` via SSH stdin instead of relying on the client having an up-to-date copy. Eliminates version mismatch and `.sh-tmp` permission errors entirely
+- **Mail tool not found on RHEL 9** — RHEL 9+ uses `s-nail` (provides `mailx`) instead of `mailx` package. Updated install dependencies and all notification functions to try `mail`, `mailx`, `msmtp`, `sendmail` in order
+- **Missing mail dependency on update** — `tmctl update` now auto-installs `s-nail`/`mailx`/`mailutils` if no mail tool is present
+
+### Changed
+- `tm_trigger_remote_dump()` rewritten: pipes script via SSH stdin with env vars prepended, no client-side script dependency needed
+- Install dependencies: RHEL/Rocky/Fedora now install `s-nail` with `mailx` fallback
+- Fallback package managers also include mail tools
+
 ## [2.2.1] - 2026-02-09
 
 ### Fixed

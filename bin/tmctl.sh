@@ -442,7 +442,7 @@ cmd_server_remove() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v2.2.1"
+    echo "TimeMachine Backup v2.2.2"
 }
 
 cmd_fix_permissions() {
@@ -783,6 +783,23 @@ cmd_update() {
     # Re-set script permissions
     find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
     chmod +x "${project_root}/get.sh" "${project_root}/install.sh" "${project_root}/uninstall.sh" 2>/dev/null || true
+
+    # Install missing dependencies (e.g. mail tool added in v2.2.2)
+    if [[ "$(id -u)" -eq 0 ]] && ! command -v mail &>/dev/null && ! command -v mailx &>/dev/null; then
+        echo "  Installing mail tool..."
+        if command -v dnf &>/dev/null; then
+            dnf install -y -q s-nail 2>/dev/null || dnf install -y -q mailx 2>/dev/null || true
+        elif command -v yum &>/dev/null; then
+            yum install -y -q s-nail 2>/dev/null || yum install -y -q mailx 2>/dev/null || true
+        elif command -v apt-get &>/dev/null; then
+            apt-get install -y -qq mailutils 2>/dev/null || true
+        fi
+        if command -v mail &>/dev/null || command -v mailx &>/dev/null; then
+            echo "  ${GREEN}Mail tool installed${NC}"
+        else
+            echo "  ${YELLOW}Warning:${NC} Could not install mail tool. Install manually: s-nail, mailx, or mailutils"
+        fi
+    fi
 
     # Restore ownership to timemachine user (update may run as root)
     if [[ "$(id -u)" -eq 0 ]] && id "${tm_user}" &>/dev/null 2>&1; then
