@@ -441,8 +441,133 @@ cmd_server_remove() {
     echo -e "${GREEN}Removed${NC} ${BOLD}${hostname}${NC} from servers.conf"
 }
 
+cmd_server_edit() {
+    local hostname="$1"
+    shift 2>/dev/null || true
+
+    if [[ -z "${hostname}" ]]; then
+        echo "Usage: tmctl server edit <hostname> [OPTIONS]"
+        echo ""
+        echo "Options:"
+        echo "  --priority N        Backup priority (1=highest, default=10)"
+        echo "  --db-interval Xh    Extra DB backups every X hours (e.g. 4h, 0=off)"
+        echo "  --files-only        Only backup files (skip database dump)"
+        echo "  --db-only           Only backup databases (skip file sync)"
+        echo "  --no-rotate         Skip backup rotation"
+        echo "  --full              Reset to full backup (remove --files-only/--db-only)"
+        echo "  --rotate            Re-enable rotation (remove --no-rotate)"
+        echo ""
+        echo "Examples:"
+        echo "  tmctl server edit db1.example.com --db-interval 4h"
+        echo "  tmctl server edit web1.example.com --priority 1 --files-only"
+        echo "  tmctl server edit app1.example.com --full --priority 10"
+        exit 1
+    fi
+
+    local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+
+    if [[ ! -f "${servers_conf}" ]]; then
+        echo -e "${RED}No servers.conf found${NC}"
+        return 1
+    fi
+
+    # Find current line for this host
+    local current_line
+    current_line=$(grep -E "^\s*${hostname}(\s|$)" "${servers_conf}" 2>/dev/null | head -1)
+    if [[ -z "${current_line}" ]]; then
+        echo -e "${RED}Server '${hostname}' not found in servers.conf${NC}"
+        return 1
+    fi
+
+    # Parse current options
+    local cur_opts
+    cur_opts=$(echo "${current_line}" | sed "s/^[[:space:]]*${hostname}//;s/^[[:space:]]*//")
+
+    # Parse new options from arguments
+    local new_priority="" new_db_interval="" set_files_only="" set_db_only="" set_no_rotate=""
+    local set_full=0 set_rotate=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --priority)    new_priority="$2"; shift 2 ;;
+            --db-interval) new_db_interval="$2"; shift 2 ;;
+            --files-only)  set_files_only=1; shift ;;
+            --db-only)     set_db_only=1; shift ;;
+            --no-rotate)   set_no_rotate=1; shift ;;
+            --full)        set_full=1; shift ;;
+            --rotate)      set_rotate=1; shift ;;
+            *)             echo "Unknown option: $1"; return 1 ;;
+        esac
+    done
+
+    # Build new options string starting from current
+    local opts="${cur_opts}"
+
+    # Update priority
+    if [[ -n "${new_priority}" ]]; then
+        opts=$(echo "${opts}" | sed 's/--priority[[:space:]]\+[0-9]\+//')
+        opts="${opts} --priority ${new_priority}"
+    fi
+
+    # Update db-interval
+    if [[ -n "${new_db_interval}" ]]; then
+        opts=$(echo "${opts}" | sed 's/--db-interval[[:space:]]\+[0-9]\+h//')
+        if [[ "${new_db_interval}" != "0" && "${new_db_interval}" != "0h" ]]; then
+            # Ensure format ends with 'h'
+            new_db_interval="${new_db_interval%h}h"
+            opts="${opts} --db-interval ${new_db_interval}"
+        fi
+    fi
+
+    # Handle mode flags
+    if [[ ${set_full} -eq 1 ]]; then
+        opts=$(echo "${opts}" | sed 's/--files-only//;s/--db-only//')
+    fi
+    if [[ -n "${set_files_only}" ]]; then
+        opts=$(echo "${opts}" | sed 's/--db-only//')
+        if ! echo "${opts}" | grep -q '\-\-files-only'; then
+            opts="${opts} --files-only"
+        fi
+    fi
+    if [[ -n "${set_db_only}" ]]; then
+        opts=$(echo "${opts}" | sed 's/--files-only//')
+        if ! echo "${opts}" | grep -q '\-\-db-only'; then
+            opts="${opts} --db-only"
+        fi
+    fi
+
+    # Handle rotation
+    if [[ ${set_rotate} -eq 1 ]]; then
+        opts=$(echo "${opts}" | sed 's/--no-rotate//')
+    fi
+    if [[ -n "${set_no_rotate}" ]]; then
+        if ! echo "${opts}" | grep -q '\-\-no-rotate'; then
+            opts="${opts} --no-rotate"
+        fi
+    fi
+
+    # Clean up whitespace
+    opts=$(echo "${opts}" | sed 's/  */ /g;s/^ *//;s/ *$//')
+
+    # Build new line
+    local new_line="${hostname}"
+    [[ -n "${opts}" ]] && new_line="${hostname} ${opts}"
+
+    # Replace in file (escape special chars for sed)
+    local escaped_current escaped_new
+    escaped_current=$(printf '%s\n' "${current_line}" | sed 's/[&/\]/\\&/g;s/^[[:space:]]*//')
+    escaped_new=$(printf '%s\n' "${new_line}" | sed 's/[&/\]/\\&/g')
+
+    sed -i.bak "s/^[[:space:]]*${escaped_current}$/${escaped_new}/" "${servers_conf}" 2>/dev/null || \
+    sed -i '' "s/^[[:space:]]*${escaped_current}$/${escaped_new}/" "${servers_conf}"
+    rm -f "${servers_conf}.bak"
+
+    echo -e "${GREEN}Updated${NC} ${BOLD}${hostname}${NC}"
+    echo -e "  ${CYAN}${new_line}${NC}"
+}
+
 cmd_version() {
-    echo "TimeMachine Backup v2.2.2"
+    echo "TimeMachine Backup v2.3.0"
 }
 
 cmd_fix_permissions() {
@@ -923,6 +1048,7 @@ usage() {
     echo "  logs [hostname]     Show logs"
     echo "  servers             List configured servers"
     echo "  server add <host>   Add a server [OPTIONS]"
+    echo "  server edit <host>  Edit server settings [OPTIONS]"
     echo "  server remove <host> Remove a server"
     echo "  snapshots <host>    List snapshots"
     echo "  ssh-key             Show SSH public key"
@@ -952,7 +1078,8 @@ case "${COMMAND}" in
         case "${SUBCMD}" in
             add)    cmd_server_add "$@" ;;
             remove|rm|del) cmd_server_remove "$@" ;;
-            *)      echo "Usage: tmctl server <add|remove> <hostname>"; exit 1 ;;
+            edit|set) cmd_server_edit "$@" ;;
+            *)      echo "Usage: tmctl server <add|edit|remove> <hostname>"; exit 1 ;;
         esac
         ;;
     snapshots)  cmd_snapshots "$@" ;;

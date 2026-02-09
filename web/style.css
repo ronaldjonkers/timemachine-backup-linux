@@ -438,6 +438,56 @@ td.empty {
     font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
 
+/* Edit Server Form (inside modal) */
+.edit-server-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.form-group label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.form-group input[type="number"],
+.form-group select {
+    padding: 0.5rem 0.7rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color var(--transition);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.form-group input[type="number"]:focus,
+.form-group select:focus {
+    border-color: var(--accent);
+}
+
+.form-group label input[type="checkbox"] {
+    margin-right: 0.4rem;
+    accent-color: var(--accent);
+}
+
+.form-actions {
+    display: flex;
+    gap: 0.65rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
 /* Installer Block */
 .installer-block {
     padding: 1rem 1.25rem 0;

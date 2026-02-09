@@ -56,6 +56,21 @@ async function apiDelete(endpoint) {
     }
 }
 
+async function apiPut(endpoint, body) {
+    try {
+        var resp = await fetch(API_BASE + endpoint, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.json();
+    } catch (e) {
+        console.error('API PUT ' + endpoint + ':', e);
+        return null;
+    }
+}
+
 /* ============================================================
    TOAST NOTIFICATIONS
    ============================================================ */
@@ -324,6 +339,7 @@ async function refreshServers() {
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + statusLabel + '</span></td>' +
             '<td>' +
                 '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(srv.hostname) + '\')">Backup</button> ' +
+                '<button class="btn btn-sm" onclick="editServer(\'' + esc(srv.hostname) + '\')">Edit</button> ' +
                 '<button class="btn btn-sm" onclick="viewSnapshots(\'' + esc(srv.hostname) + '\')">Snaps</button> ' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(srv.hostname) + '\')">Logs</button> ' +
                 '<button class="btn btn-sm btn-danger" onclick="removeServer(\'' + esc(srv.hostname) + '\')">&#x2715;</button>' +
@@ -468,6 +484,74 @@ async function removeServer(hostname) {
     if (result) {
         toast('Server ' + hostname + ' removed', 'info');
         refreshServers();
+    }
+}
+
+function editServer(hostname) {
+    // Find server data from current list
+    var data = null;
+    var servers = document.querySelectorAll('#servers-body tr');
+    // Use the API data we already have
+    apiGet('/api/servers').then(function(list) {
+        if (!list) return;
+        var srv = null;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].hostname === hostname) { srv = list[i]; break; }
+        }
+        if (!srv) { toast('Server not found', 'error'); return; }
+
+        var modeVal = srv.files_only ? 'files-only' : (srv.db_only ? 'db-only' : 'full');
+
+        var html = '<div class="edit-server-form">' +
+            '<div class="form-group">' +
+                '<label>Backup Mode</label>' +
+                '<select id="edit-mode">' +
+                    '<option value="full"' + (modeVal === 'full' ? ' selected' : '') + '>Full (files + DB)</option>' +
+                    '<option value="files-only"' + (modeVal === 'files-only' ? ' selected' : '') + '>Files only</option>' +
+                    '<option value="db-only"' + (modeVal === 'db-only' ? ' selected' : '') + '>Database only</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label>Priority <span class="text-muted">(1 = highest, default 10)</span></label>' +
+                '<input type="number" id="edit-priority" value="' + (srv.priority || 10) + '" min="1" max="99">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label>DB Backup Interval <span class="text-muted">(hours, 0 = only with daily backup)</span></label>' +
+                '<input type="number" id="edit-db-interval" value="' + (srv.db_interval || 0) + '" min="0" max="24">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label><input type="checkbox" id="edit-no-rotate"' + (srv.no_rotate ? ' checked' : '') + '> Skip backup rotation</label>' +
+            '</div>' +
+            '<div class="form-actions">' +
+                '<button class="btn btn-primary" onclick="saveServerSettings(\'' + esc(hostname) + '\')">Save</button>' +
+                '<button class="btn" onclick="closeModal()">Cancel</button>' +
+            '</div>' +
+        '</div>';
+
+        openModal('Settings: ' + hostname, html);
+    });
+}
+
+async function saveServerSettings(hostname) {
+    var mode = document.getElementById('edit-mode').value;
+    var priority = parseInt(document.getElementById('edit-priority').value) || 10;
+    var dbInterval = parseInt(document.getElementById('edit-db-interval').value) || 0;
+    var noRotate = document.getElementById('edit-no-rotate').checked;
+
+    var result = await apiPut('/api/servers/' + hostname, {
+        mode: mode,
+        priority: priority,
+        db_interval: dbInterval,
+        no_rotate: noRotate
+    });
+
+    if (result && result.status === 'updated') {
+        toast('Settings saved for ' + hostname, 'success');
+        closeModal();
+        await refreshHistory();
+        refreshServers();
+    } else {
+        toast('Failed to save settings', 'error');
     }
 }
 

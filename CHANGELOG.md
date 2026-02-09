@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-02-09
+
+### Added
+- **`tmctl server edit`** — New CLI command to modify server settings: `tmctl server edit <hostname> --priority N --db-interval Xh --files-only --db-only --no-rotate --full --rotate`
+- **`PUT /api/servers/<hostname>`** — New API endpoint to update server settings from the web dashboard. Accepts JSON body with `mode`, `priority`, `db_interval`, `no_rotate`
+- **Server edit modal in web dashboard** — "Edit" button on each server row opens a settings modal with backup mode, priority, DB backup interval, and rotation toggle
+- **Parsed flags in `GET /api/servers`** — Response now includes `files_only`, `db_only`, `no_rotate` boolean fields for easier frontend consumption
+
+### Changed
+- Server actions row now includes Edit button between Backup and Snaps
+- `tmctl server` subcommand accepts `add`, `edit`, and `remove`
+
 ## [2.2.2] - 2026-02-09
 
 ### Fixed

@@ -496,8 +496,13 @@ _handle_request() {
                     local srv_db_int
                     srv_db_int=$(_parse_db_interval "${line}")
                     [[ -z "${srv_db_int}" ]] && srv_db_int="0"
+                    local srv_files_only="false" srv_db_only="false" srv_no_rotate="false"
+                    echo "${srv_opts}" | grep -q '\-\-files-only' && srv_files_only="true"
+                    echo "${srv_opts}" | grep -q '\-\-db-only' && srv_db_only="true"
+                    echo "${srv_opts}" | grep -q '\-\-no-rotate' && srv_no_rotate="true"
                     [[ ${first} -eq 1 ]] && first=0 || servers+=','
-                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s}' "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}")
+                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s,"files_only":%s,"db_only":%s,"no_rotate":%s}' \
+                        "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}" "${srv_files_only}" "${srv_db_only}" "${srv_no_rotate}")
                 done < "${servers_conf}"
             fi
             servers+=']'
@@ -530,6 +535,50 @@ _handle_request() {
                     _http_response "201 Created" "application/json" \
                         "{\"status\":\"added\",\"hostname\":\"${new_host}\",\"options\":\"${new_opts}\"}"
                 fi
+            fi
+            ;;
+
+        "PUT /api/servers/"*)
+            local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+            local target_host="${path#/api/servers/}"
+
+            if [[ ! -f "${servers_conf}" ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    '{"error":"No servers.conf found"}'
+            elif ! grep -qE "^\s*${target_host}(\s|$)" "${servers_conf}" 2>/dev/null; then
+                _http_response "404 Not Found" "application/json" \
+                    "{\"error\":\"Server '${target_host}' not found\"}"
+            else
+                # Parse settings from JSON body
+                local new_prio new_db_int new_mode new_no_rotate
+                new_prio=$(echo "${body}" | grep -o '"priority":[0-9]*' | cut -d: -f2)
+                new_db_int=$(echo "${body}" | grep -o '"db_interval":[0-9]*' | cut -d: -f2)
+                new_mode=$(echo "${body}" | grep -o '"mode":"[^"]*"' | cut -d'"' -f4)
+                new_no_rotate=$(echo "${body}" | grep -o '"no_rotate":[a-z]*' | cut -d: -f2)
+
+                # Build new options string
+                local opts=""
+                [[ -n "${new_prio}" ]] && opts+="--priority ${new_prio} "
+                [[ -n "${new_db_int}" && "${new_db_int}" != "0" ]] && opts+="--db-interval ${new_db_int}h "
+                case "${new_mode}" in
+                    files-only) opts+="--files-only " ;;
+                    db-only)    opts+="--db-only " ;;
+                esac
+                [[ "${new_no_rotate}" == "true" ]] && opts+="--no-rotate "
+                opts=$(echo "${opts}" | sed 's/ *$//')
+
+                # Build new line
+                local new_line="${target_host}"
+                [[ -n "${opts}" ]] && new_line="${target_host} ${opts}"
+
+                # Replace in file
+                sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]*$/c\\${new_line}" "${servers_conf}" 2>/dev/null
+                sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]/c\\${new_line}" "${servers_conf}" 2>/dev/null
+                rm -f "${servers_conf}.bak"
+
+                tm_log "INFO" "API: updated server ${target_host}: ${opts}"
+                _http_response "200 OK" "application/json" \
+                    "{\"status\":\"updated\",\"hostname\":\"${target_host}\",\"options\":\"${opts}\"}"
             fi
             ;;
 
