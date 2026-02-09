@@ -720,8 +720,7 @@ _handle_request() {
                     "{\"error\":\"Log file not found: ${log_name}\"}"
             else
                 local content
-                content=$(tail -500 "${logfile}")
-                content=$(echo "${content}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+                content=$(tail -500 "${logfile}" | tr -d '\r' | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 
                 # Check if restore is still running
                 local is_running="false"
@@ -935,9 +934,7 @@ _handle_request() {
             fi
             if [[ -f "${logfile}" ]]; then
                 local content
-                content=$(tail -500 "${logfile}")
-                # Escape for JSON
-                content=$(echo "${content}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+                content=$(tail -500 "${logfile}" | tr -d '\r' | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | sed ':a;N;$!ba;s/\n/\\n/g')
                 local log_name
                 log_name=$(basename "${logfile}")
                 # Check if a backup is currently running for this host

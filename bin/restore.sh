@@ -404,7 +404,7 @@ _transfer_archive_to_host() {
 
     # Transfer via rsync over SSH
     local transfer_rc=0
-    rsync -avz --progress \
+    rsync -az \
         -e "ssh -p ${TM_SSH_PORT} -i ${TM_SSH_KEY} -o ConnectTimeout=${TM_SSH_TIMEOUT} -o StrictHostKeyChecking=no" \
         "${archive}" \
         "${remote_user}@${HOSTNAME}:${remote_dir}/${archive_name}" 2>&1
