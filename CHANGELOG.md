@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-02-09
+
+### Fixed
+- **Rsync permission denied on client** — Added `--rsync-path='sudo rsync'` so the remote (sender) side runs rsync with sudo, using the sudoers NOPASSWD rule. Fixes all "Permission denied" errors when backing up protected files
+- **Email notifications not sending** — `timemachine.sh` now sources `lib/notify.sh` for full multi-channel notifications (email, webhook, Slack). Fallback also supports `msmtp` and `sendmail` besides `mail`
+- **`dump_dbs.sh` not found on client** — SSH command now tries `~/dump_dbs.sh` then `/opt/timemachine-backup-linux/bin/dump_dbs.sh` with clear error if neither exists
+- **`tmctl update` "dubious ownership" error** — Added `git config --global --add safe.directory` before git operations when running as root. Restores file ownership to `timemachine` after update
+- **Version detection under sudo** — `_get_current_version()` now reads `VERSION` file first (single source of truth) instead of relying on `git describe` which fails under sudo
+
+### Added
+- **Dashboard timestamps** — Servers table shows full datetime + relative time ("2h ago"), failures panel shows relative timestamps, new `formatDateTime`/`timeAgo` JS helpers
+- **`timestamp` field in `/api/failures`** — Extracted from log line or filename
+- **`last_backup_time` field in `/api/history`** — Full datetime of last backup run
+
 ## [2.2.0] - 2026-02-09
 
 ### Added
