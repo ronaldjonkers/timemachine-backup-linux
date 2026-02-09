@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.4] - 2026-02-09
+
+### Fixed
+- **Zip archive creation failing with exit code 18** — `zip` returns exit code 18 ("nothing was done") when it encounters special files like Unix sockets (e.g. `.pm2/pub.sock`). These are now treated as warnings instead of errors when the archive file was successfully created. Also fixed zip output going to a separate log file instead of the restore log
+
 ## [2.7.3] - 2026-02-09
 
 ### Fixed

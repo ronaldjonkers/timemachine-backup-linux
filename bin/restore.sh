@@ -358,8 +358,14 @@ _restore_as_archive() {
         archive="${target_dir}/${archive_name}.zip"
         tm_log "INFO" "Creating zip archive: ${archive}"
         if command -v zip &>/dev/null; then
-            (cd "$(dirname "${source_dir}")" && sudo zip -r "${archive}" "$(basename "${source_dir}")") >> "${TM_LOG_DIR}/restore-archive.log" 2>&1
+            (cd "$(dirname "${source_dir}")" && sudo zip -r "${archive}" "$(basename "${source_dir}")") 2>&1
             rc=$?
+            # zip exit code 12 = "nothing to do" (e.g. only sockets/fifos skipped) — treat as success
+            # zip exit code 18 = "nothing was done" — same reason, treat as success if archive exists
+            if [[ ${rc} -eq 12 || ${rc} -eq 18 ]] && [[ -f "${archive}" ]]; then
+                tm_log "WARN" "zip reported warnings (exit ${rc}) — some special files were skipped"
+                rc=0
+            fi
             sudo chown "$(id -u):$(id -g)" "${archive}" 2>/dev/null
         else
             tm_log "ERROR" "zip command not available on server"
