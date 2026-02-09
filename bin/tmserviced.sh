@@ -367,7 +367,7 @@ _http_response() {
     printf "Content-Type: %s\r\n" "${content_type}"
     printf "Content-Length: %d\r\n" "${body_length}"
     printf "Access-Control-Allow-Origin: *\r\n"
-    printf "Access-Control-Allow-Methods: GET, POST, DELETE\r\n"
+    printf "Access-Control-Allow-Methods: GET, POST, PUT, DELETE\r\n"
     printf "Access-Control-Allow-Headers: Content-Type\r\n"
     printf "Connection: close\r\n"
     printf "\r\n"
@@ -476,6 +476,148 @@ _handle_request() {
             fi
             snaps+=']'
             _http_response "200 OK" "application/json" "${snaps}"
+            ;;
+
+        "GET /api/browse/"*)
+            # Browse files in a snapshot: /api/browse/<hostname>/<date>/<path>
+            local browse_path="${path#/api/browse/}"
+            local target_host="${browse_path%%/*}"
+            browse_path="${browse_path#*/}"
+            local snap_date="${browse_path%%/*}"
+            local sub_path="${browse_path#*/}"
+            # If sub_path equals snap_date, there's no sub_path
+            [[ "${sub_path}" == "${snap_date}" ]] && sub_path=""
+
+            local base_dir="${TM_BACKUP_ROOT}/${target_host}/${snap_date}"
+            # Default to files/ subdirectory, but allow browsing sql/ too
+            local browse_dir="${base_dir}/files"
+            if [[ "${sub_path}" == sql* ]]; then
+                browse_dir="${base_dir}/${sub_path}"
+                sub_path=""
+            elif [[ -n "${sub_path}" ]]; then
+                browse_dir="${base_dir}/files/${sub_path}"
+            fi
+
+            # URL-decode the path (basic: replace %20 with space, etc.)
+            browse_dir=$(printf '%b' "${browse_dir//%/\\x}")
+
+            if [[ ! -d "${base_dir}" ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    "{\"error\":\"Snapshot not found: ${target_host}/${snap_date}\"}"
+            elif [[ ! -d "${browse_dir}" ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    "{\"error\":\"Path not found\"}"
+            else
+                local items='['
+                local first=1
+                # List directories first, then files
+                while IFS= read -r entry; do
+                    [[ -z "${entry}" ]] && continue
+                    local name type size
+                    name=$(basename "${entry}")
+                    if [[ -d "${entry}" ]]; then
+                        type="dir"
+                        size=$(du -sh "${entry}" 2>/dev/null | cut -f1)
+                    else
+                        type="file"
+                        size=$(du -sh "${entry}" 2>/dev/null | cut -f1)
+                    fi
+                    name=$(echo "${name}" | sed 's/"/\\"/g')
+                    [[ ${first} -eq 1 ]] && first=0 || items+=','
+                    items+=$(printf '{"name":"%s","type":"%s","size":"%s"}' "${name}" "${type}" "${size}")
+                done < <(find "${browse_dir}" -maxdepth 1 -mindepth 1 2>/dev/null | sort)
+                items+=']'
+
+                # Also include info about what we're browsing
+                local rel_path="${browse_dir#${base_dir}/}"
+                local resp
+                resp=$(printf '{"hostname":"%s","snapshot":"%s","path":"%s","items":%s}' \
+                    "${target_host}" "${snap_date}" "${rel_path}" "${items}")
+                _http_response "200 OK" "application/json" "${resp}"
+            fi
+            ;;
+
+        "GET /api/download/"*)
+            # Download a zip of a path: /api/download/<hostname>/<date>/<path>
+            local dl_path="${path#/api/download/}"
+            local target_host="${dl_path%%/*}"
+            dl_path="${dl_path#*/}"
+            local snap_date="${dl_path%%/*}"
+            local sub_path="${dl_path#*/}"
+            [[ "${sub_path}" == "${snap_date}" ]] && sub_path="files"
+
+            local base_dir="${TM_BACKUP_ROOT}/${target_host}/${snap_date}"
+            local target_dir="${base_dir}/${sub_path}"
+            target_dir=$(printf '%b' "${target_dir//%/\\x}")
+
+            if [[ ! -e "${target_dir}" ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    "{\"error\":\"Path not found\"}"
+            elif ! command -v zip &>/dev/null && ! command -v tar &>/dev/null; then
+                _http_response "500 Internal Server Error" "application/json" \
+                    '{"error":"Neither zip nor tar available on server"}'
+            else
+                local archive_name="${target_host}-${snap_date}-$(basename "${sub_path}").tar.gz"
+                local tmp_archive="/tmp/tm-download-$$.tar.gz"
+
+                # Create tar.gz archive
+                tar -czf "${tmp_archive}" -C "$(dirname "${target_dir}")" "$(basename "${target_dir}")" 2>/dev/null
+
+                if [[ -f "${tmp_archive}" ]]; then
+                    local file_size
+                    file_size=$(wc -c < "${tmp_archive}" | tr -d ' ')
+                    printf "HTTP/1.1 200 OK\r\n"
+                    printf "Content-Type: application/gzip\r\n"
+                    printf "Content-Disposition: attachment; filename=\"%s\"\r\n" "${archive_name}"
+                    printf "Content-Length: %d\r\n" "${file_size}"
+                    printf "Access-Control-Allow-Origin: *\r\n"
+                    printf "Connection: close\r\n"
+                    printf "\r\n"
+                    cat "${tmp_archive}"
+                    rm -f "${tmp_archive}"
+                else
+                    _http_response "500 Internal Server Error" "application/json" \
+                        '{"error":"Failed to create archive"}'
+                fi
+            fi
+            ;;
+
+        "POST /api/restore/"*)
+            # Restore files to server: /api/restore/<hostname>
+            local target_host="${path#/api/restore/}"
+            target_host=$(echo "${target_host}" | cut -d'?' -f1)
+
+            # Parse JSON body: snapshot, path, target
+            local snap_date rest_path rest_target rest_mode
+            snap_date=$(echo "${body}" | grep -o '"snapshot":"[^"]*"' | cut -d'"' -f4)
+            rest_path=$(echo "${body}" | grep -o '"path":"[^"]*"' | cut -d'"' -f4)
+            rest_target=$(echo "${body}" | grep -o '"target":"[^"]*"' | cut -d'"' -f4)
+            rest_mode=$(echo "${body}" | grep -o '"mode":"[^"]*"' | cut -d'"' -f4)
+
+            if [[ -z "${snap_date}" ]]; then
+                _http_response "400 Bad Request" "application/json" \
+                    '{"error":"snapshot date is required"}'
+            else
+                local opts="--date ${snap_date} --no-confirm"
+                [[ -n "${rest_path}" ]] && opts+=" --path ${rest_path}"
+                [[ -n "${rest_target}" ]] && opts+=" --target ${rest_target}"
+                case "${rest_mode}" in
+                    files-only) opts+=" --files-only" ;;
+                    db-only)    opts+=" --db-only" ;;
+                esac
+
+                # Run restore in background
+                local ts
+                ts=$(date +'%Y-%m-%d_%H%M%S')
+                local logfile="${TM_LOG_DIR}/restore-${target_host}-${ts}.log"
+
+                "${SCRIPT_DIR}/restore.sh" "${target_host}" ${opts} >> "${logfile}" 2>&1 &
+                local rpid=$!
+
+                tm_log "INFO" "API: restore started for ${target_host} (PID ${rpid}, snapshot ${snap_date})"
+                _http_response "200 OK" "application/json" \
+                    "{\"status\":\"started\",\"hostname\":\"${target_host}\",\"pid\":${rpid},\"snapshot\":\"${snap_date}\",\"logfile\":\"$(basename "${logfile}")\"}"
+            fi
             ;;
 
         "GET /api/servers")

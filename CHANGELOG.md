@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-02-09
+
+### Added
+- **Snapshot file browser in web dashboard** — Click "Browse" on any snapshot to navigate directories and files with breadcrumb navigation. Directories are clickable, files show size
+- **Download from web dashboard** — Download any folder or file as a `.tar.gz` archive directly from the browser. Available at snapshot level, folder level, or individual item level
+- **Restore from web dashboard** — "Restore" button on any folder/file opens a modal with options: restore mode (full/files-only/db-only), custom target directory, or download instead. Restore runs in background with logging
+- **API: `GET /api/browse/<hostname>/<snapshot>/<path>`** — Browse directories and files inside backup snapshots
+- **API: `GET /api/download/<hostname>/<snapshot>/<path>`** — Download a tar.gz archive of any path in a snapshot
+- **API: `POST /api/restore/<hostname>`** — Start a restore job with snapshot, path, target, and mode options
+
+### Changed
+- Snapshots modal now includes Browse and Download buttons per snapshot
+- CORS headers updated to include PUT method
+
 ## [2.3.1] - 2026-02-09
 
 ### Fixed

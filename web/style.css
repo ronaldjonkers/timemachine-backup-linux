@@ -486,6 +486,36 @@ td.empty {
     gap: 0.65rem;
     padding-top: 0.5rem;
     border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+/* Breadcrumb (file browser) */
+.breadcrumb {
+    padding: 0.6rem 0;
+    margin-bottom: 0.75rem;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+
+.breadcrumb a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.breadcrumb a:hover {
+    text-decoration: underline;
+}
+
+/* Browse table */
+.browse-table td:first-child a {
+    color: var(--cyan);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.browse-table td:first-child a:hover {
+    text-decoration: underline;
 }
 
 /* Installer Block */

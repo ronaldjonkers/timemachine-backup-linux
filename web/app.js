@@ -588,15 +588,152 @@ async function viewSnapshots(hostname) {
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
             '<td>' + (s.has_sql ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' +
+                '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
+                '<button class="btn btn-sm btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button>' +
+            '</td>' +
             '</tr>';
     }).join('');
 
     var html = '<table>' +
-        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>SQL</th></tr></thead>' +
+        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>SQL</th><th>Actions</th></tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table>';
 
     openModal('Snapshots: ' + hostname, html);
+}
+
+/* ============================================================
+   BROWSE & RESTORE
+   ============================================================ */
+
+var _browseHost = '';
+var _browseSnap = '';
+var _browsePath = '';
+
+async function browseSnapshot(hostname, snapshot, subPath) {
+    _browseHost = hostname;
+    _browseSnap = snapshot;
+    _browsePath = subPath || '';
+
+    var url = '/api/browse/' + hostname + '/' + snapshot;
+    if (subPath) url += '/' + subPath;
+
+    var data = await apiGet(url);
+    if (!data) { toast('Failed to browse snapshot', 'error'); return; }
+
+    var breadcrumb = _buildBreadcrumb(hostname, snapshot, data.path || '');
+
+    var rows = '';
+    if (data.items && data.items.length > 0) {
+        // Sort: dirs first, then files
+        var dirs = data.items.filter(function(i) { return i.type === 'dir'; });
+        var files = data.items.filter(function(i) { return i.type !== 'dir'; });
+        var sorted = dirs.concat(files);
+
+        rows = sorted.map(function(item) {
+            var icon = item.type === 'dir' ? '&#x1F4C1;' : '&#x1F4C4;';
+            var clickPath = _browsePath ? _browsePath + '/' + item.name : item.name;
+            var nameCell = '';
+            if (item.type === 'dir') {
+                nameCell = '<a href="#" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(clickPath) + '\');return false">' + icon + ' ' + esc(item.name) + '</a>';
+            } else {
+                nameCell = icon + ' ' + esc(item.name);
+            }
+            return '<tr>' +
+                '<td>' + nameCell + '</td>' +
+                '<td class="text-muted">' + esc(item.size) + '</td>' +
+                '<td>' +
+                    '<button class="btn btn-sm btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files/' + esc(clickPath) + '\')">Download</button> ' +
+                    '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(clickPath) + '\')">Restore</button>' +
+                '</td></tr>';
+        }).join('');
+    } else {
+        rows = '<tr><td colspan="3" class="empty">Empty directory</td></tr>';
+    }
+
+    var html = breadcrumb +
+        '<table class="browse-table">' +
+        '<thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+        '<div class="form-actions" style="margin-top:1rem">' +
+            '<button class="btn btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files' + (_browsePath ? '/' + esc(_browsePath) : '') + '\')">Download This Folder</button> ' +
+            '<button class="btn btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(_browsePath) + '\')">Restore This Folder</button> ' +
+            '<button class="btn" onclick="viewSnapshots(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
+        '</div>';
+
+    openModal('Browse: ' + hostname + ' / ' + snapshot, html);
+}
+
+function _buildBreadcrumb(hostname, snapshot, relPath) {
+    var parts = ['<a href="#" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\');return false">' + esc(hostname) + ' / ' + esc(snapshot) + '</a>'];
+    if (relPath && relPath !== 'files') {
+        var cleanPath = relPath.replace(/^files\/?/, '');
+        if (cleanPath) {
+            var segments = cleanPath.split('/');
+            var accumulated = '';
+            for (var i = 0; i < segments.length; i++) {
+                accumulated += (accumulated ? '/' : '') + segments[i];
+                if (i < segments.length - 1) {
+                    parts.push('<a href="#" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(accumulated) + '\');return false">' + esc(segments[i]) + '</a>');
+                } else {
+                    parts.push('<strong>' + esc(segments[i]) + '</strong>');
+                }
+            }
+        }
+    }
+    return '<div class="breadcrumb">' + parts.join(' / ') + '</div>';
+}
+
+function downloadSnapshot(hostname, snapshot, subPath) {
+    var url = API_BASE + '/api/download/' + hostname + '/' + snapshot;
+    if (subPath) url += '/' + subPath;
+    window.open(url, '_blank');
+    toast('Download started', 'info');
+}
+
+function restoreItem(hostname, snapshot, itemPath) {
+    var displayPath = itemPath || '/ (all files)';
+    var html = '<div class="edit-server-form">' +
+        '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to <strong>' + esc(hostname) + '</strong>?</p>' +
+        '<div class="form-group">' +
+            '<label>Restore Mode</label>' +
+            '<select id="restore-mode">' +
+                '<option value="">Full (files + DB)</option>' +
+                '<option value="files-only" selected>Files only</option>' +
+                '<option value="db-only">Database only</option>' +
+            '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+            '<label>Target Directory <span class="text-muted">(leave empty to restore to original location)</span></label>' +
+            '<input type="text" id="restore-target" placeholder="/tmp/restore" style="width:100%;box-sizing:border-box;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem">' +
+        '</div>' +
+        '<div class="form-actions">' +
+            '<button class="btn btn-primary" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\')">Restore to Server</button>' +
+            '<button class="btn btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files' + (itemPath ? '/' + esc(itemPath) : '') + '\');closeModal()">Download Instead</button>' +
+            '<button class="btn" onclick="closeModal()">Cancel</button>' +
+        '</div>' +
+    '</div>';
+    openModal('Restore: ' + hostname, html);
+}
+
+async function doRestore(hostname, snapshot, itemPath) {
+    var mode = document.getElementById('restore-mode').value;
+    var target = document.getElementById('restore-target').value.trim();
+
+    var body = { snapshot: snapshot };
+    if (itemPath) body.path = itemPath;
+    if (target) body.target = target;
+    if (mode) body.mode = mode;
+
+    closeModal();
+    var result = await apiPost('/api/restore/' + hostname, body);
+    if (result && result.status === 'started') {
+        toast('Restore started for ' + hostname + ' (snapshot ' + snapshot + ')', 'success');
+    } else {
+        toast('Failed to start restore', 'error');
+    }
 }
 
 /* ============================================================
