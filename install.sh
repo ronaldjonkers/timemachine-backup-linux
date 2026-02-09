@@ -365,18 +365,33 @@ server_setup_directories() {
     fi
 
     local dirs=(
+        "${TM_HOME}"
+        "${TM_HOME}/logs"
+        "${TM_HOME}/.ssh"
         "${TM_BACKUP_ROOT}"
         "${TM_RUN_DIR}"
         "${TM_RUN_DIR}/state"
-        "${TM_HOME}/logs"
     )
 
     for dir in "${dirs[@]}"; do
         mkdir -p "${dir}"
         chown "${TM_USER}:${TM_USER}" "${dir}"
-        chmod 750 "${dir}"
         info "  ${dir}"
     done
+
+    # Set restrictive permissions on sensitive dirs
+    chmod 750 "${TM_BACKUP_ROOT}"
+    chmod 750 "${TM_RUN_DIR}"
+    chmod 750 "${TM_RUN_DIR}/state"
+    chmod 750 "${TM_HOME}"
+    chmod 750 "${TM_HOME}/logs"
+    chmod 700 "${TM_HOME}/.ssh"
+
+    # Ensure systemd tmpfiles.d config so /run/timemachine survives reboots
+    if [[ -d /etc/tmpfiles.d ]]; then
+        echo "d /run/timemachine 0750 ${TM_USER} ${TM_USER} -" > /etc/tmpfiles.d/timemachine.conf
+        info "  /etc/tmpfiles.d/timemachine.conf (runtime dir persistence)"
+    fi
 }
 
 # ============================================================
@@ -425,6 +440,70 @@ server_setup_config() {
 }
 
 # ============================================================
+# SERVER: FIX ALL PERMISSIONS (idempotent, safe to re-run)
+# ============================================================
+
+server_fix_permissions() {
+    info "Fixing all permissions for '${TM_USER}'..."
+
+    # 1. Install directory — owned by timemachine, scripts executable
+    chown -R "${TM_USER}:${TM_USER}" "${INSTALL_DIR}"
+    find "${INSTALL_DIR}/bin" -name "*.sh" -exec chmod +x {} \;
+    chmod 600 "${INSTALL_DIR}/.env" 2>/dev/null || true
+
+    # 2. Home directory
+    if [[ -d "${TM_HOME}" ]]; then
+        chown -R "${TM_USER}:${TM_USER}" "${TM_HOME}"
+        chmod 750 "${TM_HOME}"
+    fi
+
+    # 3. SSH directory
+    if [[ -d "${TM_HOME}/.ssh" ]]; then
+        chmod 700 "${TM_HOME}/.ssh"
+        chmod 600 "${TM_HOME}/.ssh"/* 2>/dev/null || true
+        chmod 644 "${TM_HOME}/.ssh/id_rsa.pub" 2>/dev/null || true
+        chmod 644 "${TM_HOME}/.ssh/authorized_keys" 2>/dev/null || true
+    fi
+
+    # 4. Logs directory
+    if [[ -d "${TM_HOME}/logs" ]]; then
+        chown -R "${TM_USER}:${TM_USER}" "${TM_HOME}/logs"
+        chmod 750 "${TM_HOME}/logs"
+    fi
+
+    # 5. Credentials directory
+    if [[ -d "${TM_HOME}/.credentials" ]]; then
+        chown -R "${TM_USER}:${TM_USER}" "${TM_HOME}/.credentials"
+        chmod 700 "${TM_HOME}/.credentials"
+        find "${TM_HOME}/.credentials" -type f -exec chmod 600 {} \;
+    fi
+
+    # 6. Backup root
+    if [[ -d "${TM_BACKUP_ROOT}" ]]; then
+        chown "${TM_USER}:${TM_USER}" "${TM_BACKUP_ROOT}"
+        chmod 750 "${TM_BACKUP_ROOT}"
+        # Also fix ownership of per-host backup dirs (non-recursive for speed)
+        find "${TM_BACKUP_ROOT}" -maxdepth 1 -type d -exec chown "${TM_USER}:${TM_USER}" {} \;
+    fi
+
+    # 7. Runtime directory
+    local run_dir="${TM_RUN_DIR:-/var/run/timemachine}"
+    mkdir -p "${run_dir}" "${run_dir}/state"
+    chown -R "${TM_USER}:${TM_USER}" "${run_dir}"
+    chmod 750 "${run_dir}"
+
+    # 8. tmpfiles.d for runtime dir persistence across reboots
+    if [[ -d /etc/tmpfiles.d ]]; then
+        echo "d /run/timemachine 0750 ${TM_USER} ${TM_USER} -" > /etc/tmpfiles.d/timemachine.conf
+    fi
+
+    # 9. Clean up stale self-restart temp dirs that may be owned by wrong user
+    rm -rf /tmp/tm-self-restart 2>/dev/null || true
+
+    info "All permissions fixed"
+}
+
+# ============================================================
 # SERVER: SUDOERS SETUP
 # ============================================================
 
@@ -432,10 +511,37 @@ server_setup_sudoers() {
     info "Setting up sudoers for '${TM_USER}'..."
 
     local sudoers_file="/etc/sudoers.d/timemachine"
-    local sudoers_content="# TimeMachine Backup - sudoers rules
+
+    # Resolve actual binary paths for this system
+    local rsync_path cat_path chown_path mv_path ln_path rm_path
+    rsync_path=$(command -v rsync 2>/dev/null || echo "/usr/bin/rsync")
+    cat_path=$(command -v cat 2>/dev/null || echo "/bin/cat")
+    chown_path=$(command -v chown 2>/dev/null || echo "/bin/chown")
+    mv_path=$(command -v mv 2>/dev/null || echo "/usr/bin/mv")
+    ln_path=$(command -v ln 2>/dev/null || echo "/usr/bin/ln")
+    rm_path=$(command -v rm 2>/dev/null || echo "/usr/bin/rm")
+
+    local sudoers_content="# TimeMachine Backup - server sudoers rules
 Defaults:${TM_USER} !tty_tickets
 Defaults:${TM_USER} !requiretty
-${TM_USER} ALL=NOPASSWD:/usr/bin/rsync, /bin/cat, /bin/chown, /usr/bin/mysql, /usr/bin/mv, /usr/bin/ln, /usr/bin/rm"
+${TM_USER} ALL=NOPASSWD:${rsync_path}, ${cat_path}, ${chown_path}, ${mv_path}, ${ln_path}, ${rm_path}"
+
+    # Add database commands if available
+    if command -v mysql &>/dev/null; then
+        sudoers_content+=", $(command -v mysql)"
+    fi
+    if command -v mysqldump &>/dev/null; then
+        sudoers_content+=", $(command -v mysqldump)"
+    fi
+    if command -v mariadb &>/dev/null; then
+        sudoers_content+=", $(command -v mariadb)"
+    fi
+    if command -v mariadb-dump &>/dev/null; then
+        sudoers_content+=", $(command -v mariadb-dump)"
+    fi
+    if command -v psql &>/dev/null; then
+        sudoers_content+=", $(command -v psql), $(command -v pg_dump), $(command -v pg_dumpall)"
+    fi
 
     echo "${sudoers_content}" > "${sudoers_file}"
     chmod 440 "${sudoers_file}"
@@ -811,7 +917,7 @@ install_server() {
 
     local os
     os=$(detect_os)
-    local total=12
+    local total=13
 
     server_ask_backup_dir
     server_ask_email
@@ -861,6 +967,10 @@ install_server() {
 
     step 12 ${total} "Automatic updates"
     server_setup_auto_update
+
+    step 13 ${total} "Final permission check"
+    server_fix_permissions
+    step_done "All permissions verified"
 
     show_complete "Server"
 

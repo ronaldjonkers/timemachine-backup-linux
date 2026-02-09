@@ -21,6 +21,7 @@
 #   ssh-key             Show the SSH public key
 #   setup-web           Setup Nginx + SSL + Auth for external access
 #   update              Update TimeMachine to the latest version
+#   fix-permissions     Fix all file/directory permissions (sudo)
 #   uninstall           Remove TimeMachine completely
 #   version             Show version
 #
@@ -441,7 +442,103 @@ cmd_server_remove() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v0.6.0"
+    echo "TimeMachine Backup v2.2.0"
+}
+
+cmd_fix_permissions() {
+    # Must be root
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "  ${RED:-}Error: Must be run as root (use: sudo tmctl fix-permissions)${NC:-}"
+        exit 1
+    fi
+
+    local project_root
+    project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
+    local tm_user="${TM_USER:-timemachine}"
+    local tm_home="${TM_HOME:-/home/timemachine}"
+    local backup_root="${TM_BACKUP_ROOT:-/backups}"
+    local run_dir="${TM_RUN_DIR:-/var/run/timemachine}"
+    local install_dir="${TM_INSTALL_DIR:-${project_root}}"
+
+    echo ""
+    echo "  Fixing all permissions for '${tm_user}'..."
+    echo ""
+
+    # 1. Install directory — owned by timemachine, scripts executable
+    chown -R "${tm_user}:${tm_user}" "${install_dir}"
+    find "${install_dir}/bin" -name "*.sh" -exec chmod +x {} \;
+    chmod 600 "${install_dir}/.env" 2>/dev/null || true
+    echo "  ✓ Install directory: ${install_dir}"
+
+    # 2. Home directory
+    if [[ -d "${tm_home}" ]]; then
+        chown -R "${tm_user}:${tm_user}" "${tm_home}"
+        chmod 750 "${tm_home}"
+        echo "  ✓ Home directory: ${tm_home}"
+    fi
+
+    # 3. SSH directory
+    if [[ -d "${tm_home}/.ssh" ]]; then
+        chmod 700 "${tm_home}/.ssh"
+        chmod 600 "${tm_home}/.ssh"/* 2>/dev/null || true
+        chmod 644 "${tm_home}/.ssh/id_rsa.pub" 2>/dev/null || true
+        chmod 644 "${tm_home}/.ssh/authorized_keys" 2>/dev/null || true
+        echo "  ✓ SSH directory: ${tm_home}/.ssh"
+    fi
+
+    # 4. Logs directory
+    if [[ -d "${tm_home}/logs" ]]; then
+        chown -R "${tm_user}:${tm_user}" "${tm_home}/logs"
+        chmod 750 "${tm_home}/logs"
+        echo "  ✓ Logs directory: ${tm_home}/logs"
+    fi
+
+    # 5. Credentials directory
+    if [[ -d "${tm_home}/.credentials" ]]; then
+        chown -R "${tm_user}:${tm_user}" "${tm_home}/.credentials"
+        chmod 700 "${tm_home}/.credentials"
+        find "${tm_home}/.credentials" -type f -exec chmod 600 {} \;
+        echo "  ✓ Credentials directory: ${tm_home}/.credentials"
+    fi
+
+    # 6. Backup root
+    if [[ -d "${backup_root}" ]]; then
+        chown "${tm_user}:${tm_user}" "${backup_root}"
+        chmod 750 "${backup_root}"
+        find "${backup_root}" -maxdepth 1 -type d -exec chown "${tm_user}:${tm_user}" {} \;
+        echo "  ✓ Backup root: ${backup_root}"
+    fi
+
+    # 7. Runtime directory
+    mkdir -p "${run_dir}" "${run_dir}/state"
+    chown -R "${tm_user}:${tm_user}" "${run_dir}"
+    chmod 750 "${run_dir}"
+    echo "  ✓ Runtime directory: ${run_dir}"
+
+    # 8. tmpfiles.d for runtime dir persistence across reboots
+    if [[ -d /etc/tmpfiles.d ]]; then
+        echo "d /run/timemachine 0750 ${tm_user} ${tm_user} -" > /etc/tmpfiles.d/timemachine.conf
+        echo "  ✓ tmpfiles.d: /etc/tmpfiles.d/timemachine.conf"
+    fi
+
+    # 9. Sudoers — verify it exists and is valid
+    if [[ -f /etc/sudoers.d/timemachine ]]; then
+        chmod 440 /etc/sudoers.d/timemachine
+        if visudo -cf /etc/sudoers.d/timemachine &>/dev/null; then
+            echo "  ✓ Sudoers: /etc/sudoers.d/timemachine (valid)"
+        else
+            echo "  ✗ Sudoers: /etc/sudoers.d/timemachine (INVALID — re-run install)"
+        fi
+    else
+        echo "  ✗ Sudoers: /etc/sudoers.d/timemachine (MISSING — re-run install)"
+    fi
+
+    # 10. Clean up stale self-restart temp dirs
+    rm -rf /tmp/tm-self-restart 2>/dev/null || true
+
+    echo ""
+    echo "  All permissions fixed."
+    echo ""
 }
 
 cmd_uninstall() {
@@ -509,8 +606,9 @@ cmd_uninstall() {
         echo "  ${GREEN}✓${NC} Nginx configuration removed"
     fi
 
-    # 6. Remove run/state directory
+    # 6. Remove run/state directory and tmpfiles.d
     rm -rf /var/run/timemachine
+    rm -f /etc/tmpfiles.d/timemachine.conf 2>/dev/null || true
     echo "  ${GREEN}✓${NC} Runtime directory removed"
 
     # 7. Remove user (but not backup data)
@@ -817,6 +915,7 @@ usage() {
     echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
     echo "  update              Update to the latest version"
     echo "  auto-update <on|off|status>  Manage weekly auto-updates"
+    echo "  fix-permissions      Fix all file/directory permissions (sudo)"
     echo "  uninstall           Remove TimeMachine completely (sudo)"
     echo "  version             Show version"
     exit 1
@@ -847,6 +946,7 @@ case "${COMMAND}" in
     setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
     update)     cmd_update ;;
     auto-update) cmd_auto_update "$@" ;;
+    fix-permissions|fix-perms) cmd_fix_permissions ;;
     uninstall)  cmd_uninstall ;;
     version|-v|--version) cmd_version ;;
     help|--help|-h|"")    usage ;;

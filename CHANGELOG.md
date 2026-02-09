@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-02-09
+
+### Added
+- **`tmctl fix-permissions`** — New command to repair all file/directory permissions without re-running the full installer. Fixes install dir, home, SSH, logs, credentials, backup root, runtime dir, sudoers validation, and tmpfiles.d. Requires sudo
+- **`server_fix_permissions()`** — Comprehensive permission repair function in `install.sh`, called as step 13 during server installation
+- **`tmpfiles.d` support** — Creates `/etc/tmpfiles.d/timemachine.conf` so `/run/timemachine` persists across reboots on systemd systems
+
+### Fixed
+- **Self-restart temp dir conflicts** — Changed from shared `/tmp/tm-self-restart/` to per-user `/tmp/tm-self-restart-<uid>/` to prevent permission denied errors when root and timemachine user both use self-restart
+- **Server sudoers hardcoded paths** — `server_setup_sudoers()` now resolves actual binary paths dynamically (like client installer already did). Adds database commands (mysql, mysqldump, mariadb, psql, pg_dump) if detected
+- **Directory ownership gaps** — `server_setup_directories()` now explicitly sets ownership on `TM_HOME`, `TM_HOME/.ssh`, and all subdirs with restrictive permissions (750/700)
+- **Systemd service file** — Added `RuntimeDirectoryMode=0750` and `StateDirectory=timemachine`, fixed documentation URL, removed stray whitespace on `ProtectSystem`
+- **Uninstall cleanup** — `tmctl uninstall` and `uninstall.sh` now also remove `/etc/tmpfiles.d/timemachine.conf`
+
+### Changed
+- Install flow now has 13 steps (was 12) — final step runs `server_fix_permissions` to verify all ownership
+- 159 tests across 9 suites (was 158)
+
 ## [2.1.0] - 2026-02-08
 
 ### Added

@@ -306,6 +306,7 @@ uninstall_server() {
         step_skip "User '${TM_USER}'"
     fi
     rm -rf "${TM_RUN_DIR}" 2>/dev/null || true
+    rm -f /etc/tmpfiles.d/timemachine.conf 2>/dev/null || true
 
     # Read backup root from .env BEFORE removing install dir
     local backup_root="/backups/timemachine"

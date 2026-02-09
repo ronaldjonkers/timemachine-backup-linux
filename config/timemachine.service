@@ -1,6 +1,6 @@
 [Unit]
 Description=TimeMachine Backup Service
-Documentation=https://github.com/your-org/timemachine-backup-linux
+Documentation=https://github.com/ronaldjonkers/timemachine-backup-linux
 After=network.target
 
 [Service]
@@ -18,6 +18,8 @@ SyslogIdentifier=timemachine
 
 # Runtime directories (systemd creates these automatically with correct ownership)
 RuntimeDirectory=timemachine
+RuntimeDirectoryMode=0750
+StateDirectory=timemachine
 LogsDirectory=timemachine
 
 # Security hardening

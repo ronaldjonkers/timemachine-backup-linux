@@ -263,6 +263,7 @@ tmctl update              # Update to the latest version
 tmctl auto-update on      # Enable weekly auto-updates (Sunday 04:00)
 tmctl auto-update off     # Disable auto-updates
 tmctl auto-update status  # Show auto-update status
+tmctl fix-permissions     # Fix all file/directory permissions (sudo)
 tmctl uninstall           # Remove TimeMachine completely (sudo)
 tmctl version             # Show version
 ```

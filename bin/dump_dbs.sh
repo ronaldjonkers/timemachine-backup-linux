@@ -18,7 +18,7 @@
 # ============================================================
 
 # Self-restart in temp file (allows editing while running)
-_TM_TMP="${TMPDIR:-/tmp}/tm-self-restart"
+_TM_TMP="${TMPDIR:-/tmp}/tm-self-restart-$(id -u)"
 if [[ ! "$0" =~ tm-self-restart ]]; then
     mkdir -p "${_TM_TMP}"
     DIST="${_TM_TMP}/$(basename "$0").$$"

@@ -160,8 +160,10 @@ tm_self_restart() {
     fi
 
     # First run: copy script to temp dir and re-exec
-    local tmp_dir="${TMPDIR:-/tmp}/tm-self-restart"
+    # Use per-user subdir to avoid permission conflicts (e.g. root vs timemachine)
+    local tmp_dir="${TMPDIR:-/tmp}/tm-self-restart-$(id -u)"
     mkdir -p "${tmp_dir}"
+    chmod 700 "${tmp_dir}" 2>/dev/null || true
     local dist
     dist="${tmp_dir}/$(basename "${caller}").$$"
     install -m 700 "${caller}" "${dist}"
