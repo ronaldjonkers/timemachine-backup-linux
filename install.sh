@@ -633,6 +633,19 @@ MAILTO=\"\"
     info "Cron job installed at ${cron_file}"
 }
 
+server_setup_watchdog() {
+    info "Setting up service watchdog cron..."
+
+    local cron_file="/etc/cron.d/timemachine-watchdog"
+    local cron_content="# TimeMachine Backup - Service watchdog (every 5 minutes)
+MAILTO=\"\"
+*/5 * * * * root /bin/bash ${INSTALL_DIR}/bin/watchdog.sh"
+
+    echo "${cron_content}" > "${cron_file}"
+    chmod 644 "${cron_file}"
+    info "Watchdog cron installed at ${cron_file}"
+}
+
 # ============================================================
 # SERVER: PERMISSIONS & SYMLINKS
 # ============================================================
@@ -931,7 +944,7 @@ reconfigure_server() {
     echo -e "  ${MAGENTA}${BOLD}Reconfiguring Server${NC}"
     echo ""
 
-    local total=6
+    local total=7
 
     step 1 ${total} "Checking dependencies"
     # Ensure tar and zip are installed (added in v2.7.1)
@@ -964,11 +977,15 @@ reconfigure_server() {
     step 4 ${total} "Updating systemd service"
     server_setup_service
 
-    step 5 ${total} "Fixing all permissions"
+    step 5 ${total} "Service watchdog"
+    server_setup_watchdog
+    step_done "Watchdog cron configured"
+
+    step 6 ${total} "Fixing all permissions"
     server_fix_permissions
     step_done "All permissions verified"
 
-    step 6 ${total} "Restarting service"
+    step 7 ${total} "Restarting service"
     if command -v systemctl &>/dev/null; then
         systemctl daemon-reload 2>/dev/null || true
         systemctl restart timemachine 2>/dev/null || true
@@ -998,7 +1015,7 @@ install_server() {
 
     local os
     os=$(detect_os)
-    local total=13
+    local total=14
 
     server_ask_backup_dir
     server_ask_email
@@ -1049,7 +1066,11 @@ install_server() {
     step 12 ${total} "Automatic updates"
     server_setup_auto_update
 
-    step 13 ${total} "Final permission check"
+    step 13 ${total} "Service watchdog"
+    server_setup_watchdog
+    step_done "Watchdog cron installed"
+
+    step 14 ${total} "Final permission check"
     server_fix_permissions
     step_done "All permissions verified"
 

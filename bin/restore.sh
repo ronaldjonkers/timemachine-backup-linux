@@ -42,6 +42,7 @@ SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
 source "${SCRIPT_DIR}/../lib/common.sh"
 source "${SCRIPT_DIR}/../lib/rsync.sh"
 source "${SCRIPT_DIR}/../lib/encrypt.sh"
+source "${SCRIPT_DIR}/../lib/notify.sh"
 
 tm_load_config
 
@@ -547,10 +548,46 @@ main() {
         fi
     fi
 
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        exit 0
+    fi
+
+    # Send notification with log content
+    local log_content=""
+    local latest_log
+    latest_log=$(ls -t "${TM_LOG_DIR}"/restore-"${HOSTNAME}"-*.log 2>/dev/null | head -1 || true)
+    if [[ -n "${latest_log}" && -f "${latest_log}" ]]; then
+        log_content=$(tail -100 "${latest_log}")
+    fi
+
     if [[ ${exit_code} -eq 0 ]]; then
         tm_log "INFO" "Restore completed successfully"
+
+        local summary="Restore completed successfully for ${HOSTNAME}
+
+Server:   ${HOSTNAME}
+Snapshot: ${RESTORE_DATE}
+Format:   ${RESTORE_FORMAT}
+Target:   ${TARGET_DIR:-default}
+
+--- Restore Log ---
+${log_content}"
+
+        tm_notify "Restore OK: ${HOSTNAME}" "${summary}" "info"
     else
         tm_log "ERROR" "Restore completed with errors"
+
+        local summary="Restore FAILED for ${HOSTNAME}
+
+Server:   ${HOSTNAME}
+Snapshot: ${RESTORE_DATE}
+Format:   ${RESTORE_FORMAT}
+Target:   ${TARGET_DIR:-default}
+
+--- Restore Log ---
+${log_content}"
+
+        tm_notify "Restore FAILED: ${HOSTNAME}" "${summary}" "error"
     fi
 
     exit ${exit_code}

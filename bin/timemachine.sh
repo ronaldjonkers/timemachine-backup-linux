@@ -183,10 +183,35 @@ main() {
 
     if [[ ${exit_code} -eq 0 ]]; then
         tm_log "INFO" "Backup completed successfully for ${HOSTNAME} (${duration}s)"
+
+        # Build summary for notification
+        local snap_dir="${BACKUP_BASE}/$(tm_date_today)"
+        local snap_size=""
+        [[ -d "${snap_dir}" ]] && snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
+        local snap_count
+        snap_count=$(ls -d "${BACKUP_BASE}"/20* 2>/dev/null | wc -l | tr -d ' ')
+        local disk_free
+        disk_free=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | awk 'NR==2{print $4}')
+
+        local mode="full"
+        [[ ${FILES_ONLY} -eq 1 ]] && mode="files-only"
+        [[ ${DB_ONLY} -eq 1 ]] && mode="db-only"
+
+        local summary="Backup completed successfully for ${HOSTNAME}
+
+Server:     ${HOSTNAME}
+Date:       $(tm_date_today)
+Mode:       ${mode}
+Duration:   ${duration}s
+Snap size:  ${snap_size:-unknown}
+Snapshots:  ${snap_count}
+Disk free:  ${disk_free:-unknown}"
+
+        tm_notify "Backup OK: ${HOSTNAME}" "${summary}" "info"
     else
         tm_log "ERROR" "Backup completed with errors for ${HOSTNAME} (${duration}s)"
         tm_notify "Backup FAILED: ${HOSTNAME}" \
-            "Backup for ${HOSTNAME} completed with errors after ${duration} seconds."
+            "Backup for ${HOSTNAME} completed with errors after ${duration} seconds." "error"
     fi
 
     return ${exit_code}

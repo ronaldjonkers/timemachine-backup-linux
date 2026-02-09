@@ -344,6 +344,11 @@ _scheduler_loop() {
         # Check DB interval backups (runs every minute)
         _check_db_intervals "${servers_conf}"
 
+        # Notify systemd watchdog that we're alive
+        if [[ -n "${WATCHDOG_USEC:-}" ]] && command -v systemd-notify &>/dev/null; then
+            systemd-notify WATCHDOG=1 2>/dev/null || true
+        fi
+
         sleep 60
     done
 }

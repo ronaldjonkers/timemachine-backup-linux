@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-02-09
+
+### Added
+- **Service auto-restart** — Systemd service now uses `Restart=always` with `StartLimitBurst=5` (max 5 restarts in 120s). Added `WatchdogSec=120` so systemd kills and restarts the service if it becomes unresponsive
+- **Cron-based watchdog** — New `bin/watchdog.sh` runs every 5 minutes via `/etc/cron.d/timemachine-watchdog`. If the service is down (even after systemd gives up), the watchdog restarts it. Also resets systemd's failed state to allow future restarts
+- **Email on successful backup** — Sends a notification with server name, date, mode, duration, snapshot size, snapshot count, and disk free space
+- **Email on restore completion** — Sends a notification (success or failure) with server, snapshot, format, target, and the last 100 lines of the restore log included in the email body
+- Systemd watchdog ping in scheduler loop (`systemd-notify WATCHDOG=1`)
+
+### Changed
+- Watchdog cron is now installed during both `install.sh --server` and `install.sh --reconfigure`
+
 ## [2.7.4] - 2026-02-09
 
 ### Fixed
