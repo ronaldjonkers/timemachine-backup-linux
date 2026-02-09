@@ -28,6 +28,8 @@ while [[ -L "$_src" ]]; do
     [[ "$_src" != /* ]] && _src="$_src_dir/$_src"
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+# If running from temp copy after self-restart, use original SCRIPT_DIR
+[[ -n "${_TM_ORIG_SCRIPT_DIR:-}" ]] && SCRIPT_DIR="${_TM_ORIG_SCRIPT_DIR}"
 
 # Load shared libraries
 source "${SCRIPT_DIR}/../lib/common.sh"
