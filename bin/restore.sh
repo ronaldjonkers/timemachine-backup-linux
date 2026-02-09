@@ -377,9 +377,44 @@ _restore_as_archive() {
         local sz
         sz=$(du -sh "${archive}" 2>/dev/null | cut -f1)
         tm_log "INFO" "Archive created: ${archive} (${sz})"
+
+        # Transfer archive to the source server
+        _transfer_archive_to_host "${archive}"
     else
         tm_log "ERROR" "Failed to create archive (exit code: ${rc})"
         return 1
+    fi
+}
+
+_transfer_archive_to_host() {
+    local archive="$1"
+    local remote_user="${TM_USER:-timemachine}"
+    local remote_dir="/home/${remote_user}/restores"
+    local archive_name
+    archive_name=$(basename "${archive}")
+
+    tm_log "INFO" "Transferring archive to ${HOSTNAME}:${remote_dir}/${archive_name}"
+
+    # Create target directory on remote host
+    ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
+        -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
+        -o StrictHostKeyChecking=no \
+        "${remote_user}@${HOSTNAME}" \
+        "mkdir -p '${remote_dir}'" 2>&1
+
+    # Transfer via rsync over SSH
+    local transfer_rc=0
+    rsync -avz --progress \
+        -e "ssh -p ${TM_SSH_PORT} -i ${TM_SSH_KEY} -o ConnectTimeout=${TM_SSH_TIMEOUT} -o StrictHostKeyChecking=no" \
+        "${archive}" \
+        "${remote_user}@${HOSTNAME}:${remote_dir}/${archive_name}" 2>&1
+    transfer_rc=$?
+
+    if [[ ${transfer_rc} -eq 0 ]]; then
+        tm_log "INFO" "Archive transferred to ${HOSTNAME}:${remote_dir}/${archive_name}"
+    else
+        tm_log "WARN" "Failed to transfer archive to ${HOSTNAME} (exit code: ${transfer_rc})"
+        tm_log "INFO" "Archive is still available locally: ${archive}"
     fi
 }
 
