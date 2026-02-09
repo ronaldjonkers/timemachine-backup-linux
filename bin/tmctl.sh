@@ -638,16 +638,25 @@ cmd_uninstall() {
 
 _get_current_version() {
     local project_root="$1"
-
-    # Try git tags first
     local ver
+
+    # 1. VERSION file (single source of truth)
+    if [[ -f "${project_root}/VERSION" ]]; then
+        ver=$(cat "${project_root}/VERSION" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "${ver}" ]]; then
+            echo "v${ver#v}"
+            return
+        fi
+    fi
+
+    # 2. Git tags
     ver=$(cd "${project_root}" && git describe --tags --abbrev=0 2>/dev/null || true)
     if [[ -n "${ver}" ]]; then
         echo "${ver}"
         return
     fi
 
-    # Fallback: read from CHANGELOG.md
+    # 3. CHANGELOG.md
     if [[ -f "${project_root}/CHANGELOG.md" ]]; then
         ver=$(grep -m1 '^## \[' "${project_root}/CHANGELOG.md" | sed 's/^## \[\(.*\)\].*/v\1/' || true)
         if [[ -n "${ver}" ]]; then
@@ -690,7 +699,9 @@ _update_via_curl() {
 }
 
 cmd_update() {
-    local project_root="${SCRIPT_DIR}/.."
+    local project_root
+    project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
+    local tm_user="${TM_USER:-timemachine}"
 
     echo "  ${BOLD}TimeMachine Backup — Update${NC}"
     echo ""
@@ -700,8 +711,13 @@ cmd_update() {
     current_version=$(_get_current_version "${project_root}")
     echo "  Current version: ${BOLD}${current_version}${NC}"
 
+    local git_ok=0
+
     # Method 1: git-based update (preferred)
     if command -v git &>/dev/null && [[ -d "${project_root}/.git" ]]; then
+
+        # Fix "dubious ownership" when running as root on a timemachine-owned repo
+        git config --global --add safe.directory "${project_root}" 2>/dev/null || true
 
         # Unshallow if needed (shallow clones can't describe tags)
         if [[ -f "${project_root}/.git/shallow" ]]; then
@@ -716,6 +732,7 @@ cmd_update() {
 
         # Check if fetch succeeded (remote reachable)
         if (cd "${project_root}" && git rev-parse origin/main &>/dev/null 2>&1); then
+            git_ok=1
             local latest_version
             latest_version=$(cd "${project_root}" && git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "unknown")
 
@@ -740,58 +757,38 @@ cmd_update() {
 
             # Ensure tags are available locally
             (cd "${project_root}" && git fetch --tags --quiet 2>/dev/null) || true
+        fi
 
-            # Re-set script permissions
-            find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
-            chmod +x "${project_root}/get.sh" "${project_root}/install.sh" "${project_root}/uninstall.sh" 2>/dev/null || true
-
-            # Restart service if running
-            if command -v systemctl &>/dev/null && systemctl is-active timemachine &>/dev/null; then
-                echo "  Restarting timemachine service..."
-                systemctl restart timemachine 2>/dev/null || true
-                sleep 1
-                if systemctl is-active timemachine &>/dev/null; then
-                    echo "  ${GREEN}Service restarted${NC}"
-                else
-                    echo "  ${YELLOW}Warning:${NC} Service may not have restarted. Check: journalctl -u timemachine"
-                fi
+        if [[ ${git_ok} -eq 0 ]]; then
+            # git fetch failed — show the actual error and fall through to curl
+            echo "  ${YELLOW}Warning:${NC} Could not reach git remote"
+            if [[ -n "${fetch_output}" ]]; then
+                echo "${fetch_output}" | head -3 | sed 's/^/    /'
             fi
-
-            local new_version
-            new_version=$(_get_current_version "${project_root}")
             echo ""
-            echo "  ${GREEN}Updated successfully:${NC} ${current_version} → ${new_version}"
-
-            # Show changelog
-            if [[ -f "${project_root}/CHANGELOG.md" ]]; then
-                echo ""
-                echo "  ${BOLD}What's new:${NC}"
-                sed -n "/^## \[${new_version#v}\]/,/^## \[/p" "${project_root}/CHANGELOG.md" | head -20 | sed '$d' | sed 's/^/  /'
-            fi
-            return 0
+            echo "  Falling back to curl-based update..."
+            echo ""
         fi
-
-        # git fetch failed — show the actual error and fall through to curl
-        echo "  ${YELLOW}Warning:${NC} Could not reach git remote"
-        if [[ -n "${fetch_output}" ]]; then
-            echo "  ${fetch_output}" | head -3 | sed 's/^/  /'
-        fi
-        echo ""
-        echo "  Falling back to curl-based update..."
-        echo ""
     fi
 
     # Method 2: curl-based update (fallback — no git needed)
-    if ! command -v curl &>/dev/null; then
-        echo "  ${RED}Error:${NC} Neither git nor curl available. Install one and retry."
-        exit 1
+    if [[ ${git_ok} -eq 0 ]]; then
+        if ! command -v curl &>/dev/null; then
+            echo "  ${RED}Error:${NC} Neither git nor curl available. Install one and retry."
+            exit 1
+        fi
+        _update_via_curl "${project_root}" || exit 1
     fi
-
-    _update_via_curl "${project_root}" || exit 1
 
     # Re-set script permissions
     find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
     chmod +x "${project_root}/get.sh" "${project_root}/install.sh" "${project_root}/uninstall.sh" 2>/dev/null || true
+
+    # Restore ownership to timemachine user (update may run as root)
+    if [[ "$(id -u)" -eq 0 ]] && id "${tm_user}" &>/dev/null 2>&1; then
+        chown -R "${tm_user}:${tm_user}" "${project_root}"
+        echo "  Ownership restored to ${tm_user}"
+    fi
 
     # Restart service if running
     if command -v systemctl &>/dev/null && systemctl is-active timemachine &>/dev/null; then
