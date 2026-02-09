@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-02-09
+
+### Added
+- **Restore Tasks panel in web dashboard** — New panel shows all active and completed restore jobs with server, description, timestamp, and status (running/completed/failed). Auto-hides when no tasks exist
+- **Restore log viewer with live streaming** — Click "Logs" on any restore task to view its log. Running restores auto-refresh every 2 seconds with Live/Completed badge, just like backup logs
+- **Download format choice** — All download buttons now open a format picker: tar.gz (default) or zip. API supports `?format=zip` query parameter
+- **Restore action toggle** — Restore modal now lets you choose between "Restore to server" (with mode + target dir) or "Download archive" (with format choice) in a single unified UI
+- **API: `GET /api/restores`** — List all restore tasks with PID, hostname, description, status, and logfile
+- **API: `GET /api/restore-log/<logfile>`** — View restore log content with `running` status indicator
+- **Restore process tracking** — Restore jobs are now tracked in state files with PID, status updates on completion/failure
+
+### Changed
+- Download endpoint supports `?format=zip` in addition to default tar.gz
+- Restore processes run in background subshell that auto-updates state file on exit
+
 ## [2.4.1] - 2026-02-09
 
 ### Added

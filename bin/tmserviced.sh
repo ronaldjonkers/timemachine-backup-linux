@@ -538,13 +538,22 @@ _handle_request() {
             ;;
 
         "GET /api/download/"*)
-            # Download a zip of a path: /api/download/<hostname>/<date>/<path>
+            # Download archive of a path: /api/download/<hostname>/<date>/<path>?format=zip|tar.gz
             local dl_path="${path#/api/download/}"
             local target_host="${dl_path%%/*}"
             dl_path="${dl_path#*/}"
             local snap_date="${dl_path%%/*}"
             local sub_path="${dl_path#*/}"
+            # Strip query string from sub_path
+            local dl_query="${sub_path#*\?}"
+            sub_path="${sub_path%%\?*}"
             [[ "${sub_path}" == "${snap_date}" ]] && sub_path="files"
+
+            # Parse format from query string (default: tar.gz)
+            local dl_format="tar.gz"
+            if [[ "${dl_query}" == *"format=zip"* ]]; then
+                dl_format="zip"
+            fi
 
             local base_dir="${TM_BACKUP_ROOT}/${target_host}/${snap_date}"
             local target_dir="${base_dir}/${sub_path}"
@@ -553,21 +562,32 @@ _handle_request() {
             if [[ ! -e "${target_dir}" ]]; then
                 _http_response "404 Not Found" "application/json" \
                     "{\"error\":\"Path not found\"}"
-            elif ! command -v zip &>/dev/null && ! command -v tar &>/dev/null; then
-                _http_response "500 Internal Server Error" "application/json" \
-                    '{"error":"Neither zip nor tar available on server"}'
             else
-                local archive_name="${target_host}-${snap_date}-$(basename "${sub_path}").tar.gz"
-                local tmp_archive="/tmp/tm-download-$$.tar.gz"
+                local base_name="${target_host}-${snap_date}-$(basename "${sub_path}")"
+                local tmp_archive=""
+                local content_type=""
+                local archive_name=""
 
-                # Create tar.gz archive
-                tar -czf "${tmp_archive}" -C "$(dirname "${target_dir}")" "$(basename "${target_dir}")" 2>/dev/null
+                if [[ "${dl_format}" == "zip" ]] && command -v zip &>/dev/null; then
+                    tmp_archive="/tmp/tm-download-$$.zip"
+                    archive_name="${base_name}.zip"
+                    content_type="application/zip"
+                    (cd "$(dirname "${target_dir}")" && zip -r "${tmp_archive}" "$(basename "${target_dir}")") &>/dev/null
+                elif command -v tar &>/dev/null; then
+                    tmp_archive="/tmp/tm-download-$$.tar.gz"
+                    archive_name="${base_name}.tar.gz"
+                    content_type="application/gzip"
+                    tar -czf "${tmp_archive}" -C "$(dirname "${target_dir}")" "$(basename "${target_dir}")" 2>/dev/null
+                else
+                    _http_response "500 Internal Server Error" "application/json" \
+                        '{"error":"Neither zip nor tar available on server"}'
+                fi
 
-                if [[ -f "${tmp_archive}" ]]; then
+                if [[ -n "${tmp_archive}" && -f "${tmp_archive}" ]]; then
                     local file_size
                     file_size=$(wc -c < "${tmp_archive}" | tr -d ' ')
                     printf "HTTP/1.1 200 OK\r\n"
-                    printf "Content-Type: application/gzip\r\n"
+                    printf "Content-Type: %s\r\n" "${content_type}"
                     printf "Content-Disposition: attachment; filename=\"%s\"\r\n" "${archive_name}"
                     printf "Content-Length: %d\r\n" "${file_size}"
                     printf "Access-Control-Allow-Origin: *\r\n"
@@ -575,7 +595,7 @@ _handle_request() {
                     printf "\r\n"
                     cat "${tmp_archive}"
                     rm -f "${tmp_archive}"
-                else
+                elif [[ -n "${tmp_archive}" ]]; then
                     _http_response "500 Internal Server Error" "application/json" \
                         '{"error":"Failed to create archive"}'
                 fi
@@ -587,7 +607,7 @@ _handle_request() {
             local target_host="${path#/api/restore/}"
             target_host=$(echo "${target_host}" | cut -d'?' -f1)
 
-            # Parse JSON body: snapshot, path, target
+            # Parse JSON body: snapshot, path, target, mode
             local snap_date rest_path rest_target rest_mode
             snap_date=$(echo "${body}" | grep -o '"snapshot":"[^"]*"' | cut -d'"' -f4)
             rest_path=$(echo "${body}" | grep -o '"path":"[^"]*"' | cut -d'"' -f4)
@@ -611,12 +631,104 @@ _handle_request() {
                 ts=$(date +'%Y-%m-%d_%H%M%S')
                 local logfile="${TM_LOG_DIR}/restore-${target_host}-${ts}.log"
 
-                "${SCRIPT_DIR}/restore.sh" "${target_host}" ${opts} >> "${logfile}" 2>&1 &
+                (
+                    local exit_code=0
+                    "${SCRIPT_DIR}/restore.sh" "${target_host}" ${opts} >> "${logfile}" 2>&1 || exit_code=$?
+                    # Update state file when done
+                    local state_file="${STATE_DIR}/restore-${target_host}-${ts}.state"
+                    if [[ ${exit_code} -eq 0 ]]; then
+                        sed -i.bak 's/|running|/|completed|/' "${state_file}" 2>/dev/null || \
+                        sed -i '' 's/|running|/|completed|/' "${state_file}" 2>/dev/null
+                    else
+                        sed -i.bak 's/|running|/|failed|/' "${state_file}" 2>/dev/null || \
+                        sed -i '' 's/|running|/|failed|/' "${state_file}" 2>/dev/null
+                    fi
+                    rm -f "${state_file}.bak"
+                ) &
                 local rpid=$!
+
+                # Register restore process state
+                local rest_desc="${snap_date}"
+                [[ -n "${rest_path}" ]] && rest_desc+=" ${rest_path}"
+                [[ -n "${rest_target}" ]] && rest_desc+=" -> ${rest_target}"
+                local started_ts
+                started_ts=$(date +'%Y-%m-%d %H:%M:%S')
+                echo "${rpid}|${target_host}|${rest_desc}|${started_ts}|running|${logfile}" > "${STATE_DIR}/restore-${target_host}-${ts}.state"
 
                 tm_log "INFO" "API: restore started for ${target_host} (PID ${rpid}, snapshot ${snap_date})"
                 _http_response "200 OK" "application/json" \
                     "{\"status\":\"started\",\"hostname\":\"${target_host}\",\"pid\":${rpid},\"snapshot\":\"${snap_date}\",\"logfile\":\"$(basename "${logfile}")\"}"
+            fi
+            ;;
+
+        "GET /api/restores")
+            # List all restore tasks (active + recent completed)
+            local restores='['
+            local first=1
+            for sf in $(ls -t "${STATE_DIR}"/restore-*.state 2>/dev/null | head -50); do
+                [[ -f "${sf}" ]] || continue
+                local content
+                content=$(cat "${sf}")
+                local rpid rhost rdesc rstarted rstatus rlogfile
+                rpid=$(echo "${content}" | cut -d'|' -f1)
+                rhost=$(echo "${content}" | cut -d'|' -f2)
+                rdesc=$(echo "${content}" | cut -d'|' -f3)
+                rstarted=$(echo "${content}" | cut -d'|' -f4)
+                rstatus=$(echo "${content}" | cut -d'|' -f5)
+                rlogfile=$(echo "${content}" | cut -d'|' -f6)
+
+                # Check if running process is actually still alive
+                if [[ "${rstatus}" == "running" ]] && ! kill -0 "${rpid}" 2>/dev/null; then
+                    # Check log for errors
+                    if [[ -n "${rlogfile}" && -f "${rlogfile}" ]] && tail -30 "${rlogfile}" 2>/dev/null | grep -qiE '(\[ERROR\]|FAIL|fatal)'; then
+                        rstatus="failed"
+                    else
+                        rstatus="completed"
+                    fi
+                    sed -i.bak "s/|running|/|${rstatus}|/" "${sf}" 2>/dev/null || \
+                    sed -i '' "s/|running|/|${rstatus}|/" "${sf}" 2>/dev/null
+                    rm -f "${sf}.bak"
+                fi
+
+                # Escape description for JSON
+                rdesc=$(echo "${rdesc}" | sed 's/"/\\"/g')
+                [[ ${first} -eq 1 ]] && first=0 || restores+=','
+                restores+=$(printf '{"pid":%s,"hostname":"%s","description":"%s","started":"%s","status":"%s","logfile":"%s"}' \
+                    "${rpid}" "${rhost}" "${rdesc}" "${rstarted}" "${rstatus}" "$(basename "${rlogfile:-}" 2>/dev/null)")
+            done
+            restores+=']'
+            _http_response "200 OK" "application/json" "${restores}"
+            ;;
+
+        "GET /api/restore-log/"*)
+            # View a specific restore log file
+            local log_name="${path#/api/restore-log/}"
+            local logfile="${TM_LOG_DIR}/${log_name}"
+
+            if [[ ! -f "${logfile}" ]]; then
+                _http_response "404 Not Found" "application/json" \
+                    "{\"error\":\"Log file not found: ${log_name}\"}"
+            else
+                local content
+                content=$(tail -500 "${logfile}")
+                content=$(echo "${content}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+
+                # Check if restore is still running
+                local is_running="false"
+                for sf in "${STATE_DIR}"/restore-*.state; do
+                    [[ -f "${sf}" ]] || continue
+                    local sf_log sf_status sf_pid
+                    sf_log=$(basename "$(cut -d'|' -f6 "${sf}")" 2>/dev/null)
+                    sf_status=$(cut -d'|' -f5 "${sf}")
+                    sf_pid=$(cut -d'|' -f1 "${sf}")
+                    if [[ "${sf_log}" == "${log_name}" && "${sf_status}" == "running" ]] && kill -0 "${sf_pid}" 2>/dev/null; then
+                        is_running="true"
+                        break
+                    fi
+                done
+
+                _http_response "200 OK" "application/json" \
+                    "{\"logfile\":\"${log_name}\",\"lines\":\"${content}\",\"running\":${is_running}}"
             fi
             ;;
 

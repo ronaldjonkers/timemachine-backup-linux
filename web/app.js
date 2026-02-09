@@ -291,6 +291,97 @@ async function refreshProcesses() {
 }
 
 /* ============================================================
+   RESTORE TASKS
+   ============================================================ */
+
+async function refreshRestores() {
+    var data = await apiGet('/api/restores');
+    var panel = document.getElementById('restores-panel');
+    var tbody = document.getElementById('restores-body');
+
+    if (!data || data.length === 0) {
+        panel.style.display = 'none';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No restore tasks</td></tr>';
+        return;
+    }
+
+    panel.style.display = '';
+    tbody.innerHTML = data.map(function(r) {
+        var sc = r.status || 'unknown';
+        var statusClass = sc === 'completed' ? 'success' : (sc === 'failed' ? 'failed' : sc);
+        return '<tr>' +
+            '<td><strong>' + esc(r.hostname) + '</strong></td>' +
+            '<td>' + esc(r.description) + '</td>' +
+            '<td>' + esc(r.started) + '</td>' +
+            '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + esc(r.status) + '</span></td>' +
+            '<td>' +
+                '<button class="btn btn-sm" onclick="viewRestoreLog(\'' + esc(r.logfile) + '\',\'' + esc(r.hostname) + '\')">Logs</button>' +
+            '</td></tr>';
+    }).join('');
+}
+
+async function viewRestoreLog(logfile, hostname) {
+    _logHost = '__restore__' + logfile;
+    _stopLogStream();
+
+    var data = await apiGet('/api/restore-log/' + logfile);
+    if (!data) {
+        openModal('Restore Log', '<p>Log not available</p>');
+        return;
+    }
+
+    var content = data.lines || data.error || 'No log content';
+    var isRunning = data.running || false;
+
+    var statusBadge = isRunning
+        ? '<span class="badge badge-running" id="log-status"><span class="pulse"></span> Live</span>'
+        : '<span class="badge badge-idle" id="log-status">Completed</span>';
+
+    var html = '<div class="log-header">' +
+            statusBadge +
+            '<span class="text-muted" id="log-filename">' + esc(logfile) + '</span>' +
+        '</div>' +
+        '<pre class="log-viewer" id="log-content">' + esc(content) + '</pre>';
+
+    openModal('Restore Log: ' + hostname, html);
+
+    var logEl = document.getElementById('log-content');
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+    if (isRunning) {
+        _startRestoreLogStream(logfile);
+    }
+}
+
+function _startRestoreLogStream(logfile) {
+    _stopLogStream();
+    _logInterval = setInterval(async function() {
+        var data = await apiGet('/api/restore-log/' + logfile);
+        if (!data) return;
+
+        var logEl = document.getElementById('log-content');
+        var statusEl = document.getElementById('log-status');
+        if (!logEl) { _stopLogStream(); return; }
+
+        var wasAtBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 50;
+        logEl.textContent = data.lines || '';
+        if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+
+        if (statusEl) {
+            if (data.running) {
+                statusEl.className = 'badge badge-running';
+                statusEl.innerHTML = '<span class="pulse"></span> Live';
+            } else {
+                statusEl.className = 'badge badge-idle';
+                statusEl.textContent = 'Completed';
+                _stopLogStream();
+                refreshRestores();
+            }
+        }
+    }, 2000);
+}
+
+/* ============================================================
    SERVERS & BACKUP HISTORY
    ============================================================ */
 
@@ -657,7 +748,7 @@ async function viewSnapshots(hostname) {
             '<td>' + (s.has_sql ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
-                '<button class="btn btn-sm btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button>' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button>' +
             '</td>' +
             '</tr>';
     }).join('');
@@ -711,7 +802,7 @@ async function browseSnapshot(hostname, snapshot, subPath) {
                 '<td>' + nameCell + '</td>' +
                 '<td class="text-muted">' + esc(item.size) + '</td>' +
                 '<td>' +
-                    '<button class="btn btn-sm btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files/' + esc(clickPath) + '\')">Download</button> ' +
+                    '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files/' + esc(clickPath) + '\')">Download</button> ' +
                     '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(clickPath) + '\')">Restore</button>' +
                 '</td></tr>';
         }).join('');
@@ -725,7 +816,7 @@ async function browseSnapshot(hostname, snapshot, subPath) {
         '<tbody>' + rows + '</tbody>' +
         '</table>' +
         '<div class="form-actions" style="margin-top:1rem">' +
-            '<button class="btn btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files' + (_browsePath ? '/' + esc(_browsePath) : '') + '\')">Download This Folder</button> ' +
+            '<button class="btn btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files' + (_browsePath ? '/' + esc(_browsePath) : '') + '\')">Download This Folder</button> ' +
             '<button class="btn btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(_browsePath) + '\')">Restore This Folder</button> ' +
             '<button class="btn" onclick="viewSnapshots(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
         '</div>';
@@ -753,39 +844,106 @@ function _buildBreadcrumb(hostname, snapshot, relPath) {
     return '<div class="breadcrumb">' + parts.join(' / ') + '</div>';
 }
 
-function downloadSnapshot(hostname, snapshot, subPath) {
+function downloadSnapshot(hostname, snapshot, subPath, format) {
+    format = format || 'tar.gz';
     var url = API_BASE + '/api/download/' + hostname + '/' + snapshot;
     if (subPath) url += '/' + subPath;
+    url += '?format=' + format;
     window.open(url, '_blank');
-    toast('Download started', 'info');
+    toast('Download started (' + format + ')', 'info');
+}
+
+function downloadChoice(hostname, snapshot, subPath) {
+    var dlPath = subPath || 'files';
+    var displayPath = subPath ? subPath.replace(/^files\/?/, '') || '/' : '/';
+    var html = '<div class="edit-server-form">' +
+        '<p>Download <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong></p>' +
+        '<div class="form-group">' +
+            '<label>Format</label>' +
+            '<select id="dl-format">' +
+                '<option value="tar.gz">tar.gz (recommended)</option>' +
+                '<option value="zip">zip</option>' +
+            '</select>' +
+        '</div>' +
+        '<div class="form-actions">' +
+            '<button class="btn btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(dlPath) + '\',document.getElementById(\'dl-format\').value);closeModal()">Download</button>' +
+            '<button class="btn" onclick="closeModal()">Cancel</button>' +
+        '</div>' +
+    '</div>';
+    openModal('Download: ' + hostname, html);
 }
 
 function restoreItem(hostname, snapshot, itemPath) {
     var displayPath = itemPath || '/ (all files)';
+    var dlPath = 'files' + (itemPath ? '/' + itemPath : '');
     var html = '<div class="edit-server-form">' +
-        '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to <strong>' + esc(hostname) + '</strong>?</p>' +
+        '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to <strong>' + esc(hostname) + '</strong></p>' +
         '<div class="form-group">' +
-            '<label>Restore Mode</label>' +
-            '<select id="restore-mode">' +
-                '<option value="">Full (files + DB)</option>' +
-                '<option value="files-only" selected>Files only</option>' +
-                '<option value="db-only">Database only</option>' +
+            '<label>Action</label>' +
+            '<select id="restore-action" onchange="toggleRestoreFields()">' +
+                '<option value="restore">Restore to server</option>' +
+                '<option value="download">Download archive</option>' +
             '</select>' +
         '</div>' +
-        '<div class="form-group">' +
-            '<label>Target Directory <span class="text-muted">(leave empty to restore to original location)</span></label>' +
-            '<input type="text" id="restore-target" placeholder="/tmp/restore" style="width:100%;box-sizing:border-box;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem">' +
+        '<div id="restore-fields">' +
+            '<div class="form-group">' +
+                '<label>Restore Mode</label>' +
+                '<select id="restore-mode">' +
+                    '<option value="">Full (files + DB)</option>' +
+                    '<option value="files-only" selected>Files only</option>' +
+                    '<option value="db-only">Database only</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label>Target Directory <span class="text-muted">(leave empty for original location)</span></label>' +
+                '<input type="text" id="restore-target" placeholder="/tmp/restore" style="width:100%;box-sizing:border-box;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem">' +
+            '</div>' +
+        '</div>' +
+        '<div id="download-fields" style="display:none">' +
+            '<div class="form-group">' +
+                '<label>Format</label>' +
+                '<select id="restore-dl-format">' +
+                    '<option value="tar.gz">tar.gz (recommended)</option>' +
+                    '<option value="zip">zip</option>' +
+                '</select>' +
+            '</div>' +
         '</div>' +
         '<div class="form-actions">' +
-            '<button class="btn btn-primary" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\')">Restore to Server</button>' +
-            '<button class="btn btn-success" onclick="downloadSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files' + (itemPath ? '/' + esc(itemPath) : '') + '\');closeModal()">Download Instead</button>' +
+            '<button class="btn btn-primary" id="restore-submit" onclick="doRestore(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(itemPath) + '\',\'' + esc(dlPath) + '\')">Restore to Server</button>' +
             '<button class="btn" onclick="closeModal()">Cancel</button>' +
         '</div>' +
     '</div>';
     openModal('Restore: ' + hostname, html);
 }
 
-async function doRestore(hostname, snapshot, itemPath) {
+function toggleRestoreFields() {
+    var action = document.getElementById('restore-action').value;
+    var restoreFields = document.getElementById('restore-fields');
+    var downloadFields = document.getElementById('download-fields');
+    var submitBtn = document.getElementById('restore-submit');
+    if (action === 'download') {
+        restoreFields.style.display = 'none';
+        downloadFields.style.display = '';
+        submitBtn.textContent = 'Download';
+        submitBtn.className = 'btn btn-success';
+    } else {
+        restoreFields.style.display = '';
+        downloadFields.style.display = 'none';
+        submitBtn.textContent = 'Restore to Server';
+        submitBtn.className = 'btn btn-primary';
+    }
+}
+
+async function doRestore(hostname, snapshot, itemPath, dlPath) {
+    var action = document.getElementById('restore-action').value;
+
+    if (action === 'download') {
+        var format = document.getElementById('restore-dl-format').value;
+        closeModal();
+        downloadSnapshot(hostname, snapshot, dlPath, format);
+        return;
+    }
+
     var mode = document.getElementById('restore-mode').value;
     var target = document.getElementById('restore-target').value.trim();
 
@@ -798,6 +956,7 @@ async function doRestore(hostname, snapshot, itemPath) {
     var result = await apiPost('/api/restore/' + hostname, body);
     if (result && result.status === 'started') {
         toast('Restore started for ' + hostname + ' (snapshot ' + snapshot + ')', 'success');
+        setTimeout(refreshRestores, 1500);
     } else {
         toast('Failed to start restore', 'error');
     }
@@ -825,6 +984,7 @@ async function refreshAll() {
         refreshDisk(),
         refreshFailures(),
         refreshProcesses(),
+        refreshRestores(),
         refreshHistory().then(refreshServers),
         refreshSSHKey()
     ]);

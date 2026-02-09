@@ -138,6 +138,28 @@
             </table>
         </section>
 
+        <!-- Restore Tasks -->
+        <section class="panel" id="restores-panel" style="display:none">
+            <div class="panel-header">
+                <h2>&#x1F501; Restore Tasks</h2>
+                <button class="btn btn-sm" onclick="refreshRestores()">Refresh</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Server</th>
+                        <th>Description</th>
+                        <th>Started</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="restores-body">
+                    <tr><td colspan="5" class="empty">No restore tasks</td></tr>
+                </tbody>
+            </table>
+        </section>
+
         <!-- Configured Servers with backup history -->
         <section class="panel">
             <div class="panel-header">
