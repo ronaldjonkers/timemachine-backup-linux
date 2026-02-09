@@ -517,18 +517,24 @@ server_setup_sudoers() {
     local sudoers_file="/etc/sudoers.d/timemachine"
 
     # Resolve actual binary paths for this system
-    local rsync_path cat_path chown_path mv_path ln_path rm_path
+    local rsync_path cat_path chown_path mv_path ln_path rm_path tar_path
     rsync_path=$(command -v rsync 2>/dev/null || echo "/usr/bin/rsync")
     cat_path=$(command -v cat 2>/dev/null || echo "/bin/cat")
     chown_path=$(command -v chown 2>/dev/null || echo "/bin/chown")
     mv_path=$(command -v mv 2>/dev/null || echo "/usr/bin/mv")
     ln_path=$(command -v ln 2>/dev/null || echo "/usr/bin/ln")
     rm_path=$(command -v rm 2>/dev/null || echo "/usr/bin/rm")
+    tar_path=$(command -v tar 2>/dev/null || echo "/bin/tar")
 
     local sudoers_content="# TimeMachine Backup - server sudoers rules
 Defaults:${TM_USER} !tty_tickets
 Defaults:${TM_USER} !requiretty
-${TM_USER} ALL=NOPASSWD:${rsync_path}, ${cat_path}, ${chown_path}, ${mv_path}, ${ln_path}, ${rm_path}"
+${TM_USER} ALL=NOPASSWD:${rsync_path}, ${cat_path}, ${chown_path}, ${mv_path}, ${ln_path}, ${rm_path}, ${tar_path}"
+
+    # Add zip if available (used for restore archive creation)
+    if command -v zip &>/dev/null; then
+        sudoers_content+=", $(command -v zip)"
+    fi
 
     # Add database commands if available
     if command -v mysql &>/dev/null; then
