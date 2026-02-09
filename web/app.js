@@ -101,6 +101,7 @@ function openModal(title, html) {
 }
 
 function closeModal(e) {
+    _stopLogStream();
     if (e && e.target !== e.currentTarget) return;
     document.getElementById('modal-overlay').classList.add('hidden');
 }
@@ -385,22 +386,88 @@ function copyInstaller() {
 }
 
 /* ============================================================
-   LOG VIEWER
+   LOG VIEWER (live streaming)
    ============================================================ */
 
+var _logInterval = null;
+var _logHost = '';
+
 async function viewLogs(hostname) {
+    _logHost = hostname;
+    _stopLogStream();
+
     var data = await apiGet('/api/logs/' + hostname);
-    var content = '';
-    if (data && data.lines) {
-        content = data.lines;
-    } else if (data && data.error) {
-        content = data.error;
-    } else {
-        content = 'No logs available for ' + hostname;
+    if (!data) {
+        openModal('Logs: ' + hostname, '<p>No logs available for ' + esc(hostname) + '</p>');
+        return;
     }
 
-    var html = '<pre class="log-viewer">' + esc(content) + '</pre>';
+    var content = data.lines || data.error || 'No logs available';
+    var isRunning = data.running || false;
+
+    var statusBadge = isRunning
+        ? '<span class="badge badge-running" id="log-status"><span class="pulse"></span> Live</span>'
+        : '<span class="badge badge-idle" id="log-status">Completed</span>';
+
+    var html = '<div class="log-header">' +
+            statusBadge +
+            '<span class="text-muted" id="log-filename">' + esc(data.logfile || '') + '</span>' +
+        '</div>' +
+        '<pre class="log-viewer" id="log-content">' + esc(content) + '</pre>';
+
     openModal('Logs: ' + hostname, html);
+
+    // Scroll to bottom
+    var logEl = document.getElementById('log-content');
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+    // Start live polling if running
+    if (isRunning) {
+        _startLogStream(hostname);
+    }
+}
+
+function _startLogStream(hostname) {
+    _stopLogStream();
+    _logInterval = setInterval(async function() {
+        if (_logHost !== hostname) { _stopLogStream(); return; }
+
+        var data = await apiGet('/api/logs/' + hostname);
+        if (!data) return;
+
+        var logEl = document.getElementById('log-content');
+        var statusEl = document.getElementById('log-status');
+        if (!logEl) { _stopLogStream(); return; }
+
+        // Check if user is scrolled to bottom (within 50px)
+        var wasAtBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 50;
+
+        logEl.textContent = data.lines || '';
+
+        // Auto-scroll if user was at bottom
+        if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+
+        // Update status badge
+        if (statusEl) {
+            if (data.running) {
+                statusEl.className = 'badge badge-running';
+                statusEl.innerHTML = '<span class="pulse"></span> Live';
+            } else {
+                statusEl.className = 'badge badge-idle';
+                statusEl.textContent = 'Completed';
+                _stopLogStream();
+                // Refresh processes table since backup finished
+                refreshProcesses();
+            }
+        }
+    }, 2000);
+}
+
+function _stopLogStream() {
+    if (_logInterval) {
+        clearInterval(_logInterval);
+        _logInterval = null;
+    }
 }
 
 /* ============================================================

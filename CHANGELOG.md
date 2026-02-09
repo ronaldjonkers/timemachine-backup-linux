@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-02-09
+
+### Added
+- **Live log streaming in web dashboard** — When viewing logs for a running backup, the log viewer auto-refreshes every 2 seconds with a green "Live" badge. Auto-scrolls to bottom as new lines appear. Switches to "Completed" badge when backup finishes and stops polling
+- **`running` field in logs API** — `GET /api/logs/<hostname>` now includes `"running": true/false` so the frontend knows when to stream
+
+### Changed
+- Log viewer now shows up to 500 lines (was 200) with a header showing live/completed status and log filename
+- Log viewer respects user scroll position — only auto-scrolls if user is already at the bottom
+
 ## [2.4.0] - 2026-02-09
 
 ### Added

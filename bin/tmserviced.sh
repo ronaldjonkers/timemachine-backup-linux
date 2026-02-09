@@ -776,11 +776,24 @@ _handle_request() {
             fi
             if [[ -f "${logfile}" ]]; then
                 local content
-                content=$(tail -200 "${logfile}")
+                content=$(tail -500 "${logfile}")
                 # Escape for JSON
                 content=$(echo "${content}" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
                 local log_name
                 log_name=$(basename "${logfile}")
+                # Check if a backup is currently running for this host
+                local is_running="false"
+                for sf in "${STATE_DIR}"/proc-*.state; do
+                    [[ -f "${sf}" ]] || continue
+                    local sf_host sf_status sf_pid
+                    sf_host=$(cut -d'|' -f2 "${sf}")
+                    sf_status=$(cut -d'|' -f5 "${sf}")
+                    sf_pid=$(cut -d'|' -f1 "${sf}")
+                    if [[ "${sf_host}" == "${target_host}" && "${sf_status}" == "running" ]] && kill -0 "${sf_pid}" 2>/dev/null; then
+                        is_running="true"
+                        break
+                    fi
+                done
                 # List all available log files for this host
                 local log_list='['
                 local lfirst=1
@@ -791,7 +804,7 @@ _handle_request() {
                 done
                 log_list+=']'
                 _http_response "200 OK" "application/json" \
-                    "{\"hostname\":\"${target_host}\",\"logfile\":\"${log_name}\",\"lines\":\"${content}\",\"available\":${log_list}}"
+                    "{\"hostname\":\"${target_host}\",\"logfile\":\"${log_name}\",\"lines\":\"${content}\",\"running\":${is_running},\"available\":${log_list}}"
             else
                 _http_response "404 Not Found" "application/json" \
                     "{\"error\":\"No logs for ${target_host}\"}"
