@@ -774,59 +774,119 @@ async function browseSnapshot(hostname, snapshot, subPath) {
     _browseSnap = snapshot;
     _browsePath = subPath || '';
 
+    // If no subPath, show snapshot root with files/ and sql/ sections
+    if (!subPath) {
+        var filesData = await apiGet('/api/browse/' + hostname + '/' + snapshot);
+        var sqlData = await apiGet('/api/browse/' + hostname + '/' + snapshot + '/sql');
+
+        var html = '<div class="breadcrumb"><strong>' + esc(hostname) + ' / ' + esc(snapshot) + '</strong></div>';
+
+        // Files section
+        html += '<h3 style="margin:0.75rem 0 0.5rem;font-size:0.9rem">&#x1F4C1; Files</h3>';
+        if (filesData && filesData.items && filesData.items.length > 0) {
+            html += _buildItemTable(hostname, snapshot, filesData.items, '', 'files');
+            html += '<div class="form-actions" style="margin-top:0.5rem">' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files\')">Download All Files</button> ' +
+                '<button class="btn btn-sm btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'\')">Restore All Files</button>' +
+            '</div>';
+        } else {
+            html += '<p class="text-muted" style="font-size:0.82rem">No file backups in this snapshot</p>';
+        }
+
+        // SQL section
+        html += '<h3 style="margin:1.25rem 0 0.5rem;font-size:0.9rem">&#x1F5C3; Databases</h3>';
+        if (sqlData && sqlData.items && sqlData.items.length > 0) {
+            html += _buildItemTable(hostname, snapshot, sqlData.items, '', 'sql');
+            html += '<div class="form-actions" style="margin-top:0.5rem">' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All Databases</button> ' +
+                '<button class="btn btn-sm btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__\')">Restore All Databases</button>' +
+            '</div>';
+        } else {
+            html += '<p class="text-muted" style="font-size:0.82rem">No database backups in this snapshot</p>';
+        }
+
+        html += '<div class="form-actions" style="margin-top:1rem">' +
+            '<button class="btn" onclick="viewSnapshots(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
+        '</div>';
+
+        openModal('Browse: ' + hostname + ' / ' + snapshot, html);
+        return;
+    }
+
+    // Browsing inside files/ or sql/
+    var isSql = subPath.indexOf('__sql__') === 0 || _browsePath.indexOf('__sql__') === 0;
+    var apiSubPath = subPath;
+    if (isSql) apiSubPath = subPath.replace('__sql__', 'sql');
+    var section = isSql ? 'sql' : 'files';
+
     var url = '/api/browse/' + hostname + '/' + snapshot;
-    if (subPath) url += '/' + subPath;
+    if (apiSubPath) url += '/' + apiSubPath;
 
     var data = await apiGet(url);
     if (!data) { toast('Failed to browse snapshot', 'error'); return; }
 
-    var breadcrumb = _buildBreadcrumb(hostname, snapshot, data.path || '');
+    var breadcrumb = _buildBreadcrumb(hostname, snapshot, data.path || '', section);
 
-    var rows = '';
-    if (data.items && data.items.length > 0) {
-        // Sort: dirs first, then files
-        var dirs = data.items.filter(function(i) { return i.type === 'dir'; });
-        var files = data.items.filter(function(i) { return i.type !== 'dir'; });
-        var sorted = dirs.concat(files);
-
-        rows = sorted.map(function(item) {
-            var icon = item.type === 'dir' ? '&#x1F4C1;' : '&#x1F4C4;';
-            var clickPath = _browsePath ? _browsePath + '/' + item.name : item.name;
-            var nameCell = '';
-            if (item.type === 'dir') {
-                nameCell = '<a href="#" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(clickPath) + '\');return false">' + icon + ' ' + esc(item.name) + '</a>';
-            } else {
-                nameCell = icon + ' ' + esc(item.name);
-            }
-            return '<tr>' +
-                '<td>' + nameCell + '</td>' +
-                '<td class="text-muted">' + esc(item.size) + '</td>' +
-                '<td>' +
-                    '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files/' + esc(clickPath) + '\')">Download</button> ' +
-                    '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(clickPath) + '\')">Restore</button>' +
-                '</td></tr>';
-        }).join('');
-    } else {
-        rows = '<tr><td colspan="3" class="empty">Empty directory</td></tr>';
+    var rows = _buildItemTable(hostname, snapshot, data.items || [], _browsePath, section);
+    if (!data.items || data.items.length === 0) {
+        rows = '<table class="browse-table"><tbody><tr><td class="empty">Empty directory</td></tr></tbody></table>';
     }
 
-    var html = breadcrumb +
-        '<table class="browse-table">' +
-        '<thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
-        '</table>' +
+    var dlPath = section + (_browsePath ? '/' + _browsePath : '');
+    if (isSql) dlPath = 'sql' + (_browsePath.replace('__sql__', '') ? '/' + _browsePath.replace('__sql__/', '').replace('__sql__', '') : '');
+
+    var html = breadcrumb + rows +
         '<div class="form-actions" style="margin-top:1rem">' +
-            '<button class="btn btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files' + (_browsePath ? '/' + esc(_browsePath) : '') + '\')">Download This Folder</button> ' +
+            '<button class="btn btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(dlPath) + '\')">Download This Folder</button> ' +
             '<button class="btn btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(_browsePath) + '\')">Restore This Folder</button> ' +
+            '<button class="btn" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\')">Back to Root</button> ' +
             '<button class="btn" onclick="viewSnapshots(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
         '</div>';
 
     openModal('Browse: ' + hostname + ' / ' + snapshot, html);
 }
 
-function _buildBreadcrumb(hostname, snapshot, relPath) {
+function _buildItemTable(hostname, snapshot, items, currentPath, section) {
+    if (!items || items.length === 0) return '';
+    var dirs = items.filter(function(i) { return i.type === 'dir'; });
+    var files = items.filter(function(i) { return i.type !== 'dir'; });
+    var sorted = dirs.concat(files);
+
+    var rows = sorted.map(function(item) {
+        var icon = item.type === 'dir' ? '&#x1F4C1;' : (section === 'sql' ? '&#x1F5C3;' : '&#x1F4C4;');
+        var clickPath = currentPath ? currentPath + '/' + item.name : item.name;
+        var dlPath = section + '/' + (currentPath ? currentPath + '/' : '') + item.name;
+        // For sql section, use __sql__ prefix in restore path so restoreItem knows it's a DB
+        var restorePath = clickPath;
+        if (section === 'sql') {
+            dlPath = 'sql/' + item.name;
+            restorePath = '__sql__/' + item.name;
+        }
+        var nameCell = '';
+        if (item.type === 'dir') {
+            nameCell = '<a href="#" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(clickPath) + '\');return false">' + icon + ' ' + esc(item.name) + '</a>';
+        } else {
+            nameCell = icon + ' ' + esc(item.name);
+        }
+        return '<tr>' +
+            '<td>' + nameCell + '</td>' +
+            '<td class="text-muted">' + esc(item.size) + '</td>' +
+            '<td>' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(dlPath) + '\')">Download</button> ' +
+                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(restorePath) + '\')">Restore</button>' +
+            '</td></tr>';
+    }).join('');
+
+    return '<table class="browse-table">' +
+        '<thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+}
+
+function _buildBreadcrumb(hostname, snapshot, relPath, section) {
     var parts = ['<a href="#" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\');return false">' + esc(hostname) + ' / ' + esc(snapshot) + '</a>'];
-    if (relPath && relPath !== 'files') {
+    if (section === 'sql') {
+        parts.push('<strong>sql</strong>');
+    } else if (relPath && relPath !== 'files') {
         var cleanPath = relPath.replace(/^files\/?/, '');
         if (cleanPath) {
             var segments = cleanPath.split('/');
@@ -874,8 +934,19 @@ function downloadChoice(hostname, snapshot, subPath) {
 }
 
 function restoreItem(hostname, snapshot, itemPath) {
+    // Detect if this is a database restore
+    var isDb = itemPath && itemPath.indexOf('__sql__') === 0;
     var displayPath = itemPath || '/ (all files)';
     var dlPath = 'files' + (itemPath ? '/' + itemPath : '');
+    var defaultMode = 'files-only';
+
+    if (isDb) {
+        var sqlItem = itemPath.replace('__sql__/', '').replace('__sql__', '');
+        displayPath = sqlItem ? 'sql/' + sqlItem : 'sql/ (all databases)';
+        dlPath = sqlItem ? 'sql/' + sqlItem : 'sql';
+        defaultMode = 'db-only';
+    }
+
     var html = '<div class="edit-server-form">' +
         '<p>Restore <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong> to <strong>' + esc(hostname) + '</strong></p>' +
         '<div class="form-group">' +
@@ -889,9 +960,9 @@ function restoreItem(hostname, snapshot, itemPath) {
             '<div class="form-group">' +
                 '<label>Restore Mode</label>' +
                 '<select id="restore-mode">' +
-                    '<option value="">Full (files + DB)</option>' +
-                    '<option value="files-only" selected>Files only</option>' +
-                    '<option value="db-only">Database only</option>' +
+                    '<option value=""' + (defaultMode === '' ? ' selected' : '') + '>Full (files + DB)</option>' +
+                    '<option value="files-only"' + (defaultMode === 'files-only' ? ' selected' : '') + '>Files only</option>' +
+                    '<option value="db-only"' + (defaultMode === 'db-only' ? ' selected' : '') + '>Database only</option>' +
                 '</select>' +
             '</div>' +
             '<div class="form-group">' +
@@ -947,10 +1018,19 @@ async function doRestore(hostname, snapshot, itemPath, dlPath) {
     var mode = document.getElementById('restore-mode').value;
     var target = document.getElementById('restore-target').value.trim();
 
+    // Handle __sql__ prefix: convert to db-only restore
+    var isDb = itemPath && itemPath.indexOf('__sql__') === 0;
+    var cleanPath = itemPath;
+    if (isDb) {
+        cleanPath = itemPath.replace('__sql__/', '').replace('__sql__', '');
+        if (!mode) mode = 'db-only';
+    }
+
     var body = { snapshot: snapshot };
-    if (itemPath) body.path = itemPath;
+    if (cleanPath) body.path = cleanPath;
     if (target) body.target = target;
     if (mode) body.mode = mode;
+    if (isDb) body.db_restore = true;
 
     closeModal();
     var result = await apiPost('/api/restore/' + hostname, body);

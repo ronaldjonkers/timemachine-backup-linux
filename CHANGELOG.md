@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-02-09
+
+### Fixed
+- **Database backups now browsable and downloadable** — Snapshot browser now shows both **Files** and **Databases** sections at the root level. Previously only the `files/` directory was accessible
+- **Database dumps can be downloaded** — Individual `.sql` files or all databases as tar.gz/zip from the snapshot browser
+- **Database dumps can be restored** — Restore modal auto-detects database items, defaults to "Database only" mode, and supports restoring to a custom target directory (copies SQL files there) or back to the server (imports via MySQL/PostgreSQL)
+
+### Changed
+- Snapshot root browse view now shows two sections: Files and Databases with separate action buttons for each
+- Database items use a distinct database icon in the file browser
+- Restore modal dynamically sets default mode based on item type (files-only for files, db-only for databases)
+
 ## [2.5.0] - 2026-02-09
 
 ### Added
