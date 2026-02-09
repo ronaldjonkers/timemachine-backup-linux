@@ -201,14 +201,25 @@ if [[ -z "$(type -t tm_notify 2>/dev/null)" ]]; then
             return 0
         fi
 
-        if [[ -n "${TM_ALERT_EMAIL:-}" ]] && command -v mail &>/dev/null; then
-            local full_subject="${TM_ALERT_SUBJECT_PREFIX:-[TimeMachine]} ${subject}"
-            echo "${body}" | mail -s "${full_subject}" "${TM_ALERT_EMAIL}"
-            tm_log "INFO" "Alert sent: ${full_subject}"
-        else
-            tm_log "WARN" "Cannot send notification (no email configured or mail not found)"
+        local full_subject="${TM_ALERT_SUBJECT_PREFIX:-[TimeMachine]} ${subject}"
+
+        if [[ -z "${TM_ALERT_EMAIL:-}" ]]; then
+            tm_log "WARN" "TM_ALERT_EMAIL not set; cannot send notification"
             return 1
         fi
+
+        # Try multiple mail tools in order of preference
+        if command -v mail &>/dev/null; then
+            echo "${body}" | mail -s "${full_subject}" "${TM_ALERT_EMAIL}"
+        elif command -v msmtp &>/dev/null; then
+            printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | msmtp "${TM_ALERT_EMAIL}"
+        elif command -v sendmail &>/dev/null; then
+            printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | sendmail "${TM_ALERT_EMAIL}"
+        else
+            tm_log "WARN" "No mail tool found (tried: mail, msmtp, sendmail); cannot send notification"
+            return 1
+        fi
+        tm_log "INFO" "Alert sent to ${TM_ALERT_EMAIL}: ${full_subject}"
     }
 fi
 

@@ -108,6 +108,31 @@ function formatMB(mb) {
     return mb + ' MB';
 }
 
+function formatDateTime(str) {
+    if (!str || str === 'never') return str || '--';
+    // If it's just a date (YYYY-MM-DD), return as-is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    // If it's a full datetime, format nicely
+    try {
+        var d = new Date(str.replace(' ', 'T'));
+        if (isNaN(d.getTime())) return str;
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    } catch(e) { return str; }
+}
+
+function timeAgo(str) {
+    if (!str || str === 'never') return '';
+    try {
+        var d = new Date(str.replace(' ', 'T'));
+        if (isNaN(d.getTime())) return '';
+        var secs = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (secs < 60) return 'just now';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+        if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+        return Math.floor(secs / 86400) + 'd ago';
+    } catch(e) { return ''; }
+}
+
 /* ============================================================
    STATUS
    ============================================================ */
@@ -209,8 +234,9 @@ async function refreshFailures() {
     tbody.innerHTML = data.map(function(f) {
         var msg = f.message || 'Unknown error';
         if (msg.length > 120) msg = msg.substring(0, 120) + '...';
+        var ts = f.timestamp ? '<span class="text-muted" title="' + esc(f.timestamp) + '">' + timeAgo(f.timestamp) + '</span>' : '';
         return '<tr>' +
-            '<td><strong>' + esc(f.hostname) + '</strong></td>' +
+            '<td><strong>' + esc(f.hostname) + '</strong>' + (ts ? '<br>' + ts : '') + '</td>' +
             '<td class="error-text">' + esc(msg) + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(f.hostname) + '\')">Logs</button> ' +
@@ -278,15 +304,21 @@ async function refreshServers() {
     tbody.innerHTML = data.map(function(srv) {
         var h = _historyData[srv.hostname] || {};
         var lastBackup = h.last_backup || 'never';
+        var lastTime = h.last_backup_time || '';
         var snapCount = h.snapshots || 0;
         var totalSize = h.total_size || '--';
         var status = h.status || 'unknown';
         var statusClass = status === 'ok' ? 'completed' : status === 'error' ? 'failed' : '';
         var statusLabel = status === 'ok' ? 'OK' : status === 'error' ? 'Error' : '--';
 
+        // Show full datetime if available, otherwise just date
+        var backupDisplay = lastTime ? formatDateTime(lastTime) : esc(lastBackup);
+        var ago = lastTime ? timeAgo(lastTime) : (lastBackup !== 'never' ? timeAgo(lastBackup) : '');
+        var backupCell = backupDisplay + (ago ? ' <span class="text-muted">(' + ago + ')</span>' : '');
+
         return '<tr>' +
             '<td><strong>' + esc(srv.hostname) + '</strong></td>' +
-            '<td>' + esc(lastBackup) + '</td>' +
+            '<td>' + backupCell + '</td>' +
             '<td>' + snapCount + '</td>' +
             '<td>' + esc(totalSize) + '</td>' +
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + statusLabel + '</span></td>' +

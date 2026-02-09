@@ -17,6 +17,9 @@ _tm_rsync_base_cmd() {
 
     cmd+=" -e 'ssh -p ${TM_SSH_PORT} -i ${TM_SSH_KEY} -o ConnectTimeout=${TM_SSH_TIMEOUT} -o StrictHostKeyChecking=no'"
 
+    # Run rsync on the remote (sender) side with sudo so it can read all files
+    cmd+=" --rsync-path='sudo rsync'"
+
     if [[ -n "${TM_RSYNC_EXTRA_OPTS:-}" ]]; then
         cmd+=" ${TM_RSYNC_EXTRA_OPTS}"
     fi

@@ -657,14 +657,22 @@ _handle_request() {
                         continue
                     fi
                     seen_hosts="${seen_hosts} ${lhost}"
+                    # Extract timestamp from log filename (backup-host-YYYY-MM-DD_HHMMSS)
+                    local log_ts
+                    log_ts=$(echo "${lname}" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$' | sed 's/_/ /;s/\(..\)\(..\)$/:\1:\2/')
+                    [[ -z "${log_ts}" ]] && log_ts=$(stat -c '%Y' "${logfile}" 2>/dev/null | xargs -I{} date -d @{} +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "${logfile}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "")
                     # Check for errors in this log
                     local fail_lines
                     fail_lines=$(tail -50 "${logfile}" 2>/dev/null | grep -iE "(\[ERROR\]|FAIL|fatal|Permission denied|cannot create)" | tail -3)
                     while IFS= read -r fline; do
                         [[ -z "${fline}" ]] && continue
+                        # Extract timestamp from log line if present [YYYY-MM-DD HH:MM:SS]
+                        local line_ts
+                        line_ts=$(echo "${fline}" | grep -oE '^\[?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\]?' | tr -d '[]')
+                        [[ -z "${line_ts}" ]] && line_ts="${log_ts}"
                         fline=$(echo "${fline}" | sed 's/"/\\"/g' | tr -d '\n')
                         [[ ${first} -eq 1 ]] && first=0 || failures+=','
-                        failures+=$(printf '{"hostname":"%s","message":"%s","logfile":"%s"}' "${lhost}" "${fline}" "$(basename "${logfile}")")
+                        failures+=$(printf '{"hostname":"%s","message":"%s","logfile":"%s","timestamp":"%s"}' "${lhost}" "${fline}" "$(basename "${logfile}")" "${line_ts}")
                     done <<< "${fail_lines}"
                 done
                 # Also check old-style service-*.log for hosts not yet seen
@@ -678,9 +686,11 @@ _handle_request() {
                     fail_lines=$(tail -50 "${logfile}" 2>/dev/null | grep -iE "(\[ERROR\]|FAIL|fatal|Permission denied)" | tail -3)
                     while IFS= read -r fline; do
                         [[ -z "${fline}" ]] && continue
+                        local line_ts
+                        line_ts=$(echo "${fline}" | grep -oE '^\[?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\]?' | tr -d '[]')
                         fline=$(echo "${fline}" | sed 's/"/\\"/g' | tr -d '\n')
                         [[ ${first} -eq 1 ]] && first=0 || failures+=','
-                        failures+=$(printf '{"hostname":"%s","message":"%s"}' "${lhost}" "${fline}")
+                        failures+=$(printf '{"hostname":"%s","message":"%s","timestamp":"%s"}' "${lhost}" "${fline}" "${line_ts}")
                     done <<< "${fail_lines}"
                 done
             fi
@@ -701,6 +711,7 @@ _handle_request() {
                     hist_host=$(echo "${line}" | awk '{print $1}')
                     local snap_dir="${TM_BACKUP_ROOT}/${hist_host}"
                     local last_backup="never"
+                    local last_backup_time=""
                     local snap_count=0
                     local total_size="0"
                     if [[ -d "${snap_dir}" ]]; then
@@ -729,10 +740,17 @@ _handle_request() {
                         if echo "${last_lines}" | grep -qiE "(\[ERROR\]|FAIL|fatal|Permission denied)"; then
                             last_status="error"
                         fi
+                        # Extract timestamp from log filename or last line
+                        local log_bn
+                        log_bn=$(basename "${latest_log}" .log)
+                        last_backup_time=$(echo "${log_bn}" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$' | sed 's/_/ /;s/\(..\)\(..\)$/:\1:\2/')
+                        if [[ -z "${last_backup_time}" ]]; then
+                            last_backup_time=$(tail -1 "${latest_log}" 2>/dev/null | grep -oE '^\[?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\]?' | tr -d '[]')
+                        fi
                     fi
                     [[ ${first} -eq 1 ]] && first=0 || history+=','
-                    history+=$(printf '{"hostname":"%s","last_backup":"%s","snapshots":%s,"total_size":"%s","status":"%s"}' \
-                        "${hist_host}" "${last_backup}" "${snap_count}" "${total_size}" "${last_status}")
+                    history+=$(printf '{"hostname":"%s","last_backup":"%s","last_backup_time":"%s","snapshots":%s,"total_size":"%s","status":"%s"}' \
+                        "${hist_host}" "${last_backup}" "${last_backup_time}" "${snap_count}" "${total_size}" "${last_status}")
                 done < "${servers_conf}"
             fi
             history+=']'

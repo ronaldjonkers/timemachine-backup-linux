@@ -37,11 +37,14 @@ tm_trigger_remote_dump() {
     env_vars+="TM_SQLITE_PATHS='${TM_SQLITE_PATHS}' "
     env_vars+="TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}' "
 
+    # Try multiple possible locations for dump_dbs.sh on the client
+    local dump_script="/home/${remote_user}/dump_dbs.sh"
+
     ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
         -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
         -o StrictHostKeyChecking=no \
         "${remote_user}@${hostname}" \
-        "${env_vars} bash /home/${remote_user}/dump_dbs.sh" 2>&1
+        "${env_vars} bash -c 'if [[ -f ${dump_script} ]]; then bash ${dump_script}; elif [[ -f /opt/timemachine-backup-linux/bin/dump_dbs.sh ]]; then bash /opt/timemachine-backup-linux/bin/dump_dbs.sh; else echo \"dump_dbs.sh not found on client (tried ${dump_script} and /opt/timemachine-backup-linux/bin/dump_dbs.sh)\"; exit 1; fi'" 2>&1
 
     return $?
 }

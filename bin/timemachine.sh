@@ -33,6 +33,7 @@ SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
 
 # Load shared libraries
 source "${SCRIPT_DIR}/../lib/common.sh"
+source "${SCRIPT_DIR}/../lib/notify.sh"
 source "${SCRIPT_DIR}/../lib/rsync.sh"
 source "${SCRIPT_DIR}/../lib/database.sh"
 
