@@ -882,9 +882,18 @@ class APIHandler(BaseHTTPRequestHandler):
             try:
                 content = open(sf).read().strip()
                 parts = content.split('|')
-                if len(parts) >= 5 and parts[4] == 'running':
+                if len(parts) >= 6 and parts[4] == 'running':
                     pid = int(parts[0])
-                    if is_process_alive(pid):
+                    logfile = parts[5]
+                    if pid > 0 and is_process_alive(pid):
+                        # Log the kill event to the backup log
+                        if logfile and os.path.isfile(logfile):
+                            try:
+                                ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                with open(logfile, 'a') as lf:
+                                    lf.write(f'\n[{ts}] [WARN ] Backup killed by user via dashboard (PID {pid})\n')
+                            except Exception:
+                                pass
                         os.kill(pid, signal.SIGTERM)
                         content = content.replace('|running|', '|killed|')
                         with open(sf, 'w') as f:

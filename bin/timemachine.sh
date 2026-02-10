@@ -70,6 +70,7 @@ while [[ $# -gt 0 ]]; do
         --db-only)     DB_ONLY=1; shift ;;
         --no-rotate)   NO_ROTATE=1; shift ;;
         --trigger)     TRIGGER="$2"; shift; shift ;;
+        --notify)      shift; shift ;;  # consumed by notify.sh
         --priority)    shift; shift ;;  # consumed by scheduler
         --db-interval) shift; shift ;;  # consumed by scheduler
         --dry-run)     DRY_RUN=1; shift ;;

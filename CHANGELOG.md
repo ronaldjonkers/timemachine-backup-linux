@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.1] - 2026-02-10
+
+### Fixed
+- **`--notify` option causing backup failure** — `timemachine.sh` did not recognize `--notify` in its argument parser, causing `Unknown option` error and aborting the backup. Now properly consumed (skip + shift) like `--priority` and `--db-interval`
+- **Kill events now logged** — When a backup is killed via the dashboard, a `[WARN] Backup killed by user via dashboard (PID ...)` line is appended to the backup log file so it's visible in the log viewer
+
+### Added
+- **Postfix installed by default** — The installer now includes `postfix` in all package manager dependency lists and enables/starts it after installation, so `s-nail`/`mailutils` have a working local MTA out of the box
+
+### Changed
+- **SSH key endpoint defaults to open** — `setup-web.sh` now defaults to `[Y/n]` (yes) for allowing unauthenticated access to `/api/ssh-key/raw` when configuring htpasswd auth. SSH public keys are not sensitive and client installs need this endpoint to work without credentials
+
 ## [2.17.0] - 2026-02-10
 
 ### Fixed

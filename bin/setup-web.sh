@@ -173,12 +173,13 @@ prompt_config() {
     fi
     info "Password: ********"
 
-    # Open SSH key endpoint?
+    # Open SSH key endpoint? Default to yes — public keys are not sensitive
+    # and client installs need this to work without credentials
     if [[ ${OPEN_SSH_KEY} -eq 0 ]]; then
         echo ""
         local answer
-        answer=$(read_input "  Allow unauthenticated access to /api/ssh-key/raw? (for client installs) [y/N]: " "n")
-        [[ "${answer}" =~ ^[Yy] ]] && OPEN_SSH_KEY=1
+        answer=$(read_input "  Allow unauthenticated access to /api/ssh-key/raw? (for client installs) [Y/n]: " "y")
+        [[ "${answer}" =~ ^[Nn] ]] || OPEN_SSH_KEY=1
     fi
     if [[ ${OPEN_SSH_KEY} -eq 1 ]]; then
         info "SSH key endpoint: open (no auth)"
