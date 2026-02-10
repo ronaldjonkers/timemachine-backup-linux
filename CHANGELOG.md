@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-02-10
+
+**TimeMachine Backup v3.0.0 — Production-Ready Release**
+
+This major release marks the project as mature and production-ready. It consolidates all reliability improvements, dashboard enhancements, and notification fixes from the v2.18.x series into a stable baseline.
+
+### Highlights since v2.x
+- **Reliable backup status reporting** — Fixed critical bug where successful backups were falsely reported as "failed" due to `set -euo pipefail` killing the script during summary generation
+- **Reliable email notifications** — Both success and failure emails are now guaranteed to be sent; summary section is fully guarded against non-critical command failures
+- **Concise success emails** — "Backup OK" emails contain only the status summary (server, date, duration, snapshot size, disk free). Full diagnostic logs are only included in failure emails.
+- **Dashboard: dismiss failed backups** — Individual "Dismiss" button per failed backup entry, permanently removes the error log files
+- **Dashboard: delete finished processes** — Individual "Delete" button per completed/failed process entry
+- **Dashboard: "No backups today" banner** — Warning banner with "Start All Backups Now" button when no backups have run today
+- **Postfix auto-configuration** — `message_size_limit` set to 50MB during install/update to prevent email delivery failures for large backup logs
+- **Global excludes** — `/home/timemachine` and `/Backup` excluded by default to prevent self-backup
+
 ## [2.18.13] - 2026-02-10
 
 ### Fixed
