@@ -207,12 +207,24 @@ def get_processes_json():
             pid, hostname, mode, started, status, logfile = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
             # Check if running process is still alive (skip PID 0 placeholder)
             if status == 'running' and pid != '0' and not is_process_alive(pid):
-                # Check log for our own [ERROR] markers to determine final status
                 status = 'completed'
-                if logfile and os.path.isfile(logfile):
-                    log_tail = tail_file(logfile, 30)
-                    if re.search(r'\[ERROR\s*\]', log_tail):
-                        status = 'failed'
+                # 1. Check exit code file (most reliable)
+                exit_file = os.path.join(sd, f'exit-{hostname}.code')
+                if os.path.isfile(exit_file):
+                    try:
+                        ec = open(exit_file).read().strip()
+                        if ec and ec != '0':
+                            status = 'failed'
+                    except Exception:
+                        pass
+                # 2. Scan entire log for [ERROR] markers
+                if status != 'failed' and logfile and os.path.isfile(logfile):
+                    try:
+                        log_content = open(logfile).read()
+                        if re.search(r'\[ERROR\s*\]', log_content):
+                            status = 'failed'
+                    except Exception:
+                        pass
                 content_new = content.replace('|running|', f'|{status}|')
                 with open(sf, 'w') as f:
                     f.write(content_new)
@@ -1650,10 +1662,24 @@ class APIHandler(BaseHTTPRequestHandler):
             logs = sorted(glob.glob(os.path.join(ld, f'backup-{hostname}-*.log')),
                            key=os.path.getmtime, reverse=True)
             latest_log = logs[0] if logs else os.path.join(ld, f'service-{hostname}.log')
+            # 1. Check exit code file first (most reliable)
+            exit_file = os.path.join(state_dir(), f'exit-{hostname}.code')
+            if os.path.isfile(exit_file):
+                try:
+                    ec = open(exit_file).read().strip()
+                    if ec and ec != '0':
+                        last_status = 'error'
+                except Exception:
+                    pass
+            # 2. Scan entire log for [ERROR] markers
+            if last_status != 'error' and os.path.isfile(latest_log):
+                try:
+                    log_content = open(latest_log).read()
+                    if re.search(r'\[ERROR\s*\]', log_content):
+                        last_status = 'error'
+                except Exception:
+                    pass
             if os.path.isfile(latest_log):
-                log_tail = tail_file(latest_log, 30)
-                if re.search(r'\[ERROR\s*\]', log_tail):
-                    last_status = 'error'
                 # Extract timestamp
                 log_bn = os.path.basename(latest_log).replace('.log', '')
                 ts_m = re.search(r'(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(\d{2})$', log_bn)

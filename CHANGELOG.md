@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.7] - 2026-02-10
+
+### Fixed
+- **Failed backups now correctly show "failed" status in portal** — Status detection previously only checked the last 30 lines of the log for `[ERROR]`, but rsync failures appear early in the log and get pushed out by subsequent phases (database, rotation, summary). Now uses two-tier detection:
+  1. Exit code file (`exit-{hostname}.code`) — most reliable, written by the backup wrapper
+  2. Full log scan for `[ERROR]` markers — catches all errors regardless of position
+  Applied to: `_check_process_exit()` (bash), `get_processes_json()` (Python), and `_api_servers_list()` (Python)
+- **Failure email notifications now include the full backup log** — The `_TM_BACKUP_LOGFILE` environment variable is exported by both `tmserviced.sh` and `daily-runner.sh`, allowing `timemachine.sh` to include the complete backup log (with all `[ERROR]` messages, rsync output, timing info) in the notification email alongside the rsync transfer log and database output
+- Removed redundant stripped-down failure notification from `run_backup()` wrapper — `timemachine.sh` already sends a comprehensive failure email with all logs
+
 ## [2.18.6] - 2026-02-10
 
 ### Added

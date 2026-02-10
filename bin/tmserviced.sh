@@ -78,20 +78,33 @@ _update_process() {
     fi
 }
 
-# Check if a finished process failed by inspecting its log file
+# Check if a finished process failed by inspecting exit code file and log
 _check_process_exit() {
     local hostname="$1"
     local state_file="${STATE_DIR}/proc-${hostname}.state"
     [[ -f "${state_file}" ]] || return
-    local logfile
-    logfile=$(cut -d'|' -f6 "${state_file}")
-    if [[ -n "${logfile}" && -f "${logfile}" ]]; then
-        # Check last 30 lines for our own [ERROR] log markers only
-        if tail -30 "${logfile}" 2>/dev/null | grep -qE '\[ERROR\s*\]'; then
+
+    # 1. Check exit code file (most reliable — written by run_backup wrapper)
+    local exit_file="${STATE_DIR}/exit-${hostname}.code"
+    if [[ -f "${exit_file}" ]]; then
+        local ec
+        ec=$(cat "${exit_file}" 2>/dev/null)
+        if [[ "${ec}" != "0" && -n "${ec}" ]]; then
             _update_process "${hostname}" "failed"
             return 1
         fi
     fi
+
+    # 2. Scan entire log for [ERROR] markers (catches rsync failures etc.)
+    local logfile
+    logfile=$(cut -d'|' -f6 "${state_file}")
+    if [[ -n "${logfile}" && -f "${logfile}" ]]; then
+        if grep -qE '\[ERROR\s*\]' "${logfile}" 2>/dev/null; then
+            _update_process "${hostname}" "failed"
+            return 1
+        fi
+    fi
+
     _update_process "${hostname}" "completed"
     return 0
 }
@@ -141,21 +154,17 @@ run_backup() {
     ts=$(date +'%Y-%m-%d_%H%M%S')
     local logfile="${TM_LOG_DIR}/backup-${hostname}-${ts}.log"
 
-    # Wrapper subshell: runs backup, captures exit code, updates state, sends notification on failure
+    # Wrapper subshell: runs backup, captures exit code, updates state
+    # Note: timemachine.sh sends its own failure email with full logs.
+    # This wrapper only records the exit code for status detection.
     (
+        export _TM_BACKUP_LOGFILE="${logfile}"
         local exit_code=0
         "${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} --trigger scheduler >> "${logfile}" 2>&1 || exit_code=$?
 
         if [[ ${exit_code} -ne 0 ]]; then
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] Backup exited with code ${exit_code}" >> "${logfile}"
             echo "${exit_code}" > "${STATE_DIR}/exit-${hostname}.code"
-            # Send failure notification
-            if [[ "${TM_ALERT_ENABLED:-false}" == "true" ]]; then
-                local body
-                body="Backup for ${hostname} failed (exit code ${exit_code}).\n\nLast 20 lines of log:\n$(tail -20 "${logfile}" 2>/dev/null)"
-                source "${SCRIPT_DIR}/../lib/notify.sh" 2>/dev/null || true
-                tm_notify "Backup FAILED: ${hostname}" "${body}" "error" 2>/dev/null || true
-            fi
         else
             echo "0" > "${STATE_DIR}/exit-${hostname}.code"
         fi

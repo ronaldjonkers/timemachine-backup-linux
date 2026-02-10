@@ -272,7 +272,7 @@ while IFS= read -r line; do
 
     srv_start=$(date +%s)
     srv_logfile="${LOG_DIR}/backup-${srv_host}-$(date +'%Y-%m-%d_%H%M%S').log"
-    "${SCRIPT_DIR}/timemachine.sh" ${line} --trigger daily >> "${srv_logfile}" 2>&1 &
+    _TM_BACKUP_LOGFILE="${srv_logfile}" "${SCRIPT_DIR}/timemachine.sh" ${line} --trigger daily >> "${srv_logfile}" 2>&1 &
     pid=$!
     echo "${pid}:${srv_host}:${srv_start}" >> "${PIDS_FILE}"
 

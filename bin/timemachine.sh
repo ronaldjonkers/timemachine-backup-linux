@@ -263,6 +263,16 @@ DATABASE BACKUP OUTPUT
 ${_TM_DB_OUTPUT}"
     fi
 
+    # Append the full backup log (contains all tm_log output incl. errors)
+    if [[ -n "${_TM_BACKUP_LOGFILE:-}" && -f "${_TM_BACKUP_LOGFILE}" ]]; then
+        email_body+="
+
+============================================================
+FULL BACKUP LOG (${_TM_BACKUP_LOGFILE##*/})
+============================================================
+$(cat "${_TM_BACKUP_LOGFILE}" 2>/dev/null)"
+    fi
+
     if [[ ${exit_code} -eq 0 ]]; then
         tm_notify "Backup OK: ${HOSTNAME}" "${email_body}" "info" "backup_ok" "${HOSTNAME}"
     else
