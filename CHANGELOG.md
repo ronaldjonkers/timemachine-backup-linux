@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.0] - 2026-02-10
+
+### Fixed
+- **Backup status stuck on "running"** — State file was written with the API server's own PID instead of the subprocess PID. The dashboard would never detect completion because `is_process_alive()` always returned true for the API server. Now the state file is updated with the real subprocess PID inside the background thread, and directly updated on completion
+- **PID 0 placeholder handling** — `get_processes_json()` and `_api_logs()` now skip the `is_process_alive` check for PID 0 (the placeholder written before the subprocess starts)
+
+### Added
+- **Trigger source in backup log** — Log header now shows `Triggered by: manual|daily|api|scheduler` so you can tell how a backup was started. `--trigger` option added to `timemachine.sh`, passed by API (`api`), daily-runner (`daily`), and scheduler (`scheduler`)
+- **Dashboard toast on backup completion** — The processes table now detects when a backup transitions from running to completed/failed and shows a toast notification
+- **Live rsync log viewer** — New "Rsync" button in the processes table opens a modal with the raw rsync transfer log (`--log-file`), with live auto-refresh while the backup is running. API: `GET /api/rsync-log/<hostname>`
+- **Rsync transfer logging** — `tm_rsync_backup()` now passes `--log-file` to rsync, saving detailed file-by-file transfer info to `logs/rsync-<hostname>-<timestamp>.log`
+
+### Changed
+- **"SQL backup" → "Database backup"** in all log messages (`rsync.sh`, `timemachine.sh`). `tm_rsync_sql` now logs "Starting database backup sync" / "Database backup sync complete"
+- **"No databases found" message improved** — When no databases are detected on a server, the log now shows: "No databases found on <host> — if this server has databases, make sure to configure them in .env (TM_DB_TYPES, credentials)"
+
 ## [2.16.0] - 2026-02-10
 
 ### Added

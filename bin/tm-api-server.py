@@ -205,8 +205,8 @@ def get_processes_json():
             if len(parts) < 6:
                 continue
             pid, hostname, mode, started, status, logfile = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
-            # Check if running process is still alive
-            if status == 'running' and not is_process_alive(pid):
+            # Check if running process is still alive (skip PID 0 placeholder)
+            if status == 'running' and pid != '0' and not is_process_alive(pid):
                 status = 'completed'
                 content_new = content.replace('|running|', f'|{status}|')
                 with open(sf, 'w') as f:
@@ -568,6 +568,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._api_ssh_key()
         elif path == '/api/ssh-key/raw':
             self._api_ssh_key_raw()
+        elif path.startswith('/api/rsync-log/'):
+            self._api_rsync_log(path[len('/api/rsync-log/'):])
         elif path.startswith('/api/logs/'):
             self._api_logs(path[len('/api/logs/'):])
         elif path == '/api/system':
@@ -823,39 +825,6 @@ class APIHandler(BaseHTTPRequestHandler):
         logfile = os.path.join(log_dir(), f'backup-{target_host}-{ts}.log')
         script = os.path.join(SCRIPT_DIR, 'timemachine.sh')
 
-        def run_backup():
-            try:
-                with open(logfile, 'w') as lf:
-                    cmd = f'{script} {target_host} {opts}'.strip()
-                    proc = subprocess.Popen(
-                        cmd, shell=True, stdout=lf, stderr=lf
-                    )
-                    exit_code = proc.wait()
-                    # Write exit code state
-                    code_file = os.path.join(state_dir(), f'exit-{target_host}.code')
-                    with open(code_file, 'w') as cf:
-                        cf.write(str(exit_code))
-                    # Update process state
-                    for sf in glob.glob(os.path.join(state_dir(), f'proc-{target_host}-*.state')):
-                        try:
-                            content = open(sf).read()
-                            if f'|{proc.pid}|' in content or content.startswith(f'{proc.pid}|'):
-                                status = 'completed' if exit_code == 0 else 'failed'
-                                content = content.replace('|running|', f'|{status}|')
-                                with open(sf, 'w') as f:
-                                    f.write(content)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        # Start in background thread
-        t = threading.Thread(target=run_backup, daemon=True)
-        t.start()
-
-        # We need the PID — use a small delay to let subprocess start
-        # For now, register with thread ID as placeholder
-        pid = os.getpid()  # Will be updated by the subprocess
         mode = 'full'
         if '--files-only' in opts:
             mode = 'files-only'
@@ -863,14 +832,48 @@ class APIHandler(BaseHTTPRequestHandler):
             mode = 'db-only'
 
         started = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        state_file = os.path.join(state_dir(), f'proc-{target_host}-{ts}.state')
-        with open(state_file, 'w') as f:
-            f.write(f'{pid}|{target_host}|{mode}|{started}|running|{logfile}')
+        sf_path = os.path.join(state_dir(), f'proc-{target_host}-{ts}.state')
+
+        def run_backup():
+            try:
+                with open(logfile, 'w') as lf:
+                    cmd = f'{script} {target_host} --trigger api {opts}'.strip()
+                    proc = subprocess.Popen(
+                        cmd, shell=True, stdout=lf, stderr=lf
+                    )
+                    # Update state file with the real subprocess PID
+                    try:
+                        with open(sf_path, 'w') as sf:
+                            sf.write(f'{proc.pid}|{target_host}|{mode}|{started}|running|{logfile}')
+                    except Exception:
+                        pass
+
+                    exit_code = proc.wait()
+                    # Write exit code state
+                    code_file = os.path.join(state_dir(), f'exit-{target_host}.code')
+                    with open(code_file, 'w') as cf:
+                        cf.write(str(exit_code))
+                    # Update process state to completed/failed
+                    try:
+                        status = 'completed' if exit_code == 0 else 'failed'
+                        with open(sf_path, 'w') as sf:
+                            sf.write(f'{proc.pid}|{target_host}|{mode}|{started}|{status}|{logfile}')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # Write initial state file (will be updated with real PID once subprocess starts)
+        with open(sf_path, 'w') as f:
+            f.write(f'0|{target_host}|{mode}|{started}|running|{logfile}')
+
+        # Start in background thread
+        t = threading.Thread(target=run_backup, daemon=True)
+        t.start()
 
         self._send_json({
             'status': 'started',
             'hostname': target_host,
-            'pid': pid,
         })
 
     def _api_backup_kill(self, target_host):
@@ -1403,13 +1406,51 @@ class APIHandler(BaseHTTPRequestHandler):
             try:
                 data = open(sf).read().strip()
                 parts = data.split('|')
-                if len(parts) >= 5 and parts[4] == 'running' and is_process_alive(parts[0]):
-                    is_running = True
-                    break
+                if len(parts) >= 5 and parts[4] == 'running':
+                    if parts[0] == '0' or is_process_alive(parts[0]):
+                        is_running = True
+                        break
             except Exception:
                 continue
 
         # Available log files
+        available = [os.path.basename(l) for l in logs[:30]]
+
+        self._send_json({
+            'hostname': target_host,
+            'logfile': log_name,
+            'lines': content,
+            'running': is_running,
+            'available': available,
+        })
+
+    def _api_rsync_log(self, target_host):
+        """Return the latest rsync transfer log for a host."""
+        ld = log_dir()
+        logs = sorted(glob.glob(os.path.join(ld, f'rsync-{target_host}-*.log')),
+                       key=os.path.getmtime, reverse=True)
+        if not logs:
+            self._send_json({'error': f'No rsync logs for {target_host}'}, 404)
+            return
+
+        logfile = logs[0]
+        content = tail_file(logfile, 1000)
+        log_name = os.path.basename(logfile)
+
+        # Check if backup is currently running (rsync log is being written)
+        is_running = False
+        sd = state_dir()
+        for sf in glob.glob(os.path.join(sd, f'proc-{target_host}*.state')):
+            try:
+                data = open(sf).read().strip()
+                parts = data.split('|')
+                if len(parts) >= 5 and parts[4] == 'running':
+                    if parts[0] == '0' or is_process_alive(parts[0]):
+                        is_running = True
+                        break
+            except Exception:
+                continue
+
         available = [os.path.basename(l) for l in logs[:30]]
 
         self._send_json({

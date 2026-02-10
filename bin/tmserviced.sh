@@ -144,7 +144,7 @@ run_backup() {
     # Wrapper subshell: runs backup, captures exit code, updates state, sends notification on failure
     (
         local exit_code=0
-        "${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} >> "${logfile}" 2>&1 || exit_code=$?
+        "${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} --trigger scheduler >> "${logfile}" 2>&1 || exit_code=$?
 
         if [[ ${exit_code} -ne 0 ]]; then
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] Backup exited with code ${exit_code}" >> "${logfile}"

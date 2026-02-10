@@ -291,14 +291,38 @@ function formatDuration(startedStr) {
     return s + 's';
 }
 
+var _prevRunningHosts = {};
+
 async function refreshProcesses() {
     var data = await apiGet('/api/processes');
     var tbody = document.getElementById('processes-body');
 
     if (!data || data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty">No active processes</td></tr>';
+        // Check if any previously running hosts just finished
+        for (var h in _prevRunningHosts) {
+            if (_prevRunningHosts[h]) toast('Backup completed: ' + h, 'success');
+        }
+        _prevRunningHosts = {};
         return;
     }
+
+    // Detect transitions from running -> completed/failed
+    var currentRunning = {};
+    data.forEach(function(proc) {
+        if (proc.status === 'running') currentRunning[proc.hostname] = true;
+    });
+    for (var h in _prevRunningHosts) {
+        if (_prevRunningHosts[h] && !currentRunning[h]) {
+            var finished = data.find(function(p) { return p.hostname === h; });
+            if (finished && finished.status === 'failed') {
+                toast('Backup failed: ' + h, 'error');
+            } else {
+                toast('Backup completed: ' + h, 'success');
+            }
+        }
+    }
+    _prevRunningHosts = currentRunning;
 
     tbody.innerHTML = data.map(function(proc) {
         var sc = proc.status || 'unknown';
@@ -313,7 +337,8 @@ async function refreshProcesses() {
             '<td><span class="status-cell ' + sc + '"><span class="status-dot"></span>' + esc(proc.status) + '</span></td>' +
             '<td>' +
                 (canKill ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +
-                '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(proc.hostname) + '\')">Logs</button>' +
+                '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(proc.hostname) + '\')">Logs</button> ' +
+                '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\')">Rsync</button>' +
             '</td></tr>';
     }).join('');
 }
@@ -872,6 +897,68 @@ function _stopLogStream() {
         clearInterval(_logInterval);
         _logInterval = null;
     }
+}
+
+async function viewRsyncLog(hostname) {
+    _logHost = '__rsync__' + hostname;
+    _stopLogStream();
+
+    var data = await apiGet('/api/rsync-log/' + hostname);
+    if (!data || data.error) {
+        openModal('Rsync Log: ' + hostname, '<p>No rsync log available for ' + esc(hostname) + '</p>');
+        return;
+    }
+
+    var content = data.lines || 'No rsync log content';
+    var isRunning = data.running || false;
+
+    var statusBadge = isRunning
+        ? '<span class="badge badge-running" id="log-status"><span class="pulse"></span> Live</span>'
+        : '<span class="badge badge-idle" id="log-status">Completed</span>';
+
+    var html = '<div class="log-header">' +
+            statusBadge +
+            '<span class="text-muted" id="log-filename">' + esc(data.logfile || '') + '</span>' +
+        '</div>' +
+        '<pre class="log-viewer" id="log-content">' + esc(content) + '</pre>';
+
+    openModal('Rsync Log: ' + hostname, html);
+
+    var logEl = document.getElementById('log-content');
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+    if (isRunning) {
+        _startRsyncLogStream(hostname);
+    }
+}
+
+function _startRsyncLogStream(hostname) {
+    _stopLogStream();
+    _logInterval = setInterval(async function() {
+        if (_logHost !== '__rsync__' + hostname) { _stopLogStream(); return; }
+
+        var data = await apiGet('/api/rsync-log/' + hostname);
+        if (!data) return;
+
+        var logEl = document.getElementById('log-content');
+        var statusEl = document.getElementById('log-status');
+        if (!logEl) { _stopLogStream(); return; }
+
+        var wasAtBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 50;
+        logEl.textContent = data.lines || '';
+        if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+
+        if (statusEl) {
+            if (data.running) {
+                statusEl.className = 'badge badge-running';
+                statusEl.innerHTML = '<span class="pulse"></span> Live';
+            } else {
+                statusEl.className = 'badge badge-idle';
+                statusEl.textContent = 'Completed';
+                _stopLogStream();
+            }
+        }
+    }, 2000);
 }
 
 /* ============================================================

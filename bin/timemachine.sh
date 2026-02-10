@@ -49,6 +49,7 @@ FILES_ONLY=0
 DB_ONLY=0
 NO_ROTATE=0
 DRY_RUN=0
+TRIGGER="manual"
 
 usage() {
     echo "Usage: $(basename "$0") <hostname> [OPTIONS]"
@@ -68,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         --files-only)  FILES_ONLY=1; shift ;;
         --db-only)     DB_ONLY=1; shift ;;
         --no-rotate)   NO_ROTATE=1; shift ;;
+        --trigger)     TRIGGER="$2"; shift; shift ;;
         --priority)    shift; shift ;;  # consumed by scheduler
         --db-interval) shift; shift ;;  # consumed by scheduler
         --dry-run)     DRY_RUN=1; shift ;;
@@ -108,6 +110,7 @@ LOCK_NAME="backup-${HOSTNAME}"
 main() {
     tm_log "INFO" "=========================================="
     tm_log "INFO" "Starting backup for: ${HOSTNAME}"
+    tm_log "INFO" "Triggered by: ${TRIGGER}"
     tm_log "INFO" "=========================================="
 
     # Acquire lock to prevent duplicate runs for same host
@@ -182,11 +185,11 @@ main() {
                 tm_notify "DB credentials issue: ${HOSTNAME}" "${alert_body}" "error" "backup_fail" "${HOSTNAME}"
             fi
         elif echo "${db_output}" | grep -q "No databases to dump"; then
-            tm_log "INFO" "No databases detected on ${HOSTNAME} — skipping DB sync"
+            tm_log "INFO" "No databases found on ${HOSTNAME} — if this server has databases, make sure to configure them in .env (TM_DB_TYPES, credentials)"
         else
             # Sync the SQL dumps back
             if ! tm_rsync_sql "${HOSTNAME}" "${BACKUP_BASE}"; then
-                tm_log "ERROR" "SQL sync failed for ${HOSTNAME}"
+                tm_log "ERROR" "Database sync failed for ${HOSTNAME}"
                 exit_code=1
             fi
         fi

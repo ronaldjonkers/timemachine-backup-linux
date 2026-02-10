@@ -86,6 +86,10 @@ tm_rsync_backup() {
 
     tm_log "INFO" "Starting file backup: ${hostname}:${source_path} -> ${target_dir}/files"
 
+    # Save detailed rsync transfer log for live viewing in the dashboard
+    local rsync_logfile="${TM_LOG_DIR:-${TM_HOME}/logs}/rsync-${hostname}-$(date +'%Y-%m-%d_%H%M%S').log"
+    rsync_cmd+=" --log-file='${rsync_logfile}'"
+
     local exit_code=0
     eval ${rsync_cmd} ${exclude_args} \
         "${remote_user}@${hostname}:${source_path}" \
@@ -125,17 +129,17 @@ tm_rsync_sql() {
     local rsync_cmd
     rsync_cmd=$(_tm_rsync_base_cmd)
 
-    tm_log "INFO" "Starting SQL backup: ${hostname} -> ${target_dir}"
+    tm_log "INFO" "Starting database backup sync: ${hostname} -> ${target_dir}"
 
     eval ${rsync_cmd} \
         "${remote_user}@${hostname}:/home/${TM_USER}/sql/" \
         "${target_dir}/" 2>&1 || {
             local rc=$?
-            tm_log "ERROR" "rsync SQL failed for ${hostname} (exit code ${rc})"
+            tm_log "ERROR" "rsync database sync failed for ${hostname} (exit code ${rc})"
             return ${rc}
         }
 
-    tm_log "INFO" "SQL backup complete for ${hostname}"
+    tm_log "INFO" "Database backup sync complete for ${hostname}"
     return 0
 }
 
