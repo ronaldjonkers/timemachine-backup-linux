@@ -699,6 +699,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if path == '/api/processes':
             self._api_processes_clear()
+        elif path.startswith('/api/processes/'):
+            self._api_process_delete(path[len('/api/processes/'):])
         elif path == '/api/restores':
             self._api_restores_clear()
         elif path.startswith('/api/restore/'):
@@ -762,6 +764,28 @@ class APIHandler(BaseHTTPRequestHandler):
             except Exception:
                 continue
         self._send_json({'cleared': cleared})
+
+    def _api_process_delete(self, hostname):
+        """Delete finished (completed/failed) process state files for a specific host."""
+        sd = state_dir()
+        cleared = 0
+        for sf in glob.glob(os.path.join(sd, f'proc-{hostname}*.state')):
+            try:
+                content = open(sf).read().strip()
+                parts = content.split('|')
+                if len(parts) >= 5 and parts[4] in ('completed', 'failed'):
+                    os.remove(sf)
+                    cleared += 1
+            except Exception:
+                continue
+        # Also remove exit code file
+        exit_file = os.path.join(sd, f'exit-{hostname}.code')
+        if os.path.isfile(exit_file):
+            os.remove(exit_file)
+        if cleared > 0:
+            self._send_json({'cleared': cleared})
+        else:
+            self._send_json({'error': 'No finished process found for ' + hostname}, 404)
 
     def _api_snapshots(self, hostname):
         snap_dir = os.path.join(backup_root(), hostname)

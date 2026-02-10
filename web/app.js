@@ -338,6 +338,7 @@ async function refreshProcesses() {
     tbody.innerHTML = data.map(function(proc) {
         var sc = proc.status || 'unknown';
         var canKill = proc.status === 'running';
+        var canDelete = proc.status === 'completed' || proc.status === 'failed';
         var duration = proc.status === 'running' ? formatDuration(proc.started) : '--';
         return '<tr>' +
             '<td><strong>' + esc(proc.hostname) + '</strong></td>' +
@@ -348,10 +349,23 @@ async function refreshProcesses() {
             '<td><span class="status-cell ' + sc + '"><span class="status-dot"></span>' + esc(proc.status) + '</span></td>' +
             '<td>' +
                 (canKill ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +
+                (canDelete ? '<button class="btn btn-sm btn-danger" onclick="deleteProcess(\'' + esc(proc.hostname) + '\')">Delete</button> ' : '') +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(proc.hostname) + '\')">Logs</button> ' +
                 '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\')">Rsync</button>' +
             '</td></tr>';
     }).join('');
+}
+
+async function deleteProcess(hostname) {
+    var result = await apiDelete('/api/processes/' + hostname);
+    if (result && !result.error) {
+        toast('Removed ' + hostname, 'success');
+        refreshProcesses();
+        refreshFailures();
+        refreshServers();
+    } else {
+        toast('Could not remove: ' + (result ? result.error : 'unknown error'), 'error');
+    }
 }
 
 async function clearProcesses() {
