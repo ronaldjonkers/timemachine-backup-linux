@@ -268,6 +268,13 @@ _check_db_intervals() {
 
             local srv_host
             srv_host=$(echo "${line}" | awk '{print $1}')
+
+            # Skip servers added today (user chose not to backup now)
+            local skip_file="${STATE_DIR}/skip-daily-${srv_host}"
+            if [[ -f "${skip_file}" && "$(cat "${skip_file}" 2>/dev/null)" == "$(tm_date_today)" ]]; then
+                continue
+            fi
+
             local last_db_file="${STATE_DIR}/last-db-${srv_host}"
             local now
             now=$(date +%s)
@@ -320,6 +327,13 @@ _check_backup_intervals() {
 
             local srv_host
             srv_host=$(echo "${line}" | awk '{print $1}')
+
+            # Skip servers added today (user chose not to backup now)
+            local skip_file="${STATE_DIR}/skip-daily-${srv_host}"
+            if [[ -f "${skip_file}" && "$(cat "${skip_file}" 2>/dev/null)" == "$(tm_date_today)" ]]; then
+                continue
+            fi
+
             local last_bk_file="${STATE_DIR}/last-backup-${srv_host}"
             local now
             now=$(date +%s)

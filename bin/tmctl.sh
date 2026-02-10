@@ -412,6 +412,28 @@ cmd_server_add() {
     if _service_running; then
         _api_post "/api/servers" "{\"hostname\":\"${hostname}\",\"options\":\"${opts}\"}" &>/dev/null || true
     fi
+
+    # Write skip marker so the daily runner won't auto-include this server today
+    local state_dir="${TM_RUN_DIR:-/var/run/timemachine}/state"
+    tm_ensure_dir "${state_dir}"
+    date +'%Y-%m-%d' > "${state_dir}/skip-daily-${hostname}"
+
+    # Ask if user wants to start a backup now
+    echo ""
+    read -r -p "Start a backup for ${hostname} now? [y/N] " answer
+    if [[ "${answer}" =~ ^[Yy]$ ]]; then
+        echo -e "Starting backup for ${BOLD}${hostname}${NC}..."
+        if _service_running; then
+            _api_post "/api/backup/${hostname}" "{}" &>/dev/null && \
+                echo -e "${GREEN}Backup started${NC}" || \
+                echo -e "${RED}Failed to start backup via API${NC}"
+        else
+            "${TM_PROJECT_ROOT}/bin/timemachine.sh" "${hostname}" --trigger manual &
+            echo -e "${GREEN}Backup started${NC} (PID $!)"
+        fi
+    else
+        echo -e "No backup started. ${hostname} will be included in the next scheduled daily run."
+    fi
 }
 
 cmd_server_remove() {
@@ -567,7 +589,7 @@ cmd_server_edit() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v2.18.5"
+    echo "TimeMachine Backup v2.18.6"
 }
 
 cmd_fix_permissions() {

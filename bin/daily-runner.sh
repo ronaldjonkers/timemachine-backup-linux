@@ -255,6 +255,19 @@ while IFS= read -r line; do
     srv_host=$(echo "${line}" | awk '{print $1}')
     srv_mode=$(_parse_mode "${line}")
 
+    # Skip servers that were just added today (user chose not to backup now)
+    skip_file="${STATE_DIR}/skip-daily-${srv_host}"
+    if [[ -f "${skip_file}" ]]; then
+        skip_date=$(cat "${skip_file}" 2>/dev/null)
+        if [[ "${skip_date}" == "${TODAY}" ]]; then
+            tm_log "INFO" "Skipping ${srv_host} — added today, will be included from tomorrow"
+            tm_report_add "${srv_host}" "skipped" "0s" "${srv_mode}" "newly added"
+            continue
+        else
+            rm -f "${skip_file}"
+        fi
+    fi
+
     _wait_for_slot
 
     srv_start=$(date +%s)

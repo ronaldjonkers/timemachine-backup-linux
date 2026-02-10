@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.6] - 2026-02-10
+
+### Added
+- **Backup prompt when adding a server** — Both the web dashboard and CLI (`tmctl server add`) now ask whether to start a backup immediately after adding a server. Default is No
+  - **Web**: `confirm()` dialog after successful add — if Yes, triggers backup via API
+  - **CLI**: `Start a backup for <host> now? [y/N]` prompt — if Yes, starts via API (or directly if service is not running)
+- **Skip-daily marker** — When a server is added, a `skip-daily-<hostname>` marker file is written with today's date. This prevents the daily runner, backup-interval checks, and DB-interval checks from automatically including the new server until the next day. Ensures the user's choice is respected
+
 ## [2.18.5] - 2026-02-10
 
 ### Changed

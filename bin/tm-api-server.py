@@ -1160,6 +1160,13 @@ class APIHandler(BaseHTTPRequestHandler):
             with open(os.path.join(sd, f'last-db-{hostname}'), 'w') as f:
                 f.write(now)
 
+        # Write skip marker so the daily runner won't auto-include this server today.
+        # The user is asked separately (via web confirm or CLI prompt) whether to start now.
+        import datetime
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        with open(os.path.join(sd, f'skip-daily-{hostname}'), 'w') as f:
+            f.write(today)
+
         self._send_json({'status': 'added', 'hostname': hostname, 'options': opts}, 201)
 
     def _api_servers_update(self, target_host, body_bytes):

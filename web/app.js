@@ -1051,7 +1051,12 @@ async function addServer() {
         document.getElementById('add-server-priority').value = '';
         document.getElementById('add-server-db-interval').value = '';
         toast('Server ' + hostname + ' added', 'success');
-        refreshServers();
+        refreshAll();
+        if (confirm('Start a backup for ' + hostname + ' now?')) {
+            await apiPost('/api/backup/' + hostname);
+            toast('Backup started for ' + hostname, 'info');
+            setTimeout(refreshAll, 1500);
+        }
     } else if (result && result.error) {
         toast(result.error, 'error');
     }
