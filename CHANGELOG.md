@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.2] - 2026-02-10
+
+### Fixed
+- **CRITICAL: Hardlinks broken by timestamped snapshots** — Since v2.18.0, every backup created a full copy instead of hardlinking unchanged files. Root cause: `--link-dest` pointed to the snapshot root directory (e.g. `.../2026-02-10_130500/`) but rsync syncs into the `files/` subdirectory. Rsync could not match relative paths (`--link-dest/etc/passwd` vs `dest/files/etc/passwd`). Fix: `--link-dest` now resolves the `latest` symlink to an absolute path and appends `/files` so relative paths match correctly. Added logging to confirm hardlink source is being used
+
 ## [2.18.1] - 2026-02-10
 
 ### Fixed

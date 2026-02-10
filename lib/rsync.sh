@@ -70,8 +70,24 @@ tm_rsync_backup() {
     rsync_cmd=$(_tm_rsync_base_cmd)
 
     # Use hardlinks to previous backup if available
-    if [[ -d "${latest_link}" ]]; then
-        rsync_cmd+=" --link-dest=${latest_link}"
+    # --link-dest must point to the files/ subdir of the previous snapshot
+    # (resolved to absolute path) so rsync can match relative paths and
+    # create hardlinks for unchanged files instead of copying them again.
+    local link_dest=""
+    if [[ -L "${latest_link}" ]]; then
+        local prev_snap
+        prev_snap=$(readlink -f "${latest_link}" 2>/dev/null || readlink "${latest_link}")
+        [[ -d "${prev_snap}/files" ]] && link_dest="${prev_snap}/files"
+    elif [[ -d "${latest_link}" ]]; then
+        local prev_snap
+        prev_snap=$(cd "${latest_link}" && pwd)
+        [[ -d "${prev_snap}/files" ]] && link_dest="${prev_snap}/files"
+    fi
+    if [[ -n "${link_dest}" ]]; then
+        rsync_cmd+=" --link-dest=${link_dest}"
+        tm_log "INFO" "Using hardlink source: ${link_dest}"
+    else
+        tm_log "WARN" "No previous backup found for hardlinking — full copy will be performed"
     fi
 
     # Build exclude arguments (global + per-server)
