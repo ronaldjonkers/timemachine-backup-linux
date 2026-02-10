@@ -273,7 +273,8 @@ async function refreshFailures() {
             '<td class="error-text">' + esc(msg) + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(f.hostname) + '\')">Logs</button> ' +
-                '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(f.hostname) + '\')">Retry</button>' +
+                '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(f.hostname) + '\')">Retry</button> ' +
+                '<button class="btn btn-sm btn-danger" onclick="dismissFailure(\'' + esc(f.hostname) + '\')">Dismiss</button>' +
             '</td></tr>';
     }).join('');
 }
@@ -354,6 +355,17 @@ async function refreshProcesses() {
                 '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\')">Rsync</button>' +
             '</td></tr>';
     }).join('');
+}
+
+async function dismissFailure(hostname) {
+    var result = await apiDelete('/api/failures/' + hostname);
+    if (result && !result.error) {
+        toast('Dismissed failure for ' + hostname, 'success');
+        refreshFailures();
+        refreshServers();
+    } else {
+        toast('Could not dismiss: ' + (result ? result.error : 'unknown error'), 'error');
+    }
 }
 
 async function deleteProcess(hostname) {

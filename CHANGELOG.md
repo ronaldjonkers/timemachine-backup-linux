@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.11] - 2026-02-10
+
+### Added
+- **Dismiss button on Failed Backups panel** — Each failed backup entry now has a "Dismiss" button to remove it from the list (`DELETE /api/failures/<hostname>`). Dismissed failures reappear automatically if the next backup for that host also fails.
+- `DELETE /api/failures` to dismiss all failures at once
+
 ## [2.18.10] - 2026-02-10
 
 ### Added

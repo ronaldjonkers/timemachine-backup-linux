@@ -697,7 +697,11 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
 
-        if path == '/api/processes':
+        if path == '/api/failures':
+            self._api_failures_clear()
+        elif path.startswith('/api/failures/'):
+            self._api_failure_dismiss(path[len('/api/failures/'):])
+        elif path == '/api/processes':
             self._api_processes_clear()
         elif path.startswith('/api/processes/'):
             self._api_process_delete(path[len('/api/processes/'):])
@@ -764,6 +768,41 @@ class APIHandler(BaseHTTPRequestHandler):
             except Exception:
                 continue
         self._send_json({'cleared': cleared})
+
+    def _api_failures_clear(self):
+        """Dismiss all current failures by writing all failed hostnames to dismiss file."""
+        dismiss_file = os.path.join(state_dir(), 'dismissed-failures.txt')
+        # Read current failures to get all hostnames
+        ld = log_dir()
+        hosts = set()
+        logs = sorted(glob.glob(os.path.join(ld, 'backup-*.log')),
+                       key=os.path.getmtime, reverse=True)[:50]
+        for logfile in logs:
+            lname = os.path.basename(logfile).replace('.log', '')
+            m = re.match(r'^backup-(.+)-\d{4}-\d{2}-\d{2}_\d{6}$', lname)
+            if m:
+                hosts.add(m.group(1))
+        # Write all to dismiss file (overwrite)
+        with open(dismiss_file, 'w') as f:
+            for h in sorted(hosts):
+                f.write(h + '\n')
+        self._send_json({'dismissed': len(hosts)})
+
+    def _api_failure_dismiss(self, hostname):
+        """Dismiss failures for a specific hostname."""
+        dismiss_file = os.path.join(state_dir(), 'dismissed-failures.txt')
+        dismissed = set()
+        if os.path.isfile(dismiss_file):
+            dismissed = set(open(dismiss_file).read().strip().splitlines())
+        dismissed.add(hostname)
+        with open(dismiss_file, 'w') as f:
+            for h in sorted(dismissed):
+                f.write(h + '\n')
+        # Also remove exit code file so server list status resets
+        exit_file = os.path.join(state_dir(), f'exit-{hostname}.code')
+        if os.path.isfile(exit_file):
+            os.remove(exit_file)
+        self._send_json({'dismissed': hostname})
 
     def _api_process_delete(self, hostname):
         """Delete finished (completed/failed) process state files for a specific host."""
@@ -912,6 +951,18 @@ class APIHandler(BaseHTTPRequestHandler):
         ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         logfile = os.path.join(log_dir(), f'backup-{target_host}-{ts}.log')
         script = os.path.join(SCRIPT_DIR, 'timemachine.sh')
+
+        # Remove host from dismissed failures so new failures will show up
+        dismiss_file = os.path.join(state_dir(), 'dismissed-failures.txt')
+        try:
+            if os.path.isfile(dismiss_file):
+                dismissed = set(open(dismiss_file).read().strip().splitlines())
+                dismissed.discard(target_host)
+                with open(dismiss_file, 'w') as f:
+                    for h in sorted(dismissed):
+                        f.write(h + '\n')
+        except Exception:
+            pass
 
         mode = 'full'
         if '--files-only' in opts:
@@ -1715,6 +1766,12 @@ class APIHandler(BaseHTTPRequestHandler):
         failures = []
         seen_hosts = set()
 
+        # Load dismissed failures
+        dismiss_file = os.path.join(state_dir(), 'dismissed-failures.txt')
+        dismissed = set()
+        if os.path.isfile(dismiss_file):
+            dismissed = set(open(dismiss_file).read().strip().splitlines())
+
         # Check per-backup logs
         logs = sorted(glob.glob(os.path.join(ld, 'backup-*.log')),
                        key=os.path.getmtime, reverse=True)[:50]
@@ -1725,7 +1782,7 @@ class APIHandler(BaseHTTPRequestHandler):
             if not m:
                 continue
             lhost = m.group(1)
-            if lhost in seen_hosts:
+            if lhost in seen_hosts or lhost in dismissed:
                 continue
             seen_hosts.add(lhost)
 
