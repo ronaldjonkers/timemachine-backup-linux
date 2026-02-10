@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.13] - 2026-02-10
+
+### Fixed
+- **Dismiss failures now permanent** — Dismiss button now deletes the actual error log files instead of using a tracking file that got ignored after restart. Failures stay dismissed until a new backup produces new errors.
+
 ## [2.18.12] - 2026-02-10
 
 ### Changed
