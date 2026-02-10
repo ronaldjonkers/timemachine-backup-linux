@@ -232,6 +232,7 @@ async function refreshDisk() {
     var usedEl = document.getElementById('disk-used');
     var detailEl = document.getElementById('disk-detail');
     var barEl = document.getElementById('disk-bar');
+    var mountEl = document.getElementById('disk-mount');
 
     if (data) {
         usedEl.textContent = data.used || '--';
@@ -239,6 +240,7 @@ async function refreshDisk() {
         var pct = data.percent || 0;
         barEl.style.width = pct + '%';
         barEl.className = 'progress-fill' + (pct >= 90 ? ' danger' : pct >= 75 ? ' warn' : '');
+        if (mountEl && data.mount) mountEl.textContent = '(' + data.mount + ')';
     }
 }
 
@@ -582,6 +584,84 @@ async function saveSettings() {
     } else {
         statusEl.textContent = 'Failed';
         toast('Failed to save settings', 'error');
+    }
+}
+
+/* ============================================================
+   EXCLUDE PATTERNS
+   ============================================================ */
+
+async function refreshExcludes() {
+    var data = await apiGet('/api/excludes');
+    if (data && data.content !== undefined) {
+        document.getElementById('exclude-global').value = data.content;
+    }
+    // Populate server dropdown
+    var servers = await apiGet('/api/servers');
+    var sel = document.getElementById('exclude-server-select');
+    if (servers && sel) {
+        var current = sel.value;
+        sel.innerHTML = '<option value="">-- select server --</option>';
+        servers.forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.hostname;
+            opt.textContent = s.hostname;
+            sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+    }
+}
+
+async function loadServerExcludes() {
+    var sel = document.getElementById('exclude-server-select');
+    var ta = document.getElementById('exclude-server');
+    var btn = document.getElementById('btn-save-server-excludes');
+    var hostname = sel.value;
+    if (!hostname) {
+        ta.value = '';
+        ta.disabled = true;
+        btn.disabled = true;
+        return;
+    }
+    ta.disabled = false;
+    btn.disabled = false;
+    var data = await apiGet('/api/excludes/' + encodeURIComponent(hostname));
+    if (data && data.content !== undefined) {
+        ta.value = data.content;
+    } else {
+        ta.value = '';
+    }
+}
+
+async function saveExcludes() {
+    var content = document.getElementById('exclude-global').value;
+    var statusEl = document.getElementById('exclude-global-status');
+    statusEl.textContent = 'Saving...';
+    var result = await apiPut('/api/excludes', { content: content });
+    if (result && result.status === 'saved') {
+        statusEl.textContent = 'Saved';
+        toast('Global excludes saved', 'success');
+        setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    } else {
+        statusEl.textContent = 'Failed';
+        toast('Failed to save global excludes', 'error');
+    }
+}
+
+async function saveServerExcludes() {
+    var hostname = document.getElementById('exclude-server-select').value;
+    if (!hostname) return;
+    var content = document.getElementById('exclude-server').value;
+    var statusEl = document.getElementById('exclude-server-status');
+    statusEl.textContent = 'Saving...';
+    var result = await apiPut('/api/excludes/' + encodeURIComponent(hostname), { content: content });
+    if (result && result.status === 'saved') {
+        statusEl.textContent = 'Saved';
+        toast('Excludes saved for ' + hostname, 'success');
+        setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    } else {
+        statusEl.textContent = 'Failed';
+        toast('Failed to save excludes for ' + hostname, 'error');
     }
 }
 
@@ -1235,4 +1315,5 @@ async function refreshAll() {
 
 refreshAll();
 refreshSettings();
+refreshExcludes();
 setInterval(refreshAll, REFRESH_INTERVAL);

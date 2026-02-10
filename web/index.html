@@ -88,7 +88,7 @@
                 <div class="card">
                     <div class="card-icon">&#x1F4BE;</div>
                     <div class="card-body" style="flex:1">
-                        <div class="card-label">Disk Usage</div>
+                        <div class="card-label">Disk Usage <small id="disk-mount" style="opacity:.6"></small></div>
                         <div class="disk-row">
                             <span class="card-value" id="disk-used">--</span>
                             <span class="disk-detail" id="disk-detail">/ --</span>
@@ -337,6 +337,46 @@
                 </div>
             </section>
 
+            <!-- Exclude Patterns -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F6AB; Exclude Patterns</h2>
+                </div>
+                <div class="settings-form">
+                    <p class="text-muted" style="margin:0 0 0.75rem">
+                        Paths and patterns listed here are excluded from rsync file backups.
+                        One pattern per line. Lines starting with <code>#</code> are comments.
+                        Use rsync exclude syntax: <code>/path</code> for absolute, <code>*.ext</code> for wildcards, <code>dir/</code> for directories.
+                    </p>
+
+                    <div class="settings-field">
+                        <label for="exclude-global"><strong>Global excludes</strong> <small class="text-muted">(apply to all servers)</small></label>
+                        <textarea id="exclude-global" class="code-textarea" rows="10" spellcheck="false" placeholder="# Example:&#10;/tmp&#10;/var/cache&#10;*.swap"></textarea>
+                        <div style="margin-top:0.5rem">
+                            <button class="btn btn-primary btn-sm" onclick="saveExcludes()">Save Global Excludes</button>
+                            <span class="text-muted" id="exclude-global-status"></span>
+                        </div>
+                    </div>
+
+                    <div class="settings-field" style="margin-top:1.25rem">
+                        <label><strong>Per-server excludes</strong> <small class="text-muted">(additional patterns for a specific server)</small></label>
+                        <p class="text-muted" style="margin:0.25rem 0 0.5rem;font-size:0.85rem">
+                            Select a server to edit its extra exclude patterns. These are <em>added</em> to the global excludes &mdash; they do not replace them.
+                        </p>
+                        <div class="settings-input-group" style="margin-bottom:0.5rem">
+                            <select id="exclude-server-select" onchange="loadServerExcludes()" style="padding:0.45rem 0.5rem;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);min-width:200px">
+                                <option value="">-- select server --</option>
+                            </select>
+                        </div>
+                        <textarea id="exclude-server" class="code-textarea" rows="6" spellcheck="false" placeholder="# Extra excludes for this server only&#10;# e.g. /var/lib/large-app/cache" disabled></textarea>
+                        <div style="margin-top:0.5rem">
+                            <button class="btn btn-primary btn-sm" onclick="saveServerExcludes()" id="btn-save-server-excludes" disabled>Save Server Excludes</button>
+                            <span class="text-muted" id="exclude-server-status"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Notification Settings -->
             <section class="panel">
                 <div class="panel-header">
@@ -565,14 +605,35 @@ sudo tmctl restore hostname.example.com --db-only</pre>
                     </table>
 
                     <h3>Exclude files from backup</h3>
-                    <p>Global excludes: <code>config/exclude.conf</code><br>
-                    Per-server excludes: <code>config/exclude.&lt;hostname&gt;.conf</code></p>
-                    <pre class="code-block"># Example exclude.conf:
-/tmp/
-/var/cache/
-/var/log/*.gz
+                    <p>You can exclude files and directories from backups using rsync exclude patterns. There are two levels:</p>
+                    <table class="help-table">
+                        <thead><tr><th>Level</th><th>File</th><th>Applies to</th></tr></thead>
+                        <tbody>
+                            <tr><td><strong>Global</strong></td><td><code>config/exclude.conf</code></td><td>All servers</td></tr>
+                            <tr><td><strong>Per-server</strong></td><td><code>config/exclude.&lt;hostname&gt;.conf</code></td><td>One server only (additive)</td></tr>
+                        </tbody>
+                    </table>
+                    <p class="help-note">Per-server excludes are <em>added</em> to the global excludes &mdash; they do not replace them. You can edit both from <em>Settings</em> &rarr; <em>Exclude Patterns</em>.</p>
+
+                    <h4>Syntax (rsync exclude format)</h4>
+                    <table class="help-table">
+                        <thead><tr><th>Pattern</th><th>What it excludes</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>/path</code></td><td>Absolute path from filesystem root</td></tr>
+                            <tr><td><code>dir/</code></td><td>Any directory named <code>dir</code> anywhere</td></tr>
+                            <tr><td><code>*.ext</code></td><td>All files with extension <code>.ext</code></td></tr>
+                            <tr><td><code>/var/log/*.gz</code></td><td>Gzipped logs in <code>/var/log</code></td></tr>
+                            <tr><td><code># comment</code></td><td>Lines starting with <code>#</code> are ignored</td></tr>
+                        </tbody>
+                    </table>
+                    <pre class="code-block"># Example: exclude caches, logs, and Docker data
+/tmp
+/var/cache
+/var/log
+/var/lib/docker
 *.swap
-.docker/</pre>
+node_modules/
+__pycache__/</pre>
 
                     <h3>CLI commands</h3>
                     <table class="help-table">

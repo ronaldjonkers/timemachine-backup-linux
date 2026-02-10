@@ -15,12 +15,9 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 
-# Allow up to 5 restarts within 120 seconds before giving up
-StartLimitIntervalSec=120
+# Allow up to 5 restarts within 300 seconds before giving up
+StartLimitIntervalSec=300
 StartLimitBurst=5
-
-# Watchdog: systemd kills the service if it doesn't respond within 120s
-WatchdogSec=120
 
 StandardOutput=journal
 StandardError=journal

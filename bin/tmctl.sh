@@ -567,7 +567,7 @@ cmd_server_edit() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v2.14.0"
+    echo "TimeMachine Backup v2.14.1"
 }
 
 cmd_fix_permissions() {

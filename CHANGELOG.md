@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.1] - 2026-02-10
+
+### Fixed
+- **502 errors / service restarts** — Removed `WatchdogSec=120` from the systemd service file. Neither `tmserviced.sh` nor `tm-api-server.py` sends `sd_notify WATCHDOG=1` heartbeats, so systemd was killing the service every ~2 minutes thinking it was hung. `Restart=always` then brought it back, causing a restart loop and intermittent 502 errors
+- **Python API server crash resilience** — Added `handle_error` override to suppress `BrokenPipeError`/`ConnectionResetError` from crashing threads when clients disconnect mid-response. All HTTP handler methods (`do_GET`, `do_POST`, `do_PUT`, `do_DELETE`) now wrapped with try/except for these exceptions
+
+### Added
+- **Exclude pattern editor** — New UI in Settings to edit global excludes (`config/exclude.conf`) and per-server excludes (`config/exclude.<hostname>.conf`). Per-server excludes are additive to global. New API endpoints: `GET/PUT /api/excludes` and `GET/PUT /api/excludes/<hostname>`
+- **Disk usage mount point** — Dashboard now shows which mount point the disk usage refers to (the mount containing the backup directory, not the root disk). API response includes `mount` and `path` fields
+
+### Changed
+- **Help page** — Expanded exclude documentation with syntax reference table, two-level explanation (global vs per-server), and examples
+- `StartLimitIntervalSec` increased from 120s to 300s for more lenient restart behavior
+
 ## [2.14.0] - 2026-02-10
 
 ### Added

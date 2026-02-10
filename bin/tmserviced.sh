@@ -1066,6 +1066,43 @@ _handle_request() {
             _http_response "200 OK" "application/json" '{"status":"saved"}'
             ;;
 
+        "GET /api/excludes")
+            local excl_file="${TM_PROJECT_ROOT}/config/exclude.conf"
+            local excl_content=""
+            [[ -f "${excl_file}" ]] && excl_content=$(cat "${excl_file}" 2>/dev/null)
+            # JSON-escape the content
+            excl_content=$(echo "${excl_content}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')
+            _http_response "200 OK" "application/json" \
+                "{\"hostname\":\"__global__\",\"content\":${excl_content},\"path\":\"${excl_file}\"}"
+            ;;
+
+        "GET /api/excludes/"*)
+            local excl_host="${path#/api/excludes/}"
+            local excl_file="${TM_PROJECT_ROOT}/config/exclude.${excl_host}.conf"
+            local excl_content=""
+            [[ -f "${excl_file}" ]] && excl_content=$(cat "${excl_file}" 2>/dev/null)
+            excl_content=$(echo "${excl_content}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')
+            _http_response "200 OK" "application/json" \
+                "{\"hostname\":\"${excl_host}\",\"content\":${excl_content},\"path\":\"${excl_file}\"}"
+            ;;
+
+        "PUT /api/excludes")
+            local excl_file="${TM_PROJECT_ROOT}/config/exclude.conf"
+            local excl_content
+            excl_content=$(echo "${body}" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("content",""))' 2>/dev/null || echo "")
+            echo "${excl_content}" > "${excl_file}"
+            _http_response "200 OK" "application/json" '{"status":"saved"}'
+            ;;
+
+        "PUT /api/excludes/"*)
+            local excl_host="${path#/api/excludes/}"
+            local excl_file="${TM_PROJECT_ROOT}/config/exclude.${excl_host}.conf"
+            local excl_content
+            excl_content=$(echo "${body}" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("content",""))' 2>/dev/null || echo "")
+            echo "${excl_content}" > "${excl_file}"
+            _http_response "200 OK" "application/json" '{"status":"saved"}'
+            ;;
+
         "GET /api/ssh-key")
             local pub_key_file="${TM_SSH_KEY}.pub"
             if [[ -f "${pub_key_file}" ]]; then
@@ -1285,16 +1322,17 @@ _handle_request() {
             local disk_line
             disk_line=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | tail -1)
             if [[ -n "${disk_line}" ]]; then
-                local d_total d_used d_avail d_pct
+                local d_total d_used d_avail d_pct d_mount
                 d_total=$(echo "${disk_line}" | awk '{print $2}')
                 d_used=$(echo "${disk_line}" | awk '{print $3}')
                 d_avail=$(echo "${disk_line}" | awk '{print $4}')
                 d_pct=$(echo "${disk_line}" | awk '{print $5}' | tr -d '%')
+                d_mount=$(echo "${disk_line}" | awk '{print $6}')
                 _http_response "200 OK" "application/json" \
-                    "{\"total\":\"${d_total}\",\"used\":\"${d_used}\",\"available\":\"${d_avail}\",\"percent\":${d_pct:-0}}"
+                    "{\"total\":\"${d_total}\",\"used\":\"${d_used}\",\"available\":\"${d_avail}\",\"percent\":${d_pct:-0},\"mount\":\"${d_mount:-${TM_BACKUP_ROOT}}\",\"path\":\"${TM_BACKUP_ROOT}\"}"
             else
                 _http_response "200 OK" "application/json" \
-                    '{"total":"--","used":"--","available":"--","percent":0}'
+                    "{\"total\":\"--\",\"used\":\"--\",\"available\":\"--\",\"percent\":0,\"mount\":\"${TM_BACKUP_ROOT}\",\"path\":\"${TM_BACKUP_ROOT}\"}"
             fi
             ;;
 

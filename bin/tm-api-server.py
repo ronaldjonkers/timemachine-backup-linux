@@ -308,6 +308,13 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     # Increase request queue size for high concurrency
     request_queue_size = 128
 
+    def handle_error(self, request, client_address):
+        """Suppress BrokenPipeError and ConnectionResetError from crashing threads."""
+        exc_type = sys.exc_info()[0]
+        if exc_type in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return  # Client disconnected — harmless, don't log
+        super().handle_error(request, client_address)
+
 
 class APIHandler(BaseHTTPRequestHandler):
     """HTTP request handler for all API and static file routes."""
@@ -392,6 +399,12 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        try:
+            self._route_get()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def _route_get(self):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
@@ -429,6 +442,10 @@ class APIHandler(BaseHTTPRequestHandler):
             self._api_history()
         elif path == '/api/disk':
             self._api_disk()
+        elif path == '/api/excludes':
+            self._api_excludes_get()
+        elif path.startswith('/api/excludes/'):
+            self._api_excludes_get(path[len('/api/excludes/'):])
         # --- Static files ---
         elif path in ('/', '/index.html'):
             self._send_file(os.path.join(project_root(), 'web', 'index.html'), 'text/html')
@@ -451,6 +468,12 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': f'Not found: {path}'}, 404)
 
     def do_POST(self):
+        try:
+            self._route_post()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def _route_post(self):
         path = unquote(urlparse(self.path).path)
         body = self._read_body()
 
@@ -464,17 +487,33 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({'error': f'Not found: POST {path}'}, 404)
 
     def do_PUT(self):
+        try:
+            self._route_put()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def _route_put(self):
         path = unquote(urlparse(self.path).path)
         body = self._read_body()
 
         if path == '/api/settings':
             self._api_settings_put(body)
+        elif path == '/api/excludes':
+            self._api_excludes_put(body)
+        elif path.startswith('/api/excludes/'):
+            self._api_excludes_put(body, path[len('/api/excludes/'):])
         elif path.startswith('/api/servers/'):
             self._api_servers_update(path[len('/api/servers/'):], body)
         else:
             self._send_json({'error': f'Not found: PUT {path}'}, 404)
 
     def do_DELETE(self):
+        try:
+            self._route_delete()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def _route_delete(self):
         path = unquote(urlparse(self.path).path)
 
         if path == '/api/restores':
@@ -1265,6 +1304,40 @@ class APIHandler(BaseHTTPRequestHandler):
 
         self._send_json(history)
 
+    def _api_excludes_get(self, hostname=None):
+        config_dir = os.path.join(project_root(), 'config')
+        if hostname:
+            filepath = os.path.join(config_dir, f'exclude.{hostname}.conf')
+        else:
+            filepath = os.path.join(config_dir, 'exclude.conf')
+        content = ''
+        if os.path.isfile(filepath):
+            try:
+                content = open(filepath).read()
+            except Exception:
+                pass
+        self._send_json({
+            'hostname': hostname or '__global__',
+            'content': content,
+            'path': filepath,
+        })
+
+    def _api_excludes_put(self, body_bytes, hostname=None):
+        data = parse_json_body(body_bytes)
+        content = data.get('content', '')
+        config_dir = os.path.join(project_root(), 'config')
+        if hostname:
+            filepath = os.path.join(config_dir, f'exclude.{hostname}.conf')
+        else:
+            filepath = os.path.join(config_dir, 'exclude.conf')
+        try:
+            os.makedirs(config_dir, exist_ok=True)
+            with open(filepath, 'w') as f:
+                f.write(content)
+            self._send_json({'status': 'saved', 'path': filepath})
+        except Exception as e:
+            self._send_json({'error': str(e)}, 500)
+
     def _api_disk(self):
         br = backup_root()
         try:
@@ -1272,16 +1345,20 @@ class APIHandler(BaseHTTPRequestHandler):
             lines = result.stdout.strip().splitlines()
             if len(lines) >= 2:
                 parts = lines[-1].split()
+                # Get mount point (last column of df output)
+                mount = parts[5] if len(parts) > 5 else br
                 self._send_json({
                     'total': parts[1] if len(parts) > 1 else '--',
                     'used': parts[2] if len(parts) > 2 else '--',
                     'available': parts[3] if len(parts) > 3 else '--',
                     'percent': int(parts[4].rstrip('%')) if len(parts) > 4 else 0,
+                    'mount': mount,
+                    'path': br,
                 })
                 return
         except Exception:
             pass
-        self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0})
+        self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br})
 
 
 # ============================================================
