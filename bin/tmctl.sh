@@ -907,22 +907,57 @@ cmd_update() {
 
     # Re-set script permissions
     find "${project_root}/bin" -name "*.sh" -exec chmod +x {} \;
+    find "${project_root}/bin" -name "*.py" -exec chmod +x {} \;
     chmod +x "${project_root}/get.sh" "${project_root}/install.sh" "${project_root}/uninstall.sh" 2>/dev/null || true
 
-    # Install missing dependencies (e.g. mail tool added in v2.2.2)
-    if [[ "$(id -u)" -eq 0 ]] && ! command -v mail &>/dev/null && ! command -v mailx &>/dev/null; then
-        echo "  Installing mail tool..."
-        if command -v dnf &>/dev/null; then
-            dnf install -y -q s-nail 2>/dev/null || dnf install -y -q mailx 2>/dev/null || true
-        elif command -v yum &>/dev/null; then
-            yum install -y -q s-nail 2>/dev/null || yum install -y -q mailx 2>/dev/null || true
-        elif command -v apt-get &>/dev/null; then
-            apt-get install -y -qq mailutils 2>/dev/null || true
+    # Install missing dependencies
+    if [[ "$(id -u)" -eq 0 ]]; then
+        # Mail tool (added in v2.2.2)
+        if ! command -v mail &>/dev/null && ! command -v mailx &>/dev/null; then
+            echo "  Installing mail tool..."
+            if command -v dnf &>/dev/null; then
+                dnf install -y -q s-nail 2>/dev/null || dnf install -y -q mailx 2>/dev/null || true
+            elif command -v yum &>/dev/null; then
+                yum install -y -q s-nail 2>/dev/null || yum install -y -q mailx 2>/dev/null || true
+            elif command -v apt-get &>/dev/null; then
+                apt-get install -y -qq mailutils 2>/dev/null || true
+            fi
+            if command -v mail &>/dev/null || command -v mailx &>/dev/null; then
+                echo "  ${GREEN}Mail tool installed${NC}"
+            else
+                echo "  ${YELLOW}Warning:${NC} Could not install mail tool. Install manually: s-nail, mailx, or mailutils"
+            fi
         fi
-        if command -v mail &>/dev/null || command -v mailx &>/dev/null; then
-            echo "  ${GREEN}Mail tool installed${NC}"
-        else
-            echo "  ${YELLOW}Warning:${NC} Could not install mail tool. Install manually: s-nail, mailx, or mailutils"
+
+        # Python 3 for API server (added in v2.14.0)
+        local python_found=0
+        for p in python3 python; do
+            if command -v "${p}" &>/dev/null && "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null; then
+                python_found=1
+                break
+            fi
+        done
+        if [[ ${python_found} -eq 0 ]]; then
+            echo "  Installing Python 3 (required for API server)..."
+            if command -v apt-get &>/dev/null; then
+                apt-get update -qq 2>/dev/null || true
+                apt-get install -y -qq python3 2>/dev/null || true
+            elif command -v dnf &>/dev/null; then
+                dnf install -y -q python3 2>/dev/null || true
+            elif command -v yum &>/dev/null; then
+                yum install -y -q python3 2>/dev/null || true
+            elif command -v zypper &>/dev/null; then
+                zypper --non-interactive install python3 2>/dev/null || true
+            elif command -v pacman &>/dev/null; then
+                pacman -Sy --noconfirm --needed python 2>/dev/null || true
+            elif command -v apk &>/dev/null; then
+                apk add --no-cache python3 2>/dev/null || true
+            fi
+            if command -v python3 &>/dev/null; then
+                echo "  ${GREEN}Python 3 installed${NC}"
+            else
+                echo "  ${YELLOW}Warning:${NC} Could not install Python 3. API server will fall back to socat."
+            fi
         fi
     fi
 

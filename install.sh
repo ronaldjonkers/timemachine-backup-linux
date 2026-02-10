@@ -459,6 +459,7 @@ server_fix_permissions() {
     # 1. Install directory — owned by timemachine, scripts executable
     chown -R "${TM_USER}:${TM_USER}" "${INSTALL_DIR}"
     find "${INSTALL_DIR}/bin" -name "*.sh" -exec chmod +x {} \;
+    find "${INSTALL_DIR}/bin" -name "*.py" -exec chmod +x {} \;
     chmod 600 "${INSTALL_DIR}/.env" 2>/dev/null || true
 
     # 2. Home directory
@@ -654,6 +655,7 @@ server_setup_permissions() {
     info "Setting script permissions..."
 
     find "${INSTALL_DIR}/bin" -name "*.sh" -exec chmod +x {} \;
+    find "${INSTALL_DIR}/bin" -name "*.py" -exec chmod +x {} \;
     # Create convenience symlinks
     # Install to /usr/bin (guaranteed in sudo's secure_path on all distros)
     local bin_dir="/usr/bin"
@@ -944,24 +946,39 @@ reconfigure_server() {
     echo -e "  ${MAGENTA}${BOLD}Reconfiguring Server${NC}"
     echo ""
 
-    local total=7
+    local total=8
 
     step 1 ${total} "Checking dependencies"
-    # Ensure tar and zip are installed (added in v2.7.1)
-    if ! command -v tar &>/dev/null || ! command -v zip &>/dev/null; then
-        info "Installing missing dependencies (tar, zip)..."
+    # Collect missing packages
+    local missing_pkgs=""
+    command -v tar &>/dev/null || missing_pkgs+=" tar"
+    command -v zip &>/dev/null || missing_pkgs+=" zip"
+    # Python 3 is required for the API server (added in v2.14.0)
+    local python_ok=0
+    for p in python3 python; do
+        if command -v "${p}" &>/dev/null && "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null; then
+            python_ok=1
+            break
+        fi
+    done
+    [[ ${python_ok} -eq 0 ]] && missing_pkgs+=" python3"
+    if [[ -n "${missing_pkgs}" ]]; then
+        info "Installing missing dependencies:${missing_pkgs}..."
         if command -v apt-get &>/dev/null; then
-            apt-get install -y -qq tar zip 2>/dev/null || true
+            apt-get update -qq 2>/dev/null || true
+            apt-get install -y -qq ${missing_pkgs} 2>/dev/null || true
         elif command -v dnf &>/dev/null; then
-            dnf install -y -q tar zip 2>/dev/null || true
+            dnf install -y -q ${missing_pkgs} 2>/dev/null || true
         elif command -v yum &>/dev/null; then
-            yum install -y -q tar zip 2>/dev/null || true
+            yum install -y -q ${missing_pkgs} 2>/dev/null || true
         elif command -v zypper &>/dev/null; then
-            zypper --non-interactive install tar zip 2>/dev/null || true
+            zypper --non-interactive install ${missing_pkgs} 2>/dev/null || true
         elif command -v pacman &>/dev/null; then
-            pacman -Sy --noconfirm --needed tar zip 2>/dev/null || true
+            # pacman uses 'python' not 'python3'
+            local pacman_pkgs="${missing_pkgs//python3/python}"
+            pacman -Sy --noconfirm --needed ${pacman_pkgs} 2>/dev/null || true
         elif command -v apk &>/dev/null; then
-            apk add --no-cache tar zip 2>/dev/null || true
+            apk add --no-cache ${missing_pkgs} 2>/dev/null || true
         fi
     fi
     step_done "Dependencies OK"
@@ -985,7 +1002,11 @@ reconfigure_server() {
     server_fix_permissions
     step_done "All permissions verified"
 
-    step 7 ${total} "Restarting service"
+    step 7 ${total} "Updating nginx config (if present)"
+    _reconfigure_nginx
+    step_done "Nginx check complete"
+
+    step 8 ${total} "Restarting service"
     if command -v systemctl &>/dev/null; then
         systemctl daemon-reload 2>/dev/null || true
         systemctl restart timemachine 2>/dev/null || true
@@ -1002,6 +1023,75 @@ reconfigure_server() {
     echo ""
     echo -e "  ${GREEN}${BOLD}Reconfiguration complete${NC}"
     echo ""
+}
+
+# Refresh nginx config if it exists (called during reconfigure/update)
+_reconfigure_nginx() {
+    local nginx_conf=""
+    if [[ -f "/etc/nginx/sites-available/timemachine" ]]; then
+        nginx_conf="/etc/nginx/sites-available/timemachine"
+    elif [[ -f "/etc/nginx/conf.d/timemachine.conf" ]]; then
+        nginx_conf="/etc/nginx/conf.d/timemachine.conf"
+    fi
+
+    if [[ -z "${nginx_conf}" ]]; then
+        info "No nginx config found — skipping"
+        return
+    fi
+
+    info "Found nginx config: ${nginx_conf}"
+
+    # Detect the project root used in the nginx config
+    local conf_project_root
+    conf_project_root=$(grep 'root .*/web' "${nginx_conf}" 2>/dev/null | head -1 | sed 's|.*root \(.*\)/web.*|\1|' | tr -d ' ;')
+    [[ -z "${conf_project_root}" ]] && conf_project_root="${INSTALL_DIR}"
+
+    local needs_update=0
+
+    # Check if proxy timeouts need updating (v2.14.0: increased for Python server)
+    if grep -q "proxy_read_timeout 30s" "${nginx_conf}" 2>/dev/null; then
+        needs_update=1
+    fi
+
+    # Check if project root path changed (e.g. moved install dir)
+    if [[ "${conf_project_root}" != "${INSTALL_DIR}" ]]; then
+        info "Updating project root path: ${conf_project_root} -> ${INSTALL_DIR}"
+        sed -i.bak "s|${conf_project_root}|${INSTALL_DIR}|g" "${nginx_conf}" 2>/dev/null || \
+        sed -i '' "s|${conf_project_root}|${INSTALL_DIR}|g" "${nginx_conf}"
+        rm -f "${nginx_conf}.bak"
+        needs_update=1
+    fi
+
+    # Update proxy timeouts for Python API server (v2.14.0+)
+    if grep -q "proxy_read_timeout 30s" "${nginx_conf}" 2>/dev/null; then
+        info "Updating proxy timeouts for Python API server..."
+        sed -i.bak 's/proxy_read_timeout 30s/proxy_read_timeout 300s/' "${nginx_conf}" 2>/dev/null || \
+        sed -i '' 's/proxy_read_timeout 30s/proxy_read_timeout 300s/' "${nginx_conf}"
+        rm -f "${nginx_conf}.bak"
+        sed -i.bak 's/proxy_send_timeout 10s/proxy_send_timeout 60s/' "${nginx_conf}" 2>/dev/null || \
+        sed -i '' 's/proxy_send_timeout 10s/proxy_send_timeout 60s/' "${nginx_conf}"
+        rm -f "${nginx_conf}.bak"
+    fi
+
+    # Remove outdated comments about bash HTTP server
+    if grep -q "bash HTTP server may briefly drop" "${nginx_conf}" 2>/dev/null; then
+        sed -i.bak '/bash HTTP server may briefly drop/d' "${nginx_conf}" 2>/dev/null || \
+        sed -i '' '/bash HTTP server may briefly drop/d' "${nginx_conf}"
+        rm -f "${nginx_conf}.bak"
+        needs_update=1
+    fi
+
+    # Reload nginx if changes were made
+    if [[ ${needs_update} -eq 1 ]]; then
+        if command -v nginx &>/dev/null && nginx -t 2>/dev/null; then
+            systemctl reload nginx 2>/dev/null || true
+            info "Nginx config updated and reloaded"
+        else
+            warn "Nginx config updated but test failed — check manually"
+        fi
+    else
+        info "Nginx config is up to date"
+    fi
 }
 
 # ============================================================

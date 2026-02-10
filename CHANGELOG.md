@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Dashboard layout** — Disk Usage card is now equal width next to Memory (4-column grid instead of 3+wide). Both use compact progress bars
 - Scheduler time comparison uses `10#` prefix and minute-level granularity, fixing the octal parsing issue permanently
+- **Smooth upgrade path** — `tmctl update` and `install.sh --reconfigure` now auto-install Python 3 if missing, set correct permissions on `.py` scripts, and refresh existing nginx configs (increased proxy timeouts, removed outdated comments). Users upgrading from the old socat-based setup get a seamless migration
+- **Nginx proxy timeouts** — Increased `proxy_read_timeout` to 300s and `proxy_send_timeout` to 60s for large restore downloads and snapshot operations. Both `setup-web.sh` templates and the reconfigure step apply this
+- **install.sh** — All package manager install lists now include `python3`. Permissions setup covers both `*.sh` and `*.py` scripts
 
 ## [2.13.1] - 2026-02-10
 

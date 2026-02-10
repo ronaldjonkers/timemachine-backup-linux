@@ -389,10 +389,10 @@ ${ssh_key_location}
         proxy_http_version 1.1;
         proxy_set_header Connection "";
 
-        # Stability: retry on connection errors (bash HTTP server may briefly drop)
-        proxy_connect_timeout 5s;
-        proxy_read_timeout 30s;
-        proxy_send_timeout 10s;
+        # Timeouts: allow long operations (restore downloads, large snapshots)
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 60s;
         proxy_next_upstream error timeout;
         proxy_next_upstream_tries 2;
     }
@@ -785,10 +785,10 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Connection "";
 
-        # Stability: retry on connection errors (bash HTTP server may briefly drop)
-        proxy_connect_timeout 5s;
-        proxy_read_timeout 30s;
-        proxy_send_timeout 10s;
+        # Timeouts: allow long operations (restore downloads, large snapshots)
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 60s;
         proxy_next_upstream error timeout;
         proxy_next_upstream_tries 2;
     }
