@@ -796,7 +796,7 @@ async function unarchiveServer(hostname) {
     var result = await apiPost('/api/archived/' + hostname + '/unarchive');
     if (result && result.status === 'unarchived') {
         toast(hostname + ' re-activated — daily backups will resume', 'success');
-        refreshServers();
+        refreshAll();
         refreshArchived();
     } else {
         toast('Failed to re-activate ' + hostname, 'error');
@@ -808,6 +808,7 @@ async function deleteArchivedServer(hostname) {
     var result = await apiDelete('/api/archived/' + hostname);
     if (result && result.status === 'deleting') {
         toast(hostname + ' — data deletion running in background', 'info');
+        refreshAll();
         refreshArchived();
     } else {
         toast('Failed to delete ' + hostname, 'error');
@@ -1076,7 +1077,7 @@ async function archiveServer(hostname) {
     var result = await apiDelete('/api/servers/' + hostname + '?action=archive');
     if (result && result.status === 'archived') {
         toast(hostname + ' archived — snapshots preserved', 'success');
-        refreshServers();
+        refreshAll();
         refreshArchived();
     } else {
         toast('Failed to archive ' + hostname, 'error');
@@ -1089,7 +1090,7 @@ async function fullDeleteServer(hostname) {
     var result = await apiDelete('/api/servers/' + hostname + '?action=delete');
     if (result && result.status === 'deleting') {
         toast(hostname + ' removed. Data deletion running in background.', 'info');
-        refreshServers();
+        refreshAll();
         refreshArchived();
     } else {
         toast('Failed to delete ' + hostname, 'error');

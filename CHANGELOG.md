@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.1] - 2026-02-10
+
+### Fixed
+- **False "failed" status in portal** — Log tail check used overly broad regex (`FAIL|fatal|Permission denied`) that matched `dead.letter` output and other non-error text from mail commands. Now only matches our own `[ERROR]` log format markers. Applied to: `get_processes_json()`, `_check_process_exit()`, restore status check, and backup history status
+- **DB backup false positive** — When no database engines are found on a remote server, the backup would still run `tm_rsync_sql` (syncing an empty `sql/` dir) and report "Database backup sync complete". Now also detects `"No supported database engines detected"` from `dump_dbs.sh` and skips the sync entirely with a clear log message
+- **Email notifications missing rsync/DB logs** — The `exec > >(tee ...)` approach had race conditions (tee subprocess not flushed when file was read). Replaced with direct inclusion of rsync transfer log and database output in the email body without tee capture
+- **Archive/full delete not removing backup data** — `shutil.rmtree` with `ignore_errors=True` silently failed because backup directories contain files owned by root (rsync preserves ownership). Now uses `sudo rm -rf` which the timemachine user has via sudoers
+- **Auto-backup on server add** — When adding a server with `--backup-interval` or `--db-interval` via the dashboard, the scheduler would immediately trigger a backup because no timestamp file existed (elapsed = infinity). Now initializes interval timestamps on add
+
+### Changed
+- **Full page refresh after delete/archive/unarchive** — Dashboard now calls `refreshAll()` (servers + history + processes + disk) instead of only `refreshServers()` after archive, delete, and unarchive operations
+
 ## [2.18.0] - 2026-02-10
 
 ### Added

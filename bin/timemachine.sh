@@ -110,10 +110,6 @@ LOCK_NAME="backup-${HOSTNAME}"
 # ============================================================
 
 main() {
-    # Capture all output to a known file for inclusion in email notifications
-    _TM_BACKUP_LOGFILE="${TM_LOG_DIR:-${TM_HOME}/logs}/backup-${HOSTNAME}-$(date +'%Y-%m-%d_%H%M%S')-internal.log"
-    exec > >(tee -a "${_TM_BACKUP_LOGFILE}") 2>&1
-
     tm_log "INFO" "=========================================="
     tm_log "INFO" "Starting backup for: ${HOSTNAME}"
     tm_log "INFO" "Triggered by: ${TRIGGER}"
@@ -157,6 +153,7 @@ main() {
         local db_output
         db_output=$(tm_trigger_remote_dump "${HOSTNAME}" 2>&1)
         local db_rc=$?
+        _TM_DB_OUTPUT="${db_output}"
 
         # Log remote output for visibility
         if [[ -n "${db_output}" ]]; then
@@ -190,8 +187,9 @@ main() {
                 local alert_body="Database backup failed on ${HOSTNAME} due to credential/access issues:\n\n${db_errors}\nFull output:\n$(echo "${db_output}" | tail -20)"
                 tm_notify "DB credentials issue: ${HOSTNAME}" "${alert_body}" "error" "backup_fail" "${HOSTNAME}"
             fi
-        elif echo "${db_output}" | grep -q "No databases to dump"; then
-            tm_log "INFO" "No databases found on ${HOSTNAME} — if this server has databases, make sure to configure them in .env (TM_DB_TYPES, credentials)"
+        elif echo "${db_output}" | grep -qi "No databases to dump\|No supported database engines detected"; then
+            tm_log "INFO" "No databases found on ${HOSTNAME} — skipping database sync"
+            tm_log "INFO" "If this server has databases, configure TM_DB_TYPES and credentials in .env"
         else
             # Sync the SQL dumps back
             if ! tm_rsync_sql "${HOSTNAME}" "${BACKUP_BASE}"; then
@@ -243,12 +241,7 @@ Mode:       ${mode}
 Duration:   ${duration}s
 Snap size:  ${snap_size:-unknown}
 Snapshots:  ${snap_count}
-Disk free:  ${disk_free:-unknown}
-
-============================================================
-BACKUP LOG
-============================================================
-$(cat "${_TM_BACKUP_LOGFILE}" 2>/dev/null || echo '(log not available)')"
+Disk free:  ${disk_free:-unknown}"
 
     # Append rsync transfer log if available
     if [[ -n "${_TM_RSYNC_LOGFILE:-}" && -f "${_TM_RSYNC_LOGFILE}" ]]; then
@@ -258,6 +251,16 @@ $(cat "${_TM_BACKUP_LOGFILE}" 2>/dev/null || echo '(log not available)')"
 RSYNC TRANSFER LOG (${_TM_RSYNC_LOGFILE##*/})
 ============================================================
 $(cat "${_TM_RSYNC_LOGFILE}" 2>/dev/null)"
+    fi
+
+    # Append database output if any
+    if [[ -n "${_TM_DB_OUTPUT:-}" ]]; then
+        email_body+="
+
+============================================================
+DATABASE BACKUP OUTPUT
+============================================================
+${_TM_DB_OUTPUT}"
     fi
 
     if [[ ${exit_code} -eq 0 ]]; then

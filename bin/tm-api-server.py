@@ -207,7 +207,12 @@ def get_processes_json():
             pid, hostname, mode, started, status, logfile = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
             # Check if running process is still alive (skip PID 0 placeholder)
             if status == 'running' and pid != '0' and not is_process_alive(pid):
+                # Check log for our own [ERROR] markers to determine final status
                 status = 'completed'
+                if logfile and os.path.isfile(logfile):
+                    log_tail = tail_file(logfile, 30)
+                    if re.search(r'\[ERROR\s*\]', log_tail):
+                        status = 'failed'
                 content_new = content.replace('|running|', f'|{status}|')
                 with open(sf, 'w') as f:
                     f.write(content_new)
@@ -382,10 +387,18 @@ def delete_server_data_bg(hostname):
         f.write(f'running|{hostname}|{int(time.time())}')
     def _do_delete():
         try:
-            import shutil
-            shutil.rmtree(snap_dir, ignore_errors=True)
-            with open(state_file, 'w') as f:
-                f.write(f'completed|{hostname}|{int(time.time())}')
+            # Use sudo rm -rf because backup dirs may be owned by root
+            # (rsync preserves ownership from remote servers)
+            result = subprocess.run(
+                ['sudo', 'rm', '-rf', snap_dir],
+                capture_output=True, text=True, timeout=3600)
+            if result.returncode == 0 or not os.path.exists(snap_dir):
+                with open(state_file, 'w') as f:
+                    f.write(f'completed|{hostname}|{int(time.time())}')
+            else:
+                err = result.stderr.strip() or 'rm failed'
+                with open(state_file, 'w') as f:
+                    f.write(f'failed|{hostname}|{int(time.time())}|{err}')
         except Exception as e:
             with open(state_file, 'w') as f:
                 f.write(f'failed|{hostname}|{int(time.time())}|{str(e)}')
@@ -1013,7 +1026,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     # Check log for errors
                     if logfile and os.path.isfile(logfile):
                         log_tail = tail_file(logfile, 30)
-                        if re.search(r'\[ERROR\]|FAIL|fatal', log_tail, re.IGNORECASE):
+                        if re.search(r'\[ERROR\s*\]', log_tail):
                             status = 'failed'
                         else:
                             status = 'completed'
@@ -1136,6 +1149,16 @@ class APIHandler(BaseHTTPRequestHandler):
         entry = f'{hostname} {opts}'.strip() if opts else hostname
         with open(conf, 'a') as f:
             f.write(entry + '\n')
+
+        # Initialize interval timestamps so scheduler doesn't trigger immediately
+        sd = state_dir()
+        now = str(int(time.time()))
+        if '--backup-interval' in opts:
+            with open(os.path.join(sd, f'last-backup-{hostname}'), 'w') as f:
+                f.write(now)
+        if '--db-interval' in opts:
+            with open(os.path.join(sd, f'last-db-{hostname}'), 'w') as f:
+                f.write(now)
 
         self._send_json({'status': 'added', 'hostname': hostname, 'options': opts}, 201)
 
@@ -1622,7 +1645,7 @@ class APIHandler(BaseHTTPRequestHandler):
             latest_log = logs[0] if logs else os.path.join(ld, f'service-{hostname}.log')
             if os.path.isfile(latest_log):
                 log_tail = tail_file(latest_log, 30)
-                if re.search(r'\[ERROR\]|FAIL|fatal|Permission denied', log_tail, re.IGNORECASE):
+                if re.search(r'\[ERROR\s*\]', log_tail):
                     last_status = 'error'
                 # Extract timestamp
                 log_bn = os.path.basename(latest_log).replace('.log', '')

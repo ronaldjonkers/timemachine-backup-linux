@@ -86,8 +86,8 @@ _check_process_exit() {
     local logfile
     logfile=$(cut -d'|' -f6 "${state_file}")
     if [[ -n "${logfile}" && -f "${logfile}" ]]; then
-        # Check last 30 lines for ERROR/FAIL indicators
-        if tail -30 "${logfile}" 2>/dev/null | grep -qiE '(\[ERROR\]|FAIL|fatal|Permission denied|cannot create)'; then
+        # Check last 30 lines for our own [ERROR] log markers only
+        if tail -30 "${logfile}" 2>/dev/null | grep -qE '\[ERROR\s*\]'; then
             _update_process "${hostname}" "failed"
             return 1
         fi
