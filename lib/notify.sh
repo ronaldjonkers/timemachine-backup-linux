@@ -146,22 +146,102 @@ _tm_send_email() {
     local body="$2"
     local recipients="$3"
 
-    # Try multiple mail tools in order of preference
+    # 1. SMTP relay via Python (preferred — always works, no local MTA needed)
+    if [[ -n "${TM_SMTP_HOST:-}" ]] && _tm_send_email_smtp "${subject}" "${body}" "${recipients}"; then
+        tm_log "INFO" "Email sent to ${recipients}: ${subject}"
+        return 0
+    fi
+
+    # 2. Fallback to local mail tools (only works if local MTA is configured)
     if command -v mail &>/dev/null; then
-        echo "${body}" | mail -s "${subject}" "${recipients}"
+        echo "${body}" | mail -s "${subject}" "${recipients}" 2>/dev/null
     elif command -v mailx &>/dev/null; then
-        echo "${body}" | mailx -s "${subject}" "${recipients}"
+        echo "${body}" | mailx -s "${subject}" "${recipients}" 2>/dev/null
     elif command -v msmtp &>/dev/null; then
-        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | msmtp "${recipients}"
+        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | msmtp "${recipients}" 2>/dev/null
     elif command -v sendmail &>/dev/null; then
-        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | sendmail "${recipients}"
+        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | sendmail "${recipients}" 2>/dev/null
     else
-        tm_log "WARN" "No mail tool found (tried: mail, mailx, msmtp, sendmail); cannot send email"
+        tm_log "WARN" "No mail method available. Set TM_SMTP_HOST in .env for SMTP relay, or install a local MTA"
         return 1
     fi
 
     tm_log "INFO" "Email sent to ${recipients}: ${subject}"
     return 0
+}
+
+# Send email via SMTP relay using Python's smtplib (always available with Python 3)
+_tm_send_email_smtp() {
+    local subject="$1"
+    local body="$2"
+    local recipients="$3"
+
+    local smtp_host="${TM_SMTP_HOST:-}"
+    local smtp_port="${TM_SMTP_PORT:-587}"
+    local smtp_user="${TM_SMTP_USER:-}"
+    local smtp_pass="${TM_SMTP_PASS:-}"
+    local smtp_from="${TM_SMTP_FROM:-${smtp_user}}"
+    local smtp_tls="${TM_SMTP_TLS:-true}"
+
+    if [[ -z "${smtp_host}" ]]; then
+        return 1
+    fi
+
+    local python_bin=""
+    for p in python3 python; do
+        if command -v "${p}" &>/dev/null && "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null; then
+            python_bin="${p}"
+            break
+        fi
+    done
+    if [[ -z "${python_bin}" ]]; then
+        tm_log "WARN" "Python 3 not found; cannot use SMTP relay"
+        return 1
+    fi
+
+    # Pass all values via environment variables to avoid shell quoting issues
+    _SMTP_HOST="${smtp_host}" \
+    _SMTP_PORT="${smtp_port}" \
+    _SMTP_USER="${smtp_user}" \
+    _SMTP_PASS="${smtp_pass}" \
+    _SMTP_FROM="${smtp_from}" \
+    _SMTP_TLS="${smtp_tls}" \
+    _SMTP_TO="${recipients}" \
+    _SMTP_SUBJECT="${subject}" \
+    "${python_bin}" -c '
+import smtplib, os, sys
+from email.mime.text import MIMEText
+
+body = sys.stdin.read()
+msg = MIMEText(body)
+msg["Subject"] = os.environ["_SMTP_SUBJECT"]
+msg["From"] = os.environ["_SMTP_FROM"]
+msg["To"] = os.environ["_SMTP_TO"]
+
+try:
+    port = int(os.environ["_SMTP_PORT"])
+    if port == 465:
+        s = smtplib.SMTP_SSL(os.environ["_SMTP_HOST"], port, timeout=30)
+    else:
+        s = smtplib.SMTP(os.environ["_SMTP_HOST"], port, timeout=30)
+        if os.environ.get("_SMTP_TLS", "true") == "true":
+            s.starttls()
+    user = os.environ.get("_SMTP_USER", "")
+    pw = os.environ.get("_SMTP_PASS", "")
+    if user and pw:
+        s.login(user, pw)
+    rcpts = [r.strip() for r in os.environ["_SMTP_TO"].split(",")]
+    s.sendmail(os.environ["_SMTP_FROM"], rcpts, msg.as_string())
+    s.quit()
+except Exception as e:
+    print(f"SMTP error: {e}", file=sys.stderr)
+    sys.exit(1)
+' <<< "${body}" 2>&1 | while IFS= read -r line; do
+        tm_log "WARN" "SMTP: ${line}"
+    done
+
+    # Check pipeline exit status
+    return "${PIPESTATUS[0]}"
 }
 
 # ============================================================

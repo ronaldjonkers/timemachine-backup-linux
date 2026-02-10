@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.0] - 2026-02-10
+
+### Added
+- **SMTP relay for email notifications** — Email notifications now use Python's built-in `smtplib` to send via an external SMTP server (Gmail, Mailgun, SendGrid, Amazon SES, etc.). No local MTA (`sendmail`, `postfix`) required. Fixes `s-nail: Cannot start /usr/sbin/sendmail: executable not found` errors
+- **SMTP settings in dashboard** — New "SMTP Relay" section on the Settings page with fields for host, port, TLS, username, password, and from address. Settings are saved to `.env` and take effect immediately
+- **Test email button** — "Send Test Email" button on the Settings page sends a test message via the configured SMTP relay to verify the configuration works. API: `POST /api/test-email`
+- **Config variables**: `TM_SMTP_HOST`, `TM_SMTP_PORT`, `TM_SMTP_USER`, `TM_SMTP_PASS`, `TM_SMTP_FROM`, `TM_SMTP_TLS`
+
+### Changed
+- `_tm_send_email()` in `lib/notify.sh` now tries SMTP relay first (when `TM_SMTP_HOST` is set), then falls back to local mail tools (`mail`, `mailx`, `msmtp`, `sendmail`). Local tools have `2>/dev/null` to suppress MTA errors
+- Fallback `tm_notify()` in `lib/common.sh` also uses SMTP relay first
+
 ## [2.15.1] - 2026-02-10
 
 ### Fixed

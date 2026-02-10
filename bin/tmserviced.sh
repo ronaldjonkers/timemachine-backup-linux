@@ -1112,7 +1112,13 @@ _handle_request() {
                 "alert_email_backup_ok":"%s",
                 "alert_email_backup_fail":"%s",
                 "alert_email_restore_ok":"%s",
-                "alert_email_restore_fail":"%s"
+                "alert_email_restore_fail":"%s",
+                "smtp_host":"%s",
+                "smtp_port":%s,
+                "smtp_user":"%s",
+                "smtp_pass":"%s",
+                "smtp_from":"%s",
+                "smtp_tls":"%s"
             }' \
                 "$(_env_val TM_SCHEDULE_HOUR "${TM_SCHEDULE_HOUR:-11}")" \
                 "$(_env_val TM_SCHEDULE_MINUTE "${TM_SCHEDULE_MINUTE:-0}")" \
@@ -1128,6 +1134,12 @@ _handle_request() {
                 "$(_env_val TM_ALERT_EMAIL_BACKUP_FAIL "${TM_ALERT_EMAIL_BACKUP_FAIL:-}")" \
                 "$(_env_val TM_ALERT_EMAIL_RESTORE_OK "${TM_ALERT_EMAIL_RESTORE_OK:-}")" \
                 "$(_env_val TM_ALERT_EMAIL_RESTORE_FAIL "${TM_ALERT_EMAIL_RESTORE_FAIL:-}")" \
+                "$(_env_val TM_SMTP_HOST "${TM_SMTP_HOST:-}")" \
+                "$(_env_val TM_SMTP_PORT "${TM_SMTP_PORT:-587}")" \
+                "$(_env_val TM_SMTP_USER "${TM_SMTP_USER:-}")" \
+                "$(_env_val TM_SMTP_PASS "${TM_SMTP_PASS:-}")" \
+                "$(_env_val TM_SMTP_FROM "${TM_SMTP_FROM:-}")" \
+                "$(_env_val TM_SMTP_TLS "${TM_SMTP_TLS:-true}")" \
             )
             # Compact JSON (remove whitespace)
             resp=$(echo "${resp}" | tr -d '\n' | sed 's/  */ /g')
@@ -1186,6 +1198,18 @@ _handle_request() {
             [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_RESTORE_OK "${jv}"
             jv=$(echo "${body}" | grep -o '"alert_email_restore_fail":"[^"]*"' | cut -d'"' -f4)
             [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_RESTORE_FAIL "${jv}"
+            jv=$(echo "${body}" | grep -o '"smtp_host":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_SMTP_HOST "${jv}"
+            jv=$(echo "${body}" | grep -o '"smtp_port":[0-9]*' | cut -d: -f2)
+            [[ -n "${jv}" ]] && _env_set TM_SMTP_PORT "${jv}"
+            jv=$(echo "${body}" | grep -o '"smtp_user":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_SMTP_USER "${jv}"
+            jv=$(echo "${body}" | grep -o '"smtp_pass":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_SMTP_PASS "${jv}"
+            jv=$(echo "${body}" | grep -o '"smtp_from":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_SMTP_FROM "${jv}"
+            jv=$(echo "${body}" | grep -o '"smtp_tls":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_SMTP_TLS "${jv}"
 
             # Signal the scheduler to reload config and regenerate handler script
             touch "${STATE_DIR}/.reload_config" 2>/dev/null || true

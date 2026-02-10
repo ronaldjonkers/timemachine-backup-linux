@@ -479,6 +479,44 @@
                         </tbody>
                     </table>
 
+                    <div class="settings-section-title">SMTP Relay <span class="text-muted">(required for email — no local MTA needed)</span></div>
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <label for="setting-smtp-host">SMTP Host</label>
+                            <input type="text" id="setting-smtp-host" placeholder="smtp.gmail.com" class="settings-text-input">
+                        </div>
+                        <div class="settings-field">
+                            <label for="setting-smtp-port">Port</label>
+                            <input type="number" id="setting-smtp-port" placeholder="587" class="settings-text-input" style="width:80px">
+                        </div>
+                        <div class="settings-field">
+                            <label>
+                                <input type="checkbox" id="setting-smtp-tls" checked>
+                                Use TLS
+                            </label>
+                        </div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <label for="setting-smtp-user">Username</label>
+                            <input type="text" id="setting-smtp-user" placeholder="user@gmail.com" class="settings-text-input">
+                        </div>
+                        <div class="settings-field">
+                            <label for="setting-smtp-pass">Password</label>
+                            <input type="password" id="setting-smtp-pass" placeholder="app password" class="settings-text-input">
+                        </div>
+                        <div class="settings-field">
+                            <label for="setting-smtp-from">From address</label>
+                            <input type="email" id="setting-smtp-from" placeholder="backups@example.com" class="settings-text-input">
+                        </div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <button class="btn btn-sm" onclick="sendTestEmail()">Send Test Email</button>
+                            <span class="text-muted" id="test-email-status"></span>
+                        </div>
+                    </div>
+
                     <div class="settings-actions">
                         <button class="btn btn-primary" onclick="saveSettings()">Save All Settings</button>
                         <span class="text-muted" id="settings-status"></span>

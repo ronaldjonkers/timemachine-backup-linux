@@ -69,6 +69,12 @@ tm_load_config() {
     : "${TM_WEBHOOK_URL:=}"
     : "${TM_WEBHOOK_HEADERS:=}"
     : "${TM_SLACK_WEBHOOK_URL:=}"
+    : "${TM_SMTP_HOST:=}"
+    : "${TM_SMTP_PORT:=587}"
+    : "${TM_SMTP_USER:=}"
+    : "${TM_SMTP_PASS:=}"
+    : "${TM_SMTP_FROM:=}"
+    : "${TM_SMTP_TLS:=true}"
     : "${TM_LOG_LEVEL:=INFO}"
     : "${TM_LOG_DIR:=${TM_HOME}/logs}"
     : "${TM_RUN_DIR:=/var/run/timemachine}"
@@ -201,6 +207,50 @@ tm_require_user() {
 # Otherwise, fall back to a simple implementation.
 
 if [[ -z "$(type -t tm_notify 2>/dev/null)" ]]; then
+    # Fallback SMTP sender (used when lib/notify.sh is not sourced)
+    _tm_fallback_smtp() {
+        local subject="$1" body="$2" recipients="$3"
+        local smtp_host="${TM_SMTP_HOST:-}" smtp_port="${TM_SMTP_PORT:-587}"
+        local smtp_user="${TM_SMTP_USER:-}" smtp_pass="${TM_SMTP_PASS:-}"
+        local smtp_from="${TM_SMTP_FROM:-${smtp_user}}" smtp_tls="${TM_SMTP_TLS:-true}"
+        [[ -z "${smtp_host}" ]] && return 1
+        local python_bin=""
+        for p in python3 python; do
+            command -v "${p}" &>/dev/null && "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null && { python_bin="${p}"; break; }
+        done
+        [[ -z "${python_bin}" ]] && return 1
+        _SMTP_HOST="${smtp_host}" _SMTP_PORT="${smtp_port}" _SMTP_USER="${smtp_user}" \
+        _SMTP_PASS="${smtp_pass}" _SMTP_FROM="${smtp_from}" _SMTP_TLS="${smtp_tls}" \
+        _SMTP_TO="${recipients}" _SMTP_SUBJECT="${subject}" \
+        "${python_bin}" -c '
+import smtplib, os, sys
+from email.mime.text import MIMEText
+body = sys.stdin.read()
+msg = MIMEText(body)
+msg["Subject"] = os.environ["_SMTP_SUBJECT"]
+msg["From"] = os.environ["_SMTP_FROM"]
+msg["To"] = os.environ["_SMTP_TO"]
+try:
+    port = int(os.environ["_SMTP_PORT"])
+    if port == 465:
+        s = smtplib.SMTP_SSL(os.environ["_SMTP_HOST"], port, timeout=30)
+    else:
+        s = smtplib.SMTP(os.environ["_SMTP_HOST"], port, timeout=30)
+        if os.environ.get("_SMTP_TLS", "true") == "true":
+            s.starttls()
+    user = os.environ.get("_SMTP_USER", "")
+    pw = os.environ.get("_SMTP_PASS", "")
+    if user and pw:
+        s.login(user, pw)
+    rcpts = [r.strip() for r in os.environ["_SMTP_TO"].split(",")]
+    s.sendmail(os.environ["_SMTP_FROM"], rcpts, msg.as_string())
+    s.quit()
+except Exception as e:
+    print(f"SMTP error: {e}", file=sys.stderr)
+    sys.exit(1)
+' <<< "${body}" 2>/dev/null
+    }
+
     tm_notify() {
         local subject="$1"
         local body="$2"
@@ -217,17 +267,23 @@ if [[ -z "$(type -t tm_notify 2>/dev/null)" ]]; then
             return 1
         fi
 
-        # Try multiple mail tools in order of preference
+        # 1. SMTP relay via Python (preferred — no local MTA needed)
+        if [[ -n "${TM_SMTP_HOST:-}" ]] && _tm_fallback_smtp "${full_subject}" "${body}" "${TM_ALERT_EMAIL}"; then
+            tm_log "INFO" "Alert sent to ${TM_ALERT_EMAIL}: ${full_subject}"
+            return 0
+        fi
+
+        # 2. Fallback to local mail tools
         if command -v mail &>/dev/null; then
-            echo "${body}" | mail -s "${full_subject}" "${TM_ALERT_EMAIL}"
+            echo "${body}" | mail -s "${full_subject}" "${TM_ALERT_EMAIL}" 2>/dev/null
         elif command -v mailx &>/dev/null; then
-            echo "${body}" | mailx -s "${full_subject}" "${TM_ALERT_EMAIL}"
+            echo "${body}" | mailx -s "${full_subject}" "${TM_ALERT_EMAIL}" 2>/dev/null
         elif command -v msmtp &>/dev/null; then
-            printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | msmtp "${TM_ALERT_EMAIL}"
+            printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | msmtp "${TM_ALERT_EMAIL}" 2>/dev/null
         elif command -v sendmail &>/dev/null; then
-            printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | sendmail "${TM_ALERT_EMAIL}"
+            printf "To: %s\nSubject: %s\n\n%s\n" "${TM_ALERT_EMAIL}" "${full_subject}" "${body}" | sendmail "${TM_ALERT_EMAIL}" 2>/dev/null
         else
-            tm_log "WARN" "No mail tool found (tried: mail, mailx, msmtp, sendmail); cannot send notification"
+            tm_log "WARN" "No mail method available. Set TM_SMTP_HOST in .env for SMTP relay, or install a local MTA"
             return 1
         fi
         tm_log "INFO" "Alert sent to ${TM_ALERT_EMAIL}: ${full_subject}"

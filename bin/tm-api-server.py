@@ -624,6 +624,8 @@ class APIHandler(BaseHTTPRequestHandler):
         elif path.startswith('/api/archived/') and path.endswith('/unarchive'):
             hostname = path[len('/api/archived/'):-len('/unarchive')]
             self._api_archived_unarchive(hostname)
+        elif path == '/api/test-email':
+            self._api_test_email(body)
         else:
             self._send_json({'error': f'Not found: POST {path}'}, 404)
 
@@ -1267,6 +1269,12 @@ class APIHandler(BaseHTTPRequestHandler):
             'alert_email_backup_fail': env_val('TM_ALERT_EMAIL_BACKUP_FAIL', ''),
             'alert_email_restore_ok': env_val('TM_ALERT_EMAIL_RESTORE_OK', ''),
             'alert_email_restore_fail': env_val('TM_ALERT_EMAIL_RESTORE_FAIL', ''),
+            'smtp_host': env_val('TM_SMTP_HOST', ''),
+            'smtp_port': int(env_val('TM_SMTP_PORT', '587')),
+            'smtp_user': env_val('TM_SMTP_USER', ''),
+            'smtp_pass': env_val('TM_SMTP_PASS', ''),
+            'smtp_from': env_val('TM_SMTP_FROM', ''),
+            'smtp_tls': env_val('TM_SMTP_TLS', 'true'),
         })
 
     def _api_settings_put(self, body_bytes):
@@ -1286,6 +1294,12 @@ class APIHandler(BaseHTTPRequestHandler):
             'alert_email_backup_fail': 'TM_ALERT_EMAIL_BACKUP_FAIL',
             'alert_email_restore_ok': 'TM_ALERT_EMAIL_RESTORE_OK',
             'alert_email_restore_fail': 'TM_ALERT_EMAIL_RESTORE_FAIL',
+            'smtp_host': 'TM_SMTP_HOST',
+            'smtp_port': 'TM_SMTP_PORT',
+            'smtp_user': 'TM_SMTP_USER',
+            'smtp_pass': 'TM_SMTP_PASS',
+            'smtp_from': 'TM_SMTP_FROM',
+            'smtp_tls': 'TM_SMTP_TLS',
         }
         for json_key, env_key in key_map.items():
             if json_key in data:
@@ -1300,6 +1314,55 @@ class APIHandler(BaseHTTPRequestHandler):
 
         reload_config()
         self._send_json({'status': 'saved'})
+
+    def _api_test_email(self, body_bytes):
+        """Send a test email via SMTP to verify configuration."""
+        import smtplib
+        from email.mime.text import MIMEText
+
+        data = parse_json_body(body_bytes) if body_bytes else {}
+        smtp_host = data.get('smtp_host', env_val('TM_SMTP_HOST', ''))
+        smtp_port = int(data.get('smtp_port', env_val('TM_SMTP_PORT', '587')))
+        smtp_user = data.get('smtp_user', env_val('TM_SMTP_USER', ''))
+        smtp_pass = data.get('smtp_pass', env_val('TM_SMTP_PASS', ''))
+        smtp_from = data.get('smtp_from', env_val('TM_SMTP_FROM', '')) or smtp_user
+        smtp_tls = str(data.get('smtp_tls', env_val('TM_SMTP_TLS', 'true')))
+        recipient = data.get('recipient', env_val('TM_ALERT_EMAIL', ''))
+
+        if not smtp_host:
+            self._send_json({'error': 'SMTP host not configured'}, 400)
+            return
+        if not recipient:
+            self._send_json({'error': 'No recipient email address'}, 400)
+            return
+        if not smtp_from:
+            self._send_json({'error': 'No sender (From) address configured'}, 400)
+            return
+
+        hostname = get_hostname()
+        msg = MIMEText(f'This is a test email from TimeMachine Backup on {hostname}.\n\n'
+                       f'If you received this, your SMTP configuration is working correctly.\n\n'
+                       f'SMTP Host: {smtp_host}\n'
+                       f'SMTP Port: {smtp_port}\n'
+                       f'TLS: {smtp_tls}\n')
+        msg['Subject'] = f'[TimeMachine] Test email from {hostname}'
+        msg['From'] = smtp_from
+        msg['To'] = recipient
+
+        try:
+            if smtp_port == 465:
+                s = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+            else:
+                s = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+                if smtp_tls == 'true':
+                    s.starttls()
+            if smtp_user and smtp_pass:
+                s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_from, [r.strip() for r in recipient.split(',')], msg.as_string())
+            s.quit()
+            self._send_json({'status': 'sent', 'recipient': recipient})
+        except Exception as e:
+            self._send_json({'error': f'SMTP failed: {e}'}, 500)
 
     def _api_ssh_key(self):
         key_file = CONFIG.get('ssh_key', '') + '.pub'

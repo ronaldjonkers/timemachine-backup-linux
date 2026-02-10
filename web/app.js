@@ -550,6 +550,12 @@ async function refreshSettings() {
     if (el('setting-email-backup-fail')) el('setting-email-backup-fail').value = data.alert_email_backup_fail || '';
     if (el('setting-email-restore-ok')) el('setting-email-restore-ok').value = data.alert_email_restore_ok || '';
     if (el('setting-email-restore-fail')) el('setting-email-restore-fail').value = data.alert_email_restore_fail || '';
+    if (el('setting-smtp-host')) el('setting-smtp-host').value = data.smtp_host || '';
+    if (el('setting-smtp-port')) el('setting-smtp-port').value = data.smtp_port || 587;
+    if (el('setting-smtp-user')) el('setting-smtp-user').value = data.smtp_user || '';
+    if (el('setting-smtp-pass')) el('setting-smtp-pass').value = data.smtp_pass || '';
+    if (el('setting-smtp-from')) el('setting-smtp-from').value = data.smtp_from || '';
+    if (el('setting-smtp-tls')) el('setting-smtp-tls').checked = (data.smtp_tls !== 'false');
 }
 
 async function saveSettings() {
@@ -588,7 +594,13 @@ async function saveSettings() {
         alert_email_backup_ok: document.getElementById('setting-email-backup-ok').value.trim(),
         alert_email_backup_fail: document.getElementById('setting-email-backup-fail').value.trim(),
         alert_email_restore_ok: document.getElementById('setting-email-restore-ok').value.trim(),
-        alert_email_restore_fail: document.getElementById('setting-email-restore-fail').value.trim()
+        alert_email_restore_fail: document.getElementById('setting-email-restore-fail').value.trim(),
+        smtp_host: document.getElementById('setting-smtp-host').value.trim(),
+        smtp_port: parseInt(document.getElementById('setting-smtp-port').value, 10) || 587,
+        smtp_user: document.getElementById('setting-smtp-user').value.trim(),
+        smtp_pass: document.getElementById('setting-smtp-pass').value,
+        smtp_from: document.getElementById('setting-smtp-from').value.trim(),
+        smtp_tls: document.getElementById('setting-smtp-tls').checked ? 'true' : 'false'
     };
 
     statusEl.textContent = 'Saving...';
@@ -601,6 +613,29 @@ async function saveSettings() {
         statusEl.textContent = 'Failed';
         toast('Failed to save settings', 'error');
     }
+}
+
+async function sendTestEmail() {
+    var statusEl = document.getElementById('test-email-status');
+    statusEl.textContent = 'Sending...';
+    var payload = {
+        smtp_host: document.getElementById('setting-smtp-host').value.trim(),
+        smtp_port: parseInt(document.getElementById('setting-smtp-port').value, 10) || 587,
+        smtp_user: document.getElementById('setting-smtp-user').value.trim(),
+        smtp_pass: document.getElementById('setting-smtp-pass').value,
+        smtp_from: document.getElementById('setting-smtp-from').value.trim(),
+        smtp_tls: document.getElementById('setting-smtp-tls').checked ? 'true' : 'false',
+        recipient: document.getElementById('setting-alert-email').value.trim()
+    };
+    var result = await apiPost('/api/test-email', payload);
+    if (result && result.status === 'sent') {
+        statusEl.textContent = 'Sent to ' + result.recipient;
+        toast('Test email sent to ' + result.recipient, 'success');
+    } else {
+        statusEl.textContent = (result && result.error) || 'Failed';
+        toast((result && result.error) || 'Failed to send test email', 'error');
+    }
+    setTimeout(function() { statusEl.textContent = ''; }, 5000);
 }
 
 /* ============================================================
