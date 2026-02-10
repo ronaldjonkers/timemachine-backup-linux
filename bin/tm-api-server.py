@@ -1603,11 +1603,11 @@ def main():
     server = ThreadedHTTPServer((args.bind, args.port), APIHandler)
     print(f'TimeMachine API server listening on {args.bind}:{args.port}', flush=True)
 
-    # Handle graceful shutdown
+    # Hard shutdown — os._exit() kills the process immediately without
+    # waiting for threads, socket close, or atexit handlers.
     def shutdown_handler(signum, frame):
         print('Shutting down API server...', flush=True)
-        server.shutdown()
-        sys.exit(0)
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
