@@ -240,6 +240,11 @@ def parse_db_interval(line):
     return int(m.group(1)) if m else 0
 
 
+def parse_backup_interval(line):
+    m = re.search(r'--backup-interval\s+(\d+)h?', line)
+    return int(m.group(1)) if m else 0
+
+
 def _parse_server_line(line):
     """Parse a servers.conf line into a server dict."""
     parts = line.split(None, 1)
@@ -247,6 +252,7 @@ def _parse_server_line(line):
     opts = parts[1] if len(parts) > 1 else ''
     prio = parse_priority(line)
     db_int = parse_db_interval(line)
+    bk_int = parse_backup_interval(line)
     files_only = '--files-only' in opts
     db_only = '--db-only' in opts
     no_rotate = '--no-rotate' in opts
@@ -259,6 +265,7 @@ def _parse_server_line(line):
         'options': opts,
         'priority': prio,
         'db_interval': db_int,
+        'backup_interval': bk_int,
         'files_only': files_only,
         'db_only': db_only,
         'no_rotate': no_rotate,
@@ -709,9 +716,11 @@ class APIHandler(BaseHTTPRequestHandler):
         if os.path.isdir(snap_dir):
             for entry in sorted(os.listdir(snap_dir)):
                 full = os.path.join(snap_dir, entry)
-                if not os.path.isdir(full) or not re.match(r'^\d{4}-\d{2}-\d{2}$', entry):
+                # Match both YYYY-MM-DD and YYYY-MM-DD_HHMMSS
+                if not os.path.isdir(full) or not re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', entry):
                     continue
-                if entry < cutoff:
+                # Compare date portion only (first 10 chars)
+                if entry[:10] < cutoff:
                     continue
                 sz = du_sh(full)
                 has_files = os.path.isdir(os.path.join(full, 'files'))
@@ -1150,6 +1159,9 @@ class APIHandler(BaseHTTPRequestHandler):
         db_int = data.get('db_interval')
         if db_int and int(db_int) > 0:
             opts_parts.append(f'--db-interval {db_int}h')
+        bk_int = data.get('backup_interval')
+        if bk_int and int(bk_int) > 0:
+            opts_parts.append(f'--backup-interval {bk_int}h')
         mode = data.get('mode', '')
         if mode == 'files-only':
             opts_parts.append('--files-only')
@@ -1597,7 +1609,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
             if os.path.isdir(snap_dir):
                 snapshots = [d for d in os.listdir(snap_dir)
-                             if os.path.isdir(os.path.join(snap_dir, d)) and re.match(r'^\d{4}-\d{2}-\d{2}$', d)]
+                             if os.path.isdir(os.path.join(snap_dir, d)) and re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', d)]
                 snap_count = len(snapshots)
                 if snapshots:
                     last_backup = sorted(snapshots)[-1]

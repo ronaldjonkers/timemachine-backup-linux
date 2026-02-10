@@ -46,13 +46,15 @@ curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-lin
 
 ## Features
 
-- **Time Machine-style snapshots** — Daily rotating backups with hardlinks (only changed files use extra disk space)
+- **Time Machine-style snapshots** — Rotating backups with hardlinks (only changed files use extra disk space). Supports multiple backups per day with timestamped snapshots (`YYYY-MM-DD_HHMMSS`)
 - **Service daemon** — Runs as a systemd service with built-in backup scheduler
 - **Web dashboard** — Modern dark-themed monitoring UI with real-time status, process control, and disk usage
 - **CLI control tool (`tmctl`)** — Full backup management from the command line
 - **Restore** — Selective file and database restore from any snapshot
 - **Multi-database support** — MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite with auto-detection
 - **Exclude system** — Global defaults + per-server exclude patterns
+- **Backup intervals** — Configure `--backup-interval Xh` per server for multiple full backups per day, plus `--db-interval Xh` for extra database-only backups
+- **Overrun detection** — Automatic alert when daily backup run exceeds the time limit, with per-server status (completed/running/pending)
 - **Parallel execution** — Back up multiple servers simultaneously with priority ordering
 - **Dashboard security** — HTTPS via Let's Encrypt + HTTP Basic Auth via Nginx reverse proxy
 - **Multi-channel notifications** — Email reports, HTTP POST webhooks, Slack alerts

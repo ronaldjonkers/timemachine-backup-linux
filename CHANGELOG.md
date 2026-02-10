@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.0] - 2026-02-10
+
+### Added
+- **Multiple full backups per day** — Snapshot directories now use timestamped format `YYYY-MM-DD_HHMMSS` instead of `YYYY-MM-DD`, allowing multiple snapshots per day. Fully backwards compatible with existing `YYYY-MM-DD` directories
+- **`--backup-interval Xh` per-server option** — Configure how often a server gets a full backup (e.g. `--backup-interval 6h` = 4 full backups/day). The scheduler checks every minute and triggers backups when the interval has elapsed. Configurable via dashboard server settings or `servers.conf`
+- **Daily backup overrun detection** — If the daily backup run exceeds `TM_MAX_DAILY_SECONDS` (default 24h), an alert is sent with per-server status showing which servers completed, which are still running (with duration), and which never started. Configurable in `.env`
+- **`tm_snapshot_id()` function** — Returns `YYYY-MM-DD_HHMMSS` for timestamped snapshot directories (`lib/common.sh`)
+
+### Changed
+- **Snapshot directory format** — `tm_rsync_backup()` and `tm_rsync_sql()` now create `YYYY-MM-DD_HHMMSS` directories. The SQL sync reuses the same snapshot ID as the file backup via `_TM_SNAP_ID` global variable
+- **Rotation** — `tm_rotate_backups()` now handles both old (`YYYY-MM-DD`) and new (`YYYY-MM-DD_HHMMSS`) directories by comparing only the date portion (first 10 chars)
+- **Restore** — `resolve_snapshot()` accepts both `YYYY-MM-DD` (resolves to latest snapshot of that day) and `YYYY-MM-DD_HHMMSS` (exact match). `list_snapshots()` shows all timestamped snapshots
+- **API** — `_api_snapshots()`, `_api_browse()`, and server list snapshot counting all match both formats via regex `^\d{4}-\d{2}-\d{2}(_\d{6})?$`
+- **Scheduler** — `_scheduler_loop()` now resets both DB and backup interval timestamps after daily run. New `_check_backup_intervals()` runs every minute alongside `_check_db_intervals()`
+- **Dashboard** — Server edit modal now includes "Full Backup Interval" field. `saveServerSettings()` sends `backup_interval` to API
+- **Documentation** — Updated README.md features list, `.env.example` with `TM_MAX_DAILY_SECONDS`, `servers.conf.example` with `--backup-interval` docs
+
 ## [2.17.2] - 2026-02-10
 
 ### Changed

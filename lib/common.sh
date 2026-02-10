@@ -318,3 +318,7 @@ tm_timestamp() {
 tm_date_today() {
     date +'%Y-%m-%d'
 }
+
+tm_snapshot_id() {
+    date +'%Y-%m-%d_%H%M%S'
+}

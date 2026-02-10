@@ -99,6 +99,8 @@ tm_report_init "daily"
 PIDS_FILE="${TM_RUN_DIR}/daily-pids-$$.tmp"
 : > "${PIDS_FILE}"
 EXIT_CODE=0
+DAILY_START=$(date +%s)
+MAX_DAILY_SECONDS=${TM_MAX_DAILY_SECONDS:-86400}  # 24 hours default
 
 # Register a backup process in the state directory (visible to dashboard)
 _register_proc() {
@@ -167,15 +169,71 @@ _wait_for_slot() {
     done
 }
 
-# Wait for all jobs to finish
+# Wait for all jobs to finish (with overrun detection)
 _wait_all() {
     while true; do
         _collect_finished
         local running
         running=$(wc -l < "${PIDS_FILE}" | tr -d ' ')
         [[ ${running} -eq 0 ]] && break
+
+        # Check for overrun
+        local now elapsed
+        now=$(date +%s)
+        elapsed=$(( now - DAILY_START ))
+        if [[ ${elapsed} -ge ${MAX_DAILY_SECONDS} ]]; then
+            tm_log "ERROR" "Daily backup run exceeded ${MAX_DAILY_SECONDS}s ($(( elapsed / 3600 ))h). ${running} job(s) still running."
+            _send_overrun_alert
+            break
+        fi
+
         sleep 5
     done
+}
+
+# Send overrun alert with per-server status
+_send_overrun_alert() {
+    local elapsed=$(( $(date +%s) - DAILY_START ))
+    local elapsed_h=$(( elapsed / 3600 ))
+    local elapsed_m=$(( (elapsed % 3600) / 60 ))
+
+    local body="WARNING: Daily backup run has exceeded the maximum allowed time.
+
+Elapsed:    ${elapsed_h}h ${elapsed_m}m
+Max allowed: $(( MAX_DAILY_SECONDS / 3600 ))h
+Date:        ${TODAY}
+
+Per-server status:
+============================================================"
+
+    # Collect status from report + still-running PIDs
+    local report_file="${TM_LOG_DIR}/report-daily-${TODAY}.log"
+    if [[ -f "${report_file}" ]]; then
+        body+=$'\n'"$(cat "${report_file}")"
+    fi
+
+    # Add still-running servers
+    if [[ -s "${PIDS_FILE}" ]]; then
+        body+=$'\n\nSTILL RUNNING:'
+        while IFS= read -r entry; do
+            [[ -z "${entry}" ]] && continue
+            local pid="${entry%%:*}"
+            local meta="${entry#*:}"
+            local srv_host="${meta%%:*}"
+            local srv_start="${meta#*:}"
+            local srv_elapsed=$(( $(date +%s) - srv_start ))
+            local srv_dur
+            srv_dur=$(_tm_format_duration ${srv_elapsed})
+            body+=$'\n'"  - ${srv_host} (PID ${pid}, running for ${srv_dur})"
+        done < "${PIDS_FILE}"
+    fi
+
+    body+=$'\n\nAction required: Check if servers are reachable and backups are progressing.'
+    body+=$'\nConsider reducing the number of servers, increasing parallelism (TM_PARALLEL_JOBS),'
+    body+=$'\nor splitting servers across multiple backup schedules.'
+
+    tm_notify "OVERRUN: Daily backups exceeded $(( MAX_DAILY_SECONDS / 3600 ))h" "${body}" "error" "backup_overrun"
+    tm_log "ERROR" "Overrun alert sent"
 }
 
 # Determine backup mode from server options

@@ -70,9 +70,10 @@ while [[ $# -gt 0 ]]; do
         --db-only)     DB_ONLY=1; shift ;;
         --no-rotate)   NO_ROTATE=1; shift ;;
         --trigger)     TRIGGER="$2"; shift; shift ;;
-        --notify)      shift; shift ;;  # consumed by notify.sh
-        --priority)    shift; shift ;;  # consumed by scheduler
-        --db-interval) shift; shift ;;  # consumed by scheduler
+        --notify)           shift; shift ;;  # consumed by notify.sh
+        --priority)         shift; shift ;;  # consumed by scheduler
+        --db-interval)      shift; shift ;;  # consumed by scheduler
+        --backup-interval)  shift; shift ;;  # consumed by scheduler
         --dry-run)     DRY_RUN=1; shift ;;
         --verbose)     TM_LOG_LEVEL="DEBUG"; shift ;;
         --help|-h)     usage ;;
@@ -212,7 +213,7 @@ main() {
     local duration=$(( end_time - start_time ))
 
     # Build summary header
-    local snap_dir="${BACKUP_BASE}/$(tm_date_today)"
+    local snap_dir="${BACKUP_BASE}/${_TM_SNAP_ID:-$(tm_date_today)}"
     local snap_size=""
     [[ -d "${snap_dir}" ]] && snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
     local snap_count

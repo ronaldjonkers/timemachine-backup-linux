@@ -224,6 +224,14 @@ _parse_db_interval() {
     fi
 }
 
+# Parse --backup-interval Xh from a server line (returns hours, empty if not set)
+_parse_backup_interval() {
+    local line="$1"
+    if echo "${line}" | grep -qo '\-\-backup-interval[[:space:]]\+[0-9]\+h'; then
+        echo "${line}" | grep -o '\-\-backup-interval[[:space:]]\+[0-9]\+h' | grep -o '[0-9]\+'
+    fi
+}
+
 # Get sorted server lines (by priority, ascending)
 _get_sorted_servers() {
     local servers_conf="$1"
@@ -299,6 +307,39 @@ _check_db_intervals() {
         done
 }
 
+# Check and run backup-interval full backups for servers that need them
+_check_backup_intervals() {
+    local servers_conf="$1"
+    [[ -f "${servers_conf}" ]] || return 0
+
+    grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
+        sed 's/^[[:space:]]*//' | while IFS= read -r line; do
+            local interval_hours
+            interval_hours=$(_parse_backup_interval "${line}")
+            [[ -z "${interval_hours}" ]] && continue
+
+            local srv_host
+            srv_host=$(echo "${line}" | awk '{print $1}')
+            local last_bk_file="${STATE_DIR}/last-backup-${srv_host}"
+            local now
+            now=$(date +%s)
+
+            local last_bk=0
+            [[ -f "${last_bk_file}" ]] && last_bk=$(cat "${last_bk_file}")
+
+            local interval_secs=$(( interval_hours * 3600 ))
+            local elapsed=$(( now - last_bk ))
+
+            if [[ ${elapsed} -ge ${interval_secs} ]]; then
+                tm_log "INFO" "Scheduler: backup interval for ${srv_host} (every ${interval_hours}h)"
+                _wait_for_slot
+                local bk_pid
+                bk_pid=$(run_backup "${srv_host}" --trigger scheduler)
+                echo "${now}" > "${last_bk_file}"
+            fi
+        done
+}
+
 _scheduler_loop() {
     # CRITICAL: disable set -e inside the scheduler loop.
     # The loop runs in a background subshell and inherits set -euo pipefail
@@ -343,18 +384,22 @@ _scheduler_loop() {
                 echo "${today}" > "${last_run_file}"
                 tm_log "INFO" "Scheduler: daily run completed, marked ${today}"
 
-                # Reset DB interval timestamps after daily run
-                # (daily run already includes DB backup)
+                # Reset interval timestamps after daily run
+                # (daily run already includes full + DB backup)
                 local now
                 now=$(date +%s)
                 grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
                     sed 's/^[[:space:]]*//' | while IFS= read -r line; do
-                        local interval_hours
-                        interval_hours=$(_parse_db_interval "${line}")
-                        [[ -z "${interval_hours}" ]] && continue
                         local srv_host
                         srv_host=$(echo "${line}" | awk '{print $1}')
-                        echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
+                        # Reset DB interval
+                        local db_int
+                        db_int=$(_parse_db_interval "${line}")
+                        [[ -n "${db_int}" ]] && echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
+                        # Reset backup interval
+                        local bk_int
+                        bk_int=$(_parse_backup_interval "${line}")
+                        [[ -n "${bk_int}" ]] && echo "${now}" > "${STATE_DIR}/last-backup-${srv_host}"
                     done
             else
                 tm_log "ERROR" "Scheduler: pre-backup check failed (previous backups still running?)"
@@ -363,6 +408,9 @@ _scheduler_loop() {
 
         # Check DB interval backups (runs every minute)
         _check_db_intervals "${servers_conf}" || true
+
+        # Check backup interval full backups (runs every minute)
+        _check_backup_intervals "${servers_conf}" || true
 
         # Check if config reload was requested (e.g. after settings save)
         if [[ -f "${STATE_DIR}/.reload_config" ]]; then

@@ -58,10 +58,10 @@ tm_rsync_backup() {
     local remote_user="${TM_USER}"
     local backup_base="$2"
 
-    local today
-    today=$(tm_date_today)
+    # Use shared snapshot ID so SQL sync goes into the same directory
+    _TM_SNAP_ID=$(tm_snapshot_id)
     local latest_link="${backup_base}/latest"
-    local target_dir="${backup_base}/${today}"
+    local target_dir="${backup_base}/${_TM_SNAP_ID}"
 
     tm_ensure_dir "${backup_base}"
 
@@ -108,7 +108,7 @@ tm_rsync_backup() {
     if [[ ${exit_code} -eq 0 ]]; then
         rm -f "${latest_link}"
         ln -s "${target_dir}" "${latest_link}"
-        tm_log "INFO" "Updated latest symlink -> ${today}"
+        tm_log "INFO" "Updated latest symlink -> ${_TM_SNAP_ID}"
     fi
 
     return ${exit_code}
@@ -120,9 +120,9 @@ tm_rsync_sql() {
     local backup_base="$2"
     local remote_user="${TM_USER}"
 
-    local today
-    today=$(tm_date_today)
-    local target_dir="${backup_base}/${today}/sql"
+    # Reuse snapshot ID from tm_rsync_backup if available, otherwise generate new one
+    local snap_id="${_TM_SNAP_ID:-$(tm_snapshot_id)}"
+    local target_dir="${backup_base}/${snap_id}/sql"
 
     tm_ensure_dir "${target_dir}"
 
@@ -144,6 +144,7 @@ tm_rsync_sql() {
 }
 
 # Rotate old backups beyond retention period
+# Handles both YYYY-MM-DD (legacy) and YYYY-MM-DD_HHMMSS (timestamped) snapshot dirs
 tm_rotate_backups() {
     local backup_base="$1"
     local retention="${TM_RETENTION_DAYS:-7}"
@@ -161,10 +162,12 @@ tm_rotate_backups() {
     fi
 
     local count=0
-    for dir in "${backup_base}"/????-??-??; do
+    for dir in "${backup_base}"/????-??-??*; do
         [[ -d "${dir}" ]] || continue
-        local dir_date
-        dir_date=$(basename "${dir}")
+        local dir_name dir_date
+        dir_name=$(basename "${dir}")
+        # Extract date portion (first 10 chars: YYYY-MM-DD)
+        dir_date="${dir_name:0:10}"
 
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing old backup: ${dir}"

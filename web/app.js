@@ -1129,6 +1129,10 @@ function editServer(hostname) {
                 '<input type="number" id="edit-db-interval" value="' + (srv.db_interval || 0) + '" min="0" max="24">' +
             '</div>' +
             '<div class="form-group">' +
+                '<label>Full Backup Interval <span class="text-muted">(hours, 0 = once daily only)</span></label>' +
+                '<input type="number" id="edit-backup-interval" value="' + (srv.backup_interval || 0) + '" min="0" max="24">' +
+            '</div>' +
+            '<div class="form-group">' +
                 '<label><input type="checkbox" id="edit-no-rotate"' + (srv.no_rotate ? ' checked' : '') + '> Skip backup rotation</label>' +
             '</div>' +
             '<div class="form-group">' +
@@ -1149,6 +1153,7 @@ async function saveServerSettings(hostname) {
     var mode = document.getElementById('edit-mode').value;
     var priority = parseInt(document.getElementById('edit-priority').value) || 10;
     var dbInterval = parseInt(document.getElementById('edit-db-interval').value) || 0;
+    var backupInterval = parseInt(document.getElementById('edit-backup-interval').value) || 0;
     var noRotate = document.getElementById('edit-no-rotate').checked;
     var notifyEmail = document.getElementById('edit-notify-email').value.trim();
 
@@ -1156,6 +1161,7 @@ async function saveServerSettings(hostname) {
         mode: mode,
         priority: priority,
         db_interval: dbInterval,
+        backup_interval: backupInterval,
         no_rotate: noRotate,
         notify_email: notifyEmail
     });

@@ -119,7 +119,7 @@ list_snapshots() {
     echo "Available snapshots for ${HOSTNAME}:"
     echo "============================================"
 
-    for dir in "${BACKUP_BASE}"/????-??-??; do
+    for dir in "${BACKUP_BASE}"/????-??-??*; do
         [[ -d "${dir}" ]] || continue
         local date_name
         date_name=$(basename "${dir}")
@@ -138,7 +138,7 @@ list_snapshots() {
     done
 
     # Check for encrypted-only snapshots
-    for gpg_file in "${BACKUP_BASE}"/????-??-??.tar.gpg; do
+    for gpg_file in "${BACKUP_BASE}"/????-??-??*.tar.gpg; do
         [[ -f "${gpg_file}" ]] || continue
         local base_name
         base_name=$(basename "${gpg_file}" .tar.gpg)
@@ -162,13 +162,26 @@ resolve_snapshot() {
     local snapshot_dir
 
     if [[ -n "${RESTORE_DATE}" ]]; then
-        snapshot_dir="${BACKUP_BASE}/${RESTORE_DATE}"
+        # Exact match first (YYYY-MM-DD or YYYY-MM-DD_HHMMSS)
+        if [[ -d "${BACKUP_BASE}/${RESTORE_DATE}" ]]; then
+            snapshot_dir="${BACKUP_BASE}/${RESTORE_DATE}"
+        else
+            # If YYYY-MM-DD given, find the latest timestamped snapshot from that day
+            local latest_match
+            latest_match=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name "${RESTORE_DATE}*" 2>/dev/null | sort -r | head -1)
+            if [[ -n "${latest_match}" ]]; then
+                snapshot_dir="${latest_match}"
+                tm_log "INFO" "Resolved ${RESTORE_DATE} -> $(basename "${snapshot_dir}")"
+            else
+                snapshot_dir="${BACKUP_BASE}/${RESTORE_DATE}"
+            fi
+        fi
     elif [[ -L "${BACKUP_BASE}/latest" ]]; then
         snapshot_dir=$(readlink -f "${BACKUP_BASE}/latest" 2>/dev/null || \
                        readlink "${BACKUP_BASE}/latest")
     else
-        # Find most recent date directory
-        snapshot_dir=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name '????-??-??' | sort -r | head -1)
+        # Find most recent snapshot directory (handles both formats)
+        snapshot_dir=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name '????-??-??*' | sort -r | head -1)
     fi
 
     # Handle encrypted-only snapshots
