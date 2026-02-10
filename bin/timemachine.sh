@@ -239,8 +239,8 @@ main() {
         tm_log "ERROR" "Backup completed with errors for ${HOSTNAME} (${duration}s)"
     fi
 
-    # Build full email body with all logs
-    local email_body="Status:     ${status_line}
+    # Build email summary (always included)
+    local email_summary="Status:     ${status_line}
 Server:     ${HOSTNAME}
 Date:       $(tm_date_today)
 Triggered:  ${TRIGGER}
@@ -250,48 +250,52 @@ Snap size:  ${snap_size:-unknown}
 Snapshots:  ${snap_count}
 Disk free:  ${disk_free:-unknown}"
 
-    # Append rsync transfer log if available
-    if [[ -n "${_TM_RSYNC_LOGFILE:-}" && -f "${_TM_RSYNC_LOGFILE}" ]]; then
-        email_body+="
+    if [[ ${exit_code} -eq 0 ]]; then
+        # Success: concise email with status only — no logs
+        tm_notify "Backup OK: ${HOSTNAME}" "${email_summary}" "info" "backup_ok" "${HOSTNAME}" || true
+    else
+        # Failure: include full diagnostic logs for debugging
+        local email_body="${email_summary}"
+
+        # Append rsync transfer log if available
+        if [[ -n "${_TM_RSYNC_LOGFILE:-}" && -f "${_TM_RSYNC_LOGFILE}" ]]; then
+            email_body+="
 
 ============================================================
 RSYNC TRANSFER LOG (${_TM_RSYNC_LOGFILE##*/})
 ============================================================
 $(cat "${_TM_RSYNC_LOGFILE}" 2>/dev/null)"
-    fi
+        fi
 
-    # Append database output if any
-    if [[ -n "${_TM_DB_OUTPUT:-}" ]]; then
-        email_body+="
+        # Append database output if any
+        if [[ -n "${_TM_DB_OUTPUT:-}" ]]; then
+            email_body+="
 
 ============================================================
 DATABASE BACKUP OUTPUT
 ============================================================
 ${_TM_DB_OUTPUT}"
-    fi
-
-    # Append the full backup log (contains all tm_log output incl. errors)
-    # Limit to last 500 lines to prevent bash OOM on huge first backups
-    if [[ -n "${_TM_BACKUP_LOGFILE:-}" && -f "${_TM_BACKUP_LOGFILE}" ]]; then
-        local log_lines
-        log_lines=$(wc -l < "${_TM_BACKUP_LOGFILE}" 2>/dev/null) || log_lines=0
-        local log_content
-        log_content=$(tail -500 "${_TM_BACKUP_LOGFILE}" 2>/dev/null) || log_content="(could not read log)"
-        local log_header="FULL BACKUP LOG (${_TM_BACKUP_LOGFILE##*/})"
-        if [[ ${log_lines} -gt 500 ]]; then
-            log_header+=" — last 500 of ${log_lines} lines"
         fi
-        email_body+="
+
+        # Append the full backup log (contains all tm_log output incl. errors)
+        # Limit to last 500 lines to prevent bash OOM on huge first backups
+        if [[ -n "${_TM_BACKUP_LOGFILE:-}" && -f "${_TM_BACKUP_LOGFILE}" ]]; then
+            local log_lines
+            log_lines=$(wc -l < "${_TM_BACKUP_LOGFILE}" 2>/dev/null) || log_lines=0
+            local log_content
+            log_content=$(tail -500 "${_TM_BACKUP_LOGFILE}" 2>/dev/null) || log_content="(could not read log)"
+            local log_header="FULL BACKUP LOG (${_TM_BACKUP_LOGFILE##*/})"
+            if [[ ${log_lines} -gt 500 ]]; then
+                log_header+=" — last 500 of ${log_lines} lines"
+            fi
+            email_body+="
 
 ============================================================
 ${log_header}
 ============================================================
 ${log_content}"
-    fi
+        fi
 
-    if [[ ${exit_code} -eq 0 ]]; then
-        tm_notify "Backup OK: ${HOSTNAME}" "${email_body}" "info" "backup_ok" "${HOSTNAME}" || true
-    else
         tm_notify "Backup FAILED: ${HOSTNAME}" "${email_body}" "error" "backup_fail" "${HOSTNAME}" || true
     fi
 
