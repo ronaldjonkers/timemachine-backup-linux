@@ -950,22 +950,139 @@ _handle_request() {
 
         "DELETE /api/servers/"*)
             local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+            local archived_conf="${TM_PROJECT_ROOT}/config/archived.conf"
             local target_host="${path#/api/servers/}"
+            # Strip query string from hostname
+            target_host="${target_host%%\?*}"
+            # Parse action from query string
+            local qs="${path#*\?}"
+            [[ "${qs}" == "${path}" ]] && qs=""
+            local action="archive"
+            [[ "${qs}" == *"action=delete"* ]] && action="delete"
+            [[ "${qs}" == *"action=archive"* ]] && action="archive"
 
-            if [[ ! -f "${servers_conf}" ]]; then
-                _http_response "404 Not Found" "application/json" \
-                    '{"error":"No servers.conf found"}'
-            elif ! grep -qE "^\s*${target_host}(\s|$)" "${servers_conf}" 2>/dev/null; then
-                _http_response "404 Not Found" "application/json" \
-                    "{\"error\":\"Server '${target_host}' not found\"}"
+            if [[ "${action}" == "archive" ]]; then
+                # Archive: move from servers.conf to archived.conf
+                if [[ ! -f "${servers_conf}" ]] || ! grep -qE "^\s*${target_host}(\s|$)" "${servers_conf}" 2>/dev/null; then
+                    _http_response "404 Not Found" "application/json" \
+                        "{\"error\":\"Server '${target_host}' not found in servers.conf\"}"
+                else
+                    local line_to_archive
+                    line_to_archive=$(grep -E "^\s*${target_host}(\s|$)" "${servers_conf}" | head -1)
+                    sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}" 2>/dev/null || \
+                    sed -i '' "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}"
+                    rm -f "${servers_conf}.bak"
+                    echo "${line_to_archive}" >> "${archived_conf}"
+                    tm_log "INFO" "API: archived server ${target_host}"
+                    _http_response "200 OK" "application/json" \
+                        "{\"status\":\"archived\",\"hostname\":\"${target_host}\"}"
+                fi
             else
+                # Full delete: remove from both configs, delete data in background
                 sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}" 2>/dev/null || \
-                sed -i '' "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}"
+                sed -i '' "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${servers_conf}" 2>/dev/null
                 rm -f "${servers_conf}.bak"
-                tm_log "INFO" "API: removed server ${target_host}"
+                if [[ -f "${archived_conf}" ]]; then
+                    sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${archived_conf}" 2>/dev/null || \
+                    sed -i '' "/^[[:space:]]*${target_host}[[:space:]]*$/d;/^[[:space:]]*${target_host}[[:space:]]/d" "${archived_conf}" 2>/dev/null
+                    rm -f "${archived_conf}.bak"
+                fi
+                rm -f "${TM_PROJECT_ROOT}/config/exclude.${target_host}.conf"
+                # Background delete
+                local snap_dir="${TM_BACKUP_ROOT}/${target_host}"
+                if [[ -d "${snap_dir}" ]]; then
+                    local del_state="${STATE_DIR}/delete-${target_host}.state"
+                    echo "running|${target_host}|$(date +%s)" > "${del_state}"
+                    ( rm -rf "${snap_dir}" 2>/dev/null && echo "completed|${target_host}|$(date +%s)" > "${del_state}" || echo "failed|${target_host}|$(date +%s)" > "${del_state}" ) &
+                fi
+                tm_log "INFO" "API: full delete server ${target_host} (data deletion in background)"
                 _http_response "200 OK" "application/json" \
-                    "{\"status\":\"removed\",\"hostname\":\"${target_host}\"}"
+                    "{\"status\":\"deleting\",\"hostname\":\"${target_host}\",\"message\":\"Server removed. Backup data is being deleted in the background.\"}"
             fi
+            ;;
+
+        "GET /api/archived")
+            local archived_conf="${TM_PROJECT_ROOT}/config/archived.conf"
+            local resp='{"servers":['
+            local first=1
+            if [[ -f "${archived_conf}" ]]; then
+                while IFS= read -r line; do
+                    line=$(echo "${line}" | sed 's/^[[:space:]]*//')
+                    [[ -z "${line}" || "${line}" == \#* ]] && continue
+                    local ahost
+                    ahost=$(echo "${line}" | awk '{print $1}')
+                    local snap_dir="${TM_BACKUP_ROOT}/${ahost}"
+                    local snap_count=0 last_bk="--" total_sz="--"
+                    if [[ -d "${snap_dir}" ]]; then
+                        snap_count=$(find "${snap_dir}" -maxdepth 1 -type d -name '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' 2>/dev/null | wc -l | tr -d ' ')
+                        last_bk=$(ls -1d "${snap_dir}"/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]* 2>/dev/null | sort -r | head -1 | xargs basename 2>/dev/null || echo "--")
+                        total_sz=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1 || echo "--")
+                    fi
+                    [[ ${first} -eq 1 ]] && first=0 || resp+=','
+                    resp+=$(printf '{"hostname":"%s","snapshots":%d,"last_backup":"%s","total_size":"%s"}' \
+                        "${ahost}" "${snap_count}" "${last_bk}" "${total_sz}")
+                done < "${archived_conf}"
+            fi
+            resp+='],"delete_tasks":['
+            first=1
+            for sf in "${STATE_DIR}"/delete-*.state; do
+                [[ -f "${sf}" ]] || continue
+                local dc
+                dc=$(cat "${sf}")
+                local dstatus dhost dtime
+                dstatus=$(echo "${dc}" | cut -d'|' -f1)
+                dhost=$(echo "${dc}" | cut -d'|' -f2)
+                dtime=$(echo "${dc}" | cut -d'|' -f3)
+                [[ ${first} -eq 1 ]] && first=0 || resp+=','
+                resp+=$(printf '{"hostname":"%s","status":"%s","started":%s}' "${dhost}" "${dstatus}" "${dtime:-0}")
+            done
+            resp+=']}'
+            _http_response "200 OK" "application/json" "${resp}"
+            ;;
+
+        "POST /api/archived/"*)
+            local arch_path="${path#/api/archived/}"
+            if [[ "${arch_path}" == */unarchive ]]; then
+                local uhost="${arch_path%/unarchive}"
+                local archived_conf="${TM_PROJECT_ROOT}/config/archived.conf"
+                local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+                if [[ ! -f "${archived_conf}" ]] || ! grep -qE "^\s*${uhost}(\s|$)" "${archived_conf}" 2>/dev/null; then
+                    _http_response "404 Not Found" "application/json" \
+                        "{\"error\":\"Server '${uhost}' not found in archive\"}"
+                else
+                    local line_to_restore
+                    line_to_restore=$(grep -E "^\s*${uhost}(\s|$)" "${archived_conf}" | head -1)
+                    sed -i.bak "/^[[:space:]]*${uhost}[[:space:]]*$/d;/^[[:space:]]*${uhost}[[:space:]]/d" "${archived_conf}" 2>/dev/null || \
+                    sed -i '' "/^[[:space:]]*${uhost}[[:space:]]*$/d;/^[[:space:]]*${uhost}[[:space:]]/d" "${archived_conf}"
+                    rm -f "${archived_conf}.bak"
+                    echo "${line_to_restore}" >> "${servers_conf}"
+                    tm_log "INFO" "API: unarchived server ${uhost}"
+                    _http_response "200 OK" "application/json" \
+                        "{\"status\":\"unarchived\",\"hostname\":\"${uhost}\"}"
+                fi
+            else
+                _http_response "404 Not Found" "application/json" '{"error":"Not found"}'
+            fi
+            ;;
+
+        "DELETE /api/archived/"*)
+            local dhost="${path#/api/archived/}"
+            local archived_conf="${TM_PROJECT_ROOT}/config/archived.conf"
+            if [[ -f "${archived_conf}" ]]; then
+                sed -i.bak "/^[[:space:]]*${dhost}[[:space:]]*$/d;/^[[:space:]]*${dhost}[[:space:]]/d" "${archived_conf}" 2>/dev/null || \
+                sed -i '' "/^[[:space:]]*${dhost}[[:space:]]*$/d;/^[[:space:]]*${dhost}[[:space:]]/d" "${archived_conf}"
+                rm -f "${archived_conf}.bak"
+            fi
+            rm -f "${TM_PROJECT_ROOT}/config/exclude.${dhost}.conf"
+            local snap_dir="${TM_BACKUP_ROOT}/${dhost}"
+            if [[ -d "${snap_dir}" ]]; then
+                local del_state="${STATE_DIR}/delete-${dhost}.state"
+                echo "running|${dhost}|$(date +%s)" > "${del_state}"
+                ( rm -rf "${snap_dir}" 2>/dev/null && echo "completed|${dhost}|$(date +%s)" > "${del_state}" || echo "failed|${dhost}|$(date +%s)" > "${del_state}" ) &
+            fi
+            tm_log "INFO" "API: permanently deleting archived server ${dhost}"
+            _http_response "200 OK" "application/json" \
+                "{\"status\":\"deleting\",\"hostname\":\"${dhost}\",\"message\":\"Archived server removed. Backup data is being deleted in the background.\"}"
             ;;
 
         "GET /api/settings")

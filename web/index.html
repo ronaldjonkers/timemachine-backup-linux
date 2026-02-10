@@ -17,6 +17,7 @@
             <nav class="nav-tabs">
                 <button class="nav-tab active" data-page="dashboard" onclick="showPage('dashboard')">&#x1F4CA; Dashboard</button>
                 <button class="nav-tab" data-page="servers" onclick="showPage('servers')">&#x1F4E1; Servers</button>
+                <button class="nav-tab" data-page="archive" onclick="showPage('archive')">&#x1F4E6; Archive</button>
                 <button class="nav-tab" data-page="restores" onclick="showPage('restores')">&#x1F501; Restores</button>
                 <button class="nav-tab" data-page="settings" onclick="showPage('settings')">&#x2699; Settings</button>
                 <button class="nav-tab" data-page="help" onclick="showPage('help')">&#x2753; Help</button>
@@ -287,6 +288,54 @@
                     <tbody id="restores-body">
                         <tr><td colspan="5" class="empty">No restore tasks</td></tr>
                     </tbody>
+                </table>
+            </section>
+
+        </div>
+
+        <!-- ============================================================
+             PAGE: ARCHIVE
+             ============================================================ -->
+        <div class="page" id="page-archive">
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F4E6; Archived Servers</h2>
+                    <button class="btn btn-sm" onclick="refreshArchived()">Refresh</button>
+                </div>
+                <p class="text-muted" style="padding:0 1.25rem 0.5rem">
+                    Archived servers are no longer backed up daily but their existing snapshots are preserved. You can browse snapshots, restore from archive, re-activate a server, or permanently delete all data.
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hostname</th>
+                            <th>Last Backup</th>
+                            <th>Snapshots</th>
+                            <th>Total Size</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="archived-body">
+                        <tr><td colspan="5" class="empty">No archived servers</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Background deletion tasks -->
+            <section class="panel" id="delete-tasks-panel" style="display:none">
+                <div class="panel-header">
+                    <h2>&#x1F5D1; Background Deletions</h2>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hostname</th>
+                            <th>Status</th>
+                            <th>Started</th>
+                        </tr>
+                    </thead>
+                    <tbody id="delete-tasks-body"></tbody>
                 </table>
             </section>
 

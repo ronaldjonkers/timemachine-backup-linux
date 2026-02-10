@@ -240,6 +240,32 @@ def parse_db_interval(line):
     return int(m.group(1)) if m else 0
 
 
+def _parse_server_line(line):
+    """Parse a servers.conf line into a server dict."""
+    parts = line.split(None, 1)
+    hostname = parts[0]
+    opts = parts[1] if len(parts) > 1 else ''
+    prio = parse_priority(line)
+    db_int = parse_db_interval(line)
+    files_only = '--files-only' in opts
+    db_only = '--db-only' in opts
+    no_rotate = '--no-rotate' in opts
+    notify = ''
+    nm = re.search(r'--notify\s+(\S+)', opts)
+    if nm:
+        notify = nm.group(1)
+    return {
+        'hostname': hostname,
+        'options': opts,
+        'priority': prio,
+        'db_interval': db_int,
+        'files_only': files_only,
+        'db_only': db_only,
+        'no_rotate': no_rotate,
+        'notify_email': notify,
+    }
+
+
 def read_servers_conf():
     conf = os.path.join(project_root(), 'config', 'servers.conf')
     servers = []
@@ -250,29 +276,133 @@ def read_servers_conf():
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            parts = line.split(None, 1)
-            hostname = parts[0]
-            opts = parts[1] if len(parts) > 1 else ''
-            prio = parse_priority(line)
-            db_int = parse_db_interval(line)
-            files_only = '--files-only' in opts
-            db_only = '--db-only' in opts
-            no_rotate = '--no-rotate' in opts
-            notify = ''
-            nm = re.search(r'--notify\s+(\S+)', opts)
-            if nm:
-                notify = nm.group(1)
-            servers.append({
-                'hostname': hostname,
-                'options': opts,
-                'priority': prio,
-                'db_interval': db_int,
-                'files_only': files_only,
-                'db_only': db_only,
-                'no_rotate': no_rotate,
-                'notify_email': notify,
-            })
+            servers.append(_parse_server_line(line))
     return servers
+
+
+def read_archived_conf():
+    """Read archived servers from config/archived.conf."""
+    conf = os.path.join(project_root(), 'config', 'archived.conf')
+    servers = []
+    if not os.path.isfile(conf):
+        return servers
+    with open(conf) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            srv = _parse_server_line(line)
+            # Add snapshot info from backup_root
+            snap_dir = os.path.join(backup_root(), srv['hostname'])
+            snaps = []
+            if os.path.isdir(snap_dir):
+                snaps = sorted([d for d in os.listdir(snap_dir)
+                               if os.path.isdir(os.path.join(snap_dir, d))
+                               and re.match(r'\d{4}-\d{2}-\d{2}', d)], reverse=True)
+            total_size = '--'
+            try:
+                result = subprocess.run(['du', '-sh', snap_dir], capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    total_size = result.stdout.split()[0]
+            except Exception:
+                pass
+            srv['snapshots'] = len(snaps)
+            srv['last_backup'] = snaps[0] if snaps else '--'
+            srv['total_size'] = total_size
+            servers.append(srv)
+    return servers
+
+
+def archive_server(hostname):
+    """Move a server from servers.conf to archived.conf. Returns the config line."""
+    conf = os.path.join(project_root(), 'config', 'servers.conf')
+    archived = os.path.join(project_root(), 'config', 'archived.conf')
+    if not os.path.isfile(conf):
+        return None
+    lines = open(conf).readlines()
+    new_lines = []
+    archived_line = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#') and stripped.split()[0] == hostname:
+            archived_line = stripped
+        else:
+            new_lines.append(line)
+    if not archived_line:
+        return None
+    with open(conf, 'w') as f:
+        f.writelines(new_lines)
+    # Append to archived.conf
+    with open(archived, 'a') as f:
+        f.write(archived_line + '\n')
+    return archived_line
+
+
+def unarchive_server(hostname):
+    """Move a server from archived.conf back to servers.conf."""
+    conf = os.path.join(project_root(), 'config', 'servers.conf')
+    archived = os.path.join(project_root(), 'config', 'archived.conf')
+    if not os.path.isfile(archived):
+        return None
+    lines = open(archived).readlines()
+    new_lines = []
+    restored_line = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#') and stripped.split()[0] == hostname:
+            restored_line = stripped
+        else:
+            new_lines.append(line)
+    if not restored_line:
+        return None
+    with open(archived, 'w') as f:
+        f.writelines(new_lines)
+    # Append to servers.conf
+    with open(conf, 'a') as f:
+        f.write(restored_line + '\n')
+    return restored_line
+
+
+def delete_server_data_bg(hostname):
+    """Delete all backup data for a server in the background. Returns immediately."""
+    snap_dir = os.path.join(backup_root(), hostname)
+    sd = state_dir()
+    state_file = os.path.join(sd, f'delete-{hostname}.state')
+    if not os.path.isdir(snap_dir):
+        return
+    # Write state file
+    with open(state_file, 'w') as f:
+        f.write(f'running|{hostname}|{int(time.time())}')
+    def _do_delete():
+        try:
+            import shutil
+            shutil.rmtree(snap_dir, ignore_errors=True)
+            with open(state_file, 'w') as f:
+                f.write(f'completed|{hostname}|{int(time.time())}')
+        except Exception as e:
+            with open(state_file, 'w') as f:
+                f.write(f'failed|{hostname}|{int(time.time())}|{str(e)}')
+    t = threading.Thread(target=_do_delete, daemon=True)
+    t.start()
+
+
+def get_delete_tasks():
+    """Get all background deletion tasks."""
+    sd = state_dir()
+    tasks = []
+    for sf in glob.glob(os.path.join(sd, 'delete-*.state')):
+        try:
+            content = open(sf).read().strip()
+            parts = content.split('|')
+            tasks.append({
+                'hostname': parts[1] if len(parts) > 1 else '?',
+                'status': parts[0],
+                'started': int(parts[2]) if len(parts) > 2 else 0,
+                'error': parts[3] if len(parts) > 3 else '',
+            })
+        except Exception:
+            continue
+    return tasks
 
 
 def tail_file(filepath, lines=500):
@@ -448,6 +578,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._api_history()
         elif path == '/api/disk':
             self._api_disk()
+        elif path == '/api/archived':
+            self._api_archived_list()
         elif path == '/api/excludes':
             self._api_excludes_get()
         elif path.startswith('/api/excludes/'):
@@ -489,6 +621,9 @@ class APIHandler(BaseHTTPRequestHandler):
             self._api_restore_start(path[len('/api/restore/'):], body)
         elif path == '/api/servers':
             self._api_servers_add(body)
+        elif path.startswith('/api/archived/') and path.endswith('/unarchive'):
+            hostname = path[len('/api/archived/'):-len('/unarchive')]
+            self._api_archived_unarchive(hostname)
         else:
             self._send_json({'error': f'Not found: POST {path}'}, 404)
 
@@ -520,7 +655,9 @@ class APIHandler(BaseHTTPRequestHandler):
             pass
 
     def _route_delete(self):
-        path = unquote(urlparse(self.path).path)
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
+        query = parse_qs(parsed.query)
 
         if path == '/api/restores':
             self._api_restores_clear()
@@ -529,7 +666,16 @@ class APIHandler(BaseHTTPRequestHandler):
         elif path.startswith('/api/backup/'):
             self._api_backup_kill(path[len('/api/backup/'):])
         elif path.startswith('/api/servers/'):
-            self._api_servers_delete(path[len('/api/servers/'):])
+            action = query.get('action', [''])[0]
+            hostname = path[len('/api/servers/'):]
+            if action == 'archive':
+                self._api_servers_archive(hostname)
+            elif action == 'delete':
+                self._api_servers_full_delete(hostname)
+            else:
+                self._api_servers_archive(hostname)
+        elif path.startswith('/api/archived/'):
+            self._api_archived_delete(path[len('/api/archived/'):])
         else:
             self._send_json({'error': f'Not found: DELETE {path}'}, 404)
 
@@ -1044,6 +1190,66 @@ class APIHandler(BaseHTTPRequestHandler):
             f.writelines(new_lines)
 
         self._send_json({'status': 'removed', 'hostname': target_host})
+
+    def _api_servers_archive(self, target_host):
+        result = archive_server(target_host)
+        if result is None:
+            self._send_json({'error': f"Server '{target_host}' not found in servers.conf"}, 404)
+            return
+        self._send_json({'status': 'archived', 'hostname': target_host})
+
+    def _api_servers_full_delete(self, target_host):
+        # Remove from servers.conf
+        conf = os.path.join(project_root(), 'config', 'servers.conf')
+        if os.path.isfile(conf):
+            lines = open(conf).readlines()
+            new_lines = [l for l in lines if not (l.strip() and not l.strip().startswith('#') and l.strip().split()[0] == target_host)]
+            with open(conf, 'w') as f:
+                f.writelines(new_lines)
+        # Also remove from archived.conf if present
+        archived_conf = os.path.join(project_root(), 'config', 'archived.conf')
+        if os.path.isfile(archived_conf):
+            lines = open(archived_conf).readlines()
+            new_lines = [l for l in lines if not (l.strip() and not l.strip().startswith('#') and l.strip().split()[0] == target_host)]
+            with open(archived_conf, 'w') as f:
+                f.writelines(new_lines)
+        # Remove per-server exclude file
+        excl = os.path.join(project_root(), 'config', f'exclude.{target_host}.conf')
+        if os.path.isfile(excl):
+            os.remove(excl)
+        # Delete backup data in background
+        delete_server_data_bg(target_host)
+        self._send_json({'status': 'deleting', 'hostname': target_host,
+                         'message': 'Server removed. Backup data is being deleted in the background.'})
+
+    def _api_archived_list(self):
+        archived = read_archived_conf()
+        delete_tasks = get_delete_tasks()
+        self._send_json({'servers': archived, 'delete_tasks': delete_tasks})
+
+    def _api_archived_unarchive(self, hostname):
+        result = unarchive_server(hostname)
+        if result is None:
+            self._send_json({'error': f"Server '{hostname}' not found in archive"}, 404)
+            return
+        self._send_json({'status': 'unarchived', 'hostname': hostname})
+
+    def _api_archived_delete(self, hostname):
+        # Remove from archived.conf
+        archived_conf = os.path.join(project_root(), 'config', 'archived.conf')
+        if os.path.isfile(archived_conf):
+            lines = open(archived_conf).readlines()
+            new_lines = [l for l in lines if not (l.strip() and not l.strip().startswith('#') and l.strip().split()[0] == hostname)]
+            with open(archived_conf, 'w') as f:
+                f.writelines(new_lines)
+        # Remove per-server exclude file
+        excl = os.path.join(project_root(), 'config', f'exclude.{hostname}.conf')
+        if os.path.isfile(excl):
+            os.remove(excl)
+        # Delete backup data in background
+        delete_server_data_bg(hostname)
+        self._send_json({'status': 'deleting', 'hostname': hostname,
+                         'message': 'Archived server removed. Backup data is being deleted in the background.'})
 
     def _api_settings_get(self):
         self._send_json({

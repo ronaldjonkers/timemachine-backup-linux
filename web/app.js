@@ -682,6 +682,79 @@ async function saveServerExcludes() {
 }
 
 /* ============================================================
+   ARCHIVE
+   ============================================================ */
+
+async function refreshArchived() {
+    var data = await apiGet('/api/archived');
+    var tbody = document.getElementById('archived-body');
+    var taskPanel = document.getElementById('delete-tasks-panel');
+    var taskBody = document.getElementById('delete-tasks-body');
+
+    if (!data) return;
+
+    var servers = data.servers || [];
+    var tasks = data.delete_tasks || [];
+
+    if (servers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No archived servers</td></tr>';
+    } else {
+        tbody.innerHTML = servers.map(function(srv) {
+            return '<tr>' +
+                '<td><strong>' + esc(srv.hostname) + '</strong></td>' +
+                '<td>' + esc(srv.last_backup || '--') + '</td>' +
+                '<td>' + (srv.snapshots || 0) + '</td>' +
+                '<td>' + esc(srv.total_size || '--') + '</td>' +
+                '<td>' +
+                    '<button class="btn btn-sm" onclick="openServerDetail(\'' + esc(srv.hostname) + '\')">Browse</button> ' +
+                    '<button class="btn btn-sm btn-success" onclick="unarchiveServer(\'' + esc(srv.hostname) + '\')">Re-activate</button> ' +
+                    '<button class="btn btn-sm btn-danger" onclick="deleteArchivedServer(\'' + esc(srv.hostname) + '\')">Delete</button>' +
+                '</td></tr>';
+        }).join('');
+    }
+
+    // Show background deletion tasks
+    if (tasks.length > 0) {
+        taskPanel.style.display = '';
+        taskBody.innerHTML = tasks.map(function(t) {
+            var sc = t.status === 'running' ? 'running' : (t.status === 'completed' ? 'success' : 'failed');
+            var startedStr = t.started ? new Date(t.started * 1000).toLocaleString() : '--';
+            return '<tr>' +
+                '<td>' + esc(t.hostname) + '</td>' +
+                '<td><span class="status-cell ' + sc + '"><span class="status-dot"></span>' + esc(t.status) +
+                    (t.status === 'running' ? ' (this may take a while)' : '') + '</span></td>' +
+                '<td>' + startedStr + '</td>' +
+            '</tr>';
+        }).join('');
+    } else {
+        taskPanel.style.display = 'none';
+    }
+}
+
+async function unarchiveServer(hostname) {
+    if (!confirm('Re-activate ' + hostname + '? It will be added back to the daily backup schedule.')) return;
+    var result = await apiPost('/api/archived/' + hostname + '/unarchive');
+    if (result && result.status === 'unarchived') {
+        toast(hostname + ' re-activated — daily backups will resume', 'success');
+        refreshServers();
+        refreshArchived();
+    } else {
+        toast('Failed to re-activate ' + hostname, 'error');
+    }
+}
+
+async function deleteArchivedServer(hostname) {
+    if (!confirm('PERMANENTLY delete ' + hostname + ' and ALL backup data? This cannot be undone!')) return;
+    var result = await apiDelete('/api/archived/' + hostname);
+    if (result && result.status === 'deleting') {
+        toast(hostname + ' — data deletion running in background', 'info');
+        refreshArchived();
+    } else {
+        toast('Failed to delete ' + hostname, 'error');
+    }
+}
+
+/* ============================================================
    LOG VIEWER (live streaming)
    ============================================================ */
 
@@ -861,12 +934,43 @@ async function addServer() {
     }
 }
 
-async function removeServer(hostname) {
-    if (!confirm('Remove server ' + hostname + ' from backup list?')) return;
-    var result = await apiDelete('/api/servers/' + hostname);
-    if (result) {
-        toast('Server ' + hostname + ' removed', 'info');
+function removeServer(hostname) {
+    var html = '<p>What would you like to do with <strong>' + esc(hostname) + '</strong>?</p>' +
+        '<div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem">' +
+            '<button class="btn btn-primary" onclick="archiveServer(\'' + esc(hostname) + '\')" style="text-align:left;padding:0.75rem 1rem">' +
+                '<strong>&#x1F4E6; Archive</strong><br>' +
+                '<small class="text-muted">Stop daily backups but keep all existing snapshots. You can browse and restore from the Archive tab.</small>' +
+            '</button>' +
+            '<button class="btn btn-danger" onclick="fullDeleteServer(\'' + esc(hostname) + '\')" style="text-align:left;padding:0.75rem 1rem">' +
+                '<strong>&#x1F5D1; Delete permanently</strong><br>' +
+                '<small>Remove server AND delete all backup data. This runs in the background and cannot be undone.</small>' +
+            '</button>' +
+        '</div>';
+    openModal('Remove Server', html);
+}
+
+async function archiveServer(hostname) {
+    closeModal();
+    var result = await apiDelete('/api/servers/' + hostname + '?action=archive');
+    if (result && result.status === 'archived') {
+        toast(hostname + ' archived — snapshots preserved', 'success');
         refreshServers();
+        refreshArchived();
+    } else {
+        toast('Failed to archive ' + hostname, 'error');
+    }
+}
+
+async function fullDeleteServer(hostname) {
+    closeModal();
+    if (!confirm('PERMANENTLY delete ' + hostname + ' and ALL backup data? This cannot be undone!')) return;
+    var result = await apiDelete('/api/servers/' + hostname + '?action=delete');
+    if (result && result.status === 'deleting') {
+        toast(hostname + ' removed. Data deletion running in background.', 'info');
+        refreshServers();
+        refreshArchived();
+    } else {
+        toast('Failed to delete ' + hostname, 'error');
     }
 }
 
@@ -950,6 +1054,9 @@ var _snapData = [];
 var _snapHost = '';
 
 async function openServerDetail(hostname) {
+    // Switch to servers page if not already there (e.g. called from Archive)
+    showPage('servers');
+
     var panel = document.getElementById('server-detail-panel');
     var title = document.getElementById('server-detail-title');
     var body = document.getElementById('server-detail-body');
@@ -1332,4 +1439,6 @@ async function refreshAll() {
 refreshAll();
 refreshSettings();
 refreshExcludes();
+refreshArchived();
 setInterval(refreshAll, REFRESH_INTERVAL);
+setInterval(refreshArchived, REFRESH_INTERVAL);

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.0] - 2026-02-10
+
+### Added
+- **Server Archive** — When removing a server, a modal now offers two choices:
+  - **Archive**: Stop daily backups but preserve all existing snapshots. Archived servers appear in the new **Archive** tab where you can browse snapshots, restore data, re-activate the server, or permanently delete it
+  - **Delete permanently**: Remove the server from config AND delete all backup data. Data deletion runs in the background (can take a long time for large datasets) — the web interface does not block. A "Background Deletions" panel on the Archive page shows progress
+- **Archive page** — New nav tab between Servers and Restores. Lists archived servers with last backup date, snapshot count, total size, and actions (Browse, Re-activate, Delete)
+- **API endpoints**: `GET /api/archived`, `DELETE /api/servers/<host>?action=archive|delete`, `POST /api/archived/<host>/unarchive`, `DELETE /api/archived/<host>`
+- **Config file**: `config/archived.conf` — same format as `servers.conf`, stores archived server entries
+
 ## [2.14.5] - 2026-02-10
 
 ### Fixed
