@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.2] - 2026-02-10
+
+### Fixed
+- **Daily backups never triggered** — Two bugs working together prevented all scheduled backups:
+  1. `daily-jobs-check.sh` scanned `${TM_RUN_DIR}/*.pid` for stale backup processes, but `tmserviced.pid` (the service daemon itself) was always present with a live PID. This caused the pre-backup check to always report "previous backups still running" and exit 1, permanently blocking all daily runs
+  2. `_scheduler_loop` inherited `set -euo pipefail` from `common.sh`. Any non-zero exit code (e.g. `grep` finding no matches in an empty `servers.conf`, or `_check_db_intervals` returning 1) silently killed the entire scheduler subshell. No error was logged — the scheduler simply stopped running
+- **Fix**: `daily-jobs-check.sh` now skips `tmserviced.pid`. Scheduler loop now starts with `set +e` to prevent silent death. Added `|| true` guards on `_check_db_intervals` and `_generate_handler_script`. Fixed `return` → `return 0` in helper functions to avoid propagating error codes
+- **Scheduler heartbeat** — Logs a DEBUG heartbeat every 30 minutes with the current schedule time, making it easy to verify the scheduler is alive via `journalctl -u timemachine`
+
 ## [2.14.1] - 2026-02-10
 
 ### Fixed

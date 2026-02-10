@@ -227,8 +227,8 @@ _parse_db_interval() {
 # Get sorted server lines (by priority, ascending)
 _get_sorted_servers() {
     local servers_conf="$1"
-    [[ -f "${servers_conf}" ]] || return
-    grep -E '^\s*[^#\s]' "${servers_conf}" | \
+    [[ -f "${servers_conf}" ]] || return 0
+    grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
         sed 's/^[[:space:]]*//' | \
         while IFS= read -r line; do
             local prio
@@ -250,9 +250,9 @@ _wait_for_slot() {
 # Check and run DB-interval backups for servers that need them
 _check_db_intervals() {
     local servers_conf="$1"
-    [[ -f "${servers_conf}" ]] || return
+    [[ -f "${servers_conf}" ]] || return 0
 
-    grep -E '^\s*[^#\s]' "${servers_conf}" | \
+    grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
         sed 's/^[[:space:]]*//' | while IFS= read -r line; do
             local interval_hours
             interval_hours=$(_parse_db_interval "${line}")
@@ -300,15 +300,30 @@ _check_db_intervals() {
 }
 
 _scheduler_loop() {
+    # CRITICAL: disable set -e inside the scheduler loop.
+    # The loop runs in a background subshell and inherits set -euo pipefail
+    # from common.sh. Any unhandled non-zero exit (e.g. grep finding no
+    # matches, missing servers.conf, failed daily-jobs-check.sh) would
+    # silently kill the entire scheduler, preventing all daily backups.
+    set +e
+
     local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
     local last_run_file="${STATE_DIR}/last-daily-run"
+    local _loop_count=0
 
     while true; do
+        _loop_count=$(( _loop_count + 1 ))
+
+        # Heartbeat log every 30 minutes (every 30 iterations of 60s sleep)
+        if [[ $(( _loop_count % 30 )) -eq 1 ]]; then
+            tm_log "DEBUG" "Scheduler: heartbeat (loop #${_loop_count}, schedule=${TM_SCHEDULE_HOUR:-11}:$(printf '%02d' "${TM_SCHEDULE_MINUTE:-0}"))"
+        fi
+
         # Check if daily run is due
         local today
         today=$(tm_date_today)
         local last_run=""
-        [[ -f "${last_run_file}" ]] && last_run=$(cat "${last_run_file}")
+        [[ -f "${last_run_file}" ]] && last_run=$(cat "${last_run_file}" 2>/dev/null)
 
         local current_hour current_minute
         current_hour=$(date +'%H')
@@ -319,13 +334,14 @@ _scheduler_loop() {
         local schedule_time=$((10#${schedule_hour} * 60 + 10#${schedule_minute}))
 
         if [[ "${last_run}" != "${today}" && ${current_time} -ge ${schedule_time} ]]; then
-            tm_log "INFO" "Scheduler: triggering daily backup run"
+            tm_log "INFO" "Scheduler: triggering daily backup run (time=${current_hour}:${current_minute}, schedule=${schedule_hour}:$(printf '%02d' "${schedule_minute}"))"
 
             if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
                 # Use daily-runner.sh which handles priority sorting,
                 # parallel execution, per-server tracking, and report generation
                 "${SCRIPT_DIR}/daily-runner.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1 || true
                 echo "${today}" > "${last_run_file}"
+                tm_log "INFO" "Scheduler: daily run completed, marked ${today}"
 
                 # Reset DB interval timestamps after daily run
                 # (daily run already includes DB backup)
@@ -341,25 +357,20 @@ _scheduler_loop() {
                         echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
                     done
             else
-                tm_log "ERROR" "Scheduler: pre-backup check failed"
+                tm_log "ERROR" "Scheduler: pre-backup check failed (previous backups still running?)"
             fi
         fi
 
         # Check DB interval backups (runs every minute)
-        _check_db_intervals "${servers_conf}"
+        _check_db_intervals "${servers_conf}" || true
 
         # Check if config reload was requested (e.g. after settings save)
         if [[ -f "${STATE_DIR}/.reload_config" ]]; then
             rm -f "${STATE_DIR}/.reload_config"
             tm_log "INFO" "Scheduler: reloading configuration"
             tm_load_config
-            _generate_handler_script
+            _generate_handler_script 2>/dev/null || true
             tm_log "INFO" "Scheduler: handler script regenerated with new config"
-        fi
-
-        # Notify systemd watchdog that we're alive
-        if [[ -n "${WATCHDOG_USEC:-}" ]] && command -v systemd-notify &>/dev/null; then
-            systemd-notify WATCHDOG=1 2>/dev/null || true
         fi
 
         sleep 60

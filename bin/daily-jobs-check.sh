@@ -32,8 +32,12 @@ tm_ensure_dir "${TM_RUN_DIR}"
 for pidfile in "${TM_RUN_DIR}"/*.pid; do
     [[ -f "${pidfile}" ]] || continue
 
-    pid=$(cat "${pidfile}")
     lock_name=$(basename "${pidfile}" .pid)
+
+    # Skip the service daemon's own PID file — it's always running
+    [[ "${lock_name}" == "tmserviced" ]] && continue
+
+    pid=$(cat "${pidfile}")
 
     if kill -0 "${pid}" 2>/dev/null; then
         tm_log "WARN" "Previous backup still running: ${lock_name} (PID ${pid})"
