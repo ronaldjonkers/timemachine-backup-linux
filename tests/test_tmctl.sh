@@ -73,7 +73,7 @@ echo ""
 echo "=== Testing: tmctl version ==="
 
 output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" version 2>&1)
-assert_contains "Version output" "2.13.1" "${output}"
+assert_contains "Version output" "2.14.0" "${output}"
 
 # ============================================================
 # TESTS: SSH KEY
@@ -295,6 +295,13 @@ assert_eq "daily-runner.sh syntax valid" "0" "${syntax_rc}"
 syntax_output=$(bash -n "${PROJECT_ROOT}/bin/tmserviced.sh" 2>&1)
 syntax_rc=$?
 assert_eq "tmserviced.sh syntax valid" "0" "${syntax_rc}"
+
+# tm-api-server.py syntax check
+if command -v python3 &>/dev/null; then
+    syntax_output=$(python3 -c "import py_compile; py_compile.compile('${PROJECT_ROOT}/bin/tm-api-server.py', doraise=True)" 2>&1)
+    syntax_rc=$?
+    assert_eq "tm-api-server.py syntax valid" "0" "${syntax_rc}"
+fi
 
 # ============================================================
 # TESTS: SETUP-WEB SCRIPT

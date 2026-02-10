@@ -519,6 +519,7 @@ async function refreshSettings() {
 
     var el = function(id) { return document.getElementById(id); };
     if (el('setting-schedule-hour')) el('setting-schedule-hour').value = data.schedule_hour;
+    if (el('setting-schedule-minute')) el('setting-schedule-minute').value = data.schedule_minute || 0;
     if (el('setting-retention-days')) el('setting-retention-days').value = data.retention_days;
     if (el('setting-parallel-jobs')) el('setting-parallel-jobs').value = data.parallel_jobs || 5;
     if (el('setting-alert-enabled')) el('setting-alert-enabled').checked = (data.alert_enabled === 'true');
@@ -553,8 +554,11 @@ async function saveSettings() {
         return;
     }
 
+    var minute = parseInt(document.getElementById('setting-schedule-minute').value, 10) || 0;
+
     var payload = {
         schedule_hour: hour,
+        schedule_minute: minute,
         retention_days: retention,
         parallel_jobs: parallelJobs,
         alert_enabled: document.getElementById('setting-alert-enabled').checked ? 'true' : 'false',

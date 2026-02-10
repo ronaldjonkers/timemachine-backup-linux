@@ -60,7 +60,7 @@
             </section>
 
             <!-- Row 2: System metrics -->
-            <section class="cards cards-6">
+            <section class="cards">
                 <div class="card">
                     <div class="card-icon">&#x1F4BB;</div>
                     <div class="card-body">
@@ -77,7 +77,7 @@
                 </div>
                 <div class="card">
                     <div class="card-icon">&#x1F9E0;</div>
-                    <div class="card-body">
+                    <div class="card-body" style="flex:1">
                         <div class="card-label">Memory</div>
                         <div class="card-value"><span id="sys-mem-used">--</span><span class="card-unit" id="sys-mem-detail"></span></div>
                         <div class="progress-bar progress-bar-sm">
@@ -85,7 +85,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="card card-wide">
+                <div class="card">
                     <div class="card-icon">&#x1F4BE;</div>
                     <div class="card-body" style="flex:1">
                         <div class="card-label">Disk Usage</div>
@@ -93,7 +93,7 @@
                             <span class="card-value" id="disk-used">--</span>
                             <span class="disk-detail" id="disk-detail">/ --</span>
                         </div>
-                        <div class="progress-bar">
+                        <div class="progress-bar progress-bar-sm">
                             <div class="progress-fill" id="disk-bar" style="width:0%"></div>
                         </div>
                     </div>
@@ -304,10 +304,17 @@
                 <div class="settings-form">
                     <div class="settings-row">
                         <div class="settings-field">
-                            <label for="setting-schedule-hour">Daily backup start hour</label>
+                            <label for="setting-schedule-hour">Daily backup start time</label>
                             <div class="settings-input-group">
                                 <input type="number" id="setting-schedule-hour" min="0" max="23" value="11" style="width:80px">
-                                <span class="text-muted">:00 (24h format, 0-23)</span>
+                                <span class="text-muted">:</span>
+                                <select id="setting-schedule-minute" style="width:70px;padding:0.45rem 0.5rem;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
+                                    <option value="0">00</option>
+                                    <option value="15">15</option>
+                                    <option value="30">30</option>
+                                    <option value="45">45</option>
+                                </select>
+                                <span class="text-muted">(24h format)</span>
                             </div>
                         </div>
                         <div class="settings-field">

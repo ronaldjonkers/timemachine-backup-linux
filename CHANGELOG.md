@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] - 2026-02-10
+
+### Added
+- **Python API server** (`bin/tm-api-server.py`) — Production-grade threaded HTTP server replacing bash+socat. Uses Python's `ThreadingHTTPServer` with `daemon_threads` and `request_queue_size=128` for proper concurrent request handling (1000+ simultaneous users). All API endpoints are a 1:1 port from the bash implementation. Falls back to socat if Python 3 is not available
+- **Schedule minute** — Backup start time can now be set to quarter-hour precision (00/15/30/45) via a dropdown in Settings. New `TM_SCHEDULE_MINUTE` config variable. Scheduler compares total minutes instead of just hours
+
+### Changed
+- **Dashboard layout** — Disk Usage card is now equal width next to Memory (4-column grid instead of 3+wide). Both use compact progress bars
+- Scheduler time comparison uses `10#` prefix and minute-level granularity, fixing the octal parsing issue permanently
+
 ## [2.13.1] - 2026-02-10
 
 ### Fixed

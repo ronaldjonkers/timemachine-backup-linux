@@ -80,6 +80,7 @@ tm_load_config() {
     : "${TM_API_PORT:=7600}"
     : "${TM_API_BIND:=0.0.0.0}"
     : "${TM_SCHEDULE_HOUR:=11}"
+    : "${TM_SCHEDULE_MINUTE:=0}"
 }
 
 # ============================================================

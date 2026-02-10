@@ -310,11 +310,15 @@ _scheduler_loop() {
         local last_run=""
         [[ -f "${last_run_file}" ]] && last_run=$(cat "${last_run_file}")
 
-        local current_hour
+        local current_hour current_minute
         current_hour=$(date +'%H')
+        current_minute=$(date +'%M')
         local schedule_hour="${TM_SCHEDULE_HOUR:-11}"
+        local schedule_minute="${TM_SCHEDULE_MINUTE:-0}"
+        local current_time=$((10#${current_hour} * 60 + 10#${current_minute}))
+        local schedule_time=$((10#${schedule_hour} * 60 + 10#${schedule_minute}))
 
-        if [[ "${last_run}" != "${today}" && 10#${current_hour} -ge 10#${schedule_hour} ]]; then
+        if [[ "${last_run}" != "${today}" && ${current_time} -ge ${schedule_time} ]]; then
             tm_log "INFO" "Scheduler: triggering daily backup run"
 
             if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
@@ -968,6 +972,7 @@ _handle_request() {
             local resp
             resp=$(printf '{
                 "schedule_hour":%s,
+                "schedule_minute":%s,
                 "retention_days":%s,
                 "parallel_jobs":%s,
                 "alert_enabled":"%s",
@@ -982,6 +987,7 @@ _handle_request() {
                 "alert_email_restore_fail":"%s"
             }' \
                 "$(_env_val TM_SCHEDULE_HOUR "${TM_SCHEDULE_HOUR:-11}")" \
+                "$(_env_val TM_SCHEDULE_MINUTE "${TM_SCHEDULE_MINUTE:-0}")" \
                 "$(_env_val TM_RETENTION_DAYS "${TM_RETENTION_DAYS:-7}")" \
                 "$(_env_val TM_PARALLEL_JOBS "${TM_PARALLEL_JOBS:-5}")" \
                 "$(_env_val TM_ALERT_ENABLED "${TM_ALERT_ENABLED:-false}")" \
@@ -1022,6 +1028,8 @@ _handle_request() {
             local jv
             jv=$(echo "${body}" | grep -o '"schedule_hour":[0-9]*' | cut -d: -f2)
             [[ -n "${jv}" ]] && _env_set TM_SCHEDULE_HOUR "${jv}"
+            jv=$(echo "${body}" | grep -o '"schedule_minute":[0-9]*' | cut -d: -f2)
+            [[ -n "${jv}" ]] && _env_set TM_SCHEDULE_MINUTE "${jv}"
             jv=$(echo "${body}" | grep -o '"retention_days":[0-9]*' | cut -d: -f2)
             [[ -n "${jv}" ]] && _env_set TM_RETENTION_DAYS "${jv}"
             jv=$(echo "${body}" | grep -o '"parallel_jobs":[0-9]*' | cut -d: -f2)
@@ -1378,43 +1386,49 @@ _generate_handler_script() {
 _start_http_server() {
     tm_log "INFO" "Starting HTTP API on ${TM_API_BIND}:${TM_API_PORT}"
 
-    # Generate self-contained handler script
-    # (avoids export -f issues with socat/ncat subprocesses)
-    _generate_handler_script
-    local handler="${TM_RUN_DIR}/_http_handler.sh"
+    local api_server="${SCRIPT_DIR}/tm-api-server.py"
+    local python_bin=""
 
-    if command -v socat &>/dev/null; then
-        # socat: best option — handles concurrent connections via fork
-        # max-children limits parallel forks to prevent resource exhaustion
+    # Find Python 3 interpreter
+    for p in python3 python; do
+        if command -v "${p}" &>/dev/null && "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null; then
+            python_bin="${p}"
+            break
+        fi
+    done
+
+    if [[ -n "${python_bin}" && -f "${api_server}" ]]; then
+        # Python API server — production-grade threaded HTTP server
+        "${python_bin}" "${api_server}" \
+            --bind "${TM_API_BIND}" \
+            --port "${TM_API_PORT}" \
+            --project-root "${TM_PROJECT_ROOT}" \
+            >> "${TM_LOG_DIR}/api-server.log" 2>&1 &
+        HTTP_PID=$!
+        tm_log "INFO" "HTTP API started via Python (PID ${HTTP_PID})"
+    elif command -v socat &>/dev/null; then
+        # Fallback: socat + bash handler (limited concurrency)
+        tm_log "WARN" "Python 3 not found, falling back to socat (limited concurrency)"
+        _generate_handler_script
+        local handler="${TM_RUN_DIR}/_http_handler.sh"
         socat TCP-LISTEN:${TM_API_PORT},bind=${TM_API_BIND},reuseaddr,fork,max-children=10 \
             EXEC:"${handler}" &
         HTTP_PID=$!
         tm_log "INFO" "HTTP API started via socat (PID ${HTTP_PID})"
-
     elif command -v ncat &>/dev/null; then
-        # ncat (from nmap): use --keep-open for concurrent connections
-        # --keep-open keeps listening after each connection closes
+        tm_log "WARN" "Python 3 not found, falling back to ncat (limited concurrency)"
+        _generate_handler_script
+        local handler="${TM_RUN_DIR}/_http_handler.sh"
         if ncat --help 2>&1 | grep -q "\-\-keep-open"; then
             ncat --keep-open -l -p ${TM_API_PORT} --sh-exec "${handler}" &
-            HTTP_PID=$!
-            tm_log "INFO" "HTTP API started via ncat --keep-open (PID ${HTTP_PID})"
         else
-            # Older ncat or netcat without --keep-open: use respawning loop
-            # with a small pre-listen delay to avoid port conflicts
             _ncat_respawn_loop "${handler}" &
-            HTTP_PID=$!
-            tm_log "INFO" "HTTP API started via ncat respawn loop (PID ${HTTP_PID})"
         fi
-
-    elif command -v nc &>/dev/null; then
-        # Traditional netcat fallback
-        _ncat_respawn_loop "${handler}" &
         HTTP_PID=$!
-        tm_log "INFO" "HTTP API started via nc respawn loop (PID ${HTTP_PID})"
-
+        tm_log "INFO" "HTTP API started via ncat (PID ${HTTP_PID})"
     else
-        tm_log "ERROR" "No socat, ncat, or nc found. Dashboard will not be available."
-        tm_log "ERROR" "Install socat: dnf install socat / apt install socat"
+        tm_log "ERROR" "No Python 3, socat, or ncat found. Dashboard will not be available."
+        tm_log "ERROR" "Install Python 3: dnf install python3 / apt install python3"
         return 1
     fi
 }
