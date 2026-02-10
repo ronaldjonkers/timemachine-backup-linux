@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.9] - 2026-02-10
+
+### Fixed
+- **CRITICAL: Backups falsely reported as "failed" and no emails sent** — Root cause: `set -euo pipefail` (from `common.sh`) killed the script silently during the summary section when `du -sh` or `ls` returned non-zero (e.g., permission denied on some files). This caused:
+  1. No "Backup completed successfully" log line
+  2. No email notification (success OR failure)
+  3. Non-zero exit code → status shown as "failed" in dashboard
+  - **Fix**: `set +e` before the summary/notification section so non-critical commands (`du`, `df`, `find`, `mail`) cannot crash the script
+  - **Fix**: All summary commands guarded with `|| fallback` for robustness
+  - **Fix**: `tm_notify` calls guarded with `|| true`
+  - **Fix**: Backup log limited to last 500 lines in emails to prevent bash OOM on huge first backups
+- **Global excludes**: Added `/home/timemachine` and `/Backup` to prevent backing up TimeMachine's own data
+
 ## [2.18.8] - 2026-02-10
 
 ### Added

@@ -205,7 +205,12 @@ main() {
         tm_rotate_backups "${BACKUP_BASE}"
     fi
 
-    # --- Summary ---
+    # --- Summary & Notification ---
+    # Temporarily disable set -e for the summary section so that
+    # non-critical failures (du, df, mail) don't kill the script
+    # and prevent the exit code from being reported correctly.
+    set +e
+
     local end_time
     end_time=$(date +%s)
     local duration=$(( end_time - start_time ))
@@ -213,11 +218,13 @@ main() {
     # Build summary header
     local snap_dir="${BACKUP_BASE}/${_TM_SNAP_ID:-$(tm_date_today)}"
     local snap_size=""
-    [[ -d "${snap_dir}" ]] && snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
-    local snap_count
-    snap_count=$(ls -d "${BACKUP_BASE}"/20* 2>/dev/null | wc -l | tr -d ' ')
-    local disk_free
-    disk_free=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | awk 'NR==2{print $4}')
+    if [[ -d "${snap_dir}" ]]; then
+        snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1) || snap_size="unknown"
+    fi
+    local snap_count="0"
+    snap_count=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name '20*' 2>/dev/null | wc -l | tr -d ' ') || snap_count="0"
+    local disk_free=""
+    disk_free=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | awk 'NR==2{print $4}') || disk_free="unknown"
 
     local mode="full"
     [[ ${FILES_ONLY} -eq 1 ]] && mode="files-only"
@@ -264,19 +271,28 @@ ${_TM_DB_OUTPUT}"
     fi
 
     # Append the full backup log (contains all tm_log output incl. errors)
+    # Limit to last 500 lines to prevent bash OOM on huge first backups
     if [[ -n "${_TM_BACKUP_LOGFILE:-}" && -f "${_TM_BACKUP_LOGFILE}" ]]; then
+        local log_lines
+        log_lines=$(wc -l < "${_TM_BACKUP_LOGFILE}" 2>/dev/null) || log_lines=0
+        local log_content
+        log_content=$(tail -500 "${_TM_BACKUP_LOGFILE}" 2>/dev/null) || log_content="(could not read log)"
+        local log_header="FULL BACKUP LOG (${_TM_BACKUP_LOGFILE##*/})"
+        if [[ ${log_lines} -gt 500 ]]; then
+            log_header+=" — last 500 of ${log_lines} lines"
+        fi
         email_body+="
 
 ============================================================
-FULL BACKUP LOG (${_TM_BACKUP_LOGFILE##*/})
+${log_header}
 ============================================================
-$(cat "${_TM_BACKUP_LOGFILE}" 2>/dev/null)"
+${log_content}"
     fi
 
     if [[ ${exit_code} -eq 0 ]]; then
-        tm_notify "Backup OK: ${HOSTNAME}" "${email_body}" "info" "backup_ok" "${HOSTNAME}"
+        tm_notify "Backup OK: ${HOSTNAME}" "${email_body}" "info" "backup_ok" "${HOSTNAME}" || true
     else
-        tm_notify "Backup FAILED: ${HOSTNAME}" "${email_body}" "error" "backup_fail" "${HOSTNAME}"
+        tm_notify "Backup FAILED: ${HOSTNAME}" "${email_body}" "error" "backup_fail" "${HOSTNAME}" || true
     fi
 
     return ${exit_code}
