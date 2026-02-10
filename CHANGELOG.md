@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.5] - 2026-02-10
+
+### Changed
+- **Snapshot dates formatted in dashboard** — Snapshot dates now display as `DD-MM-YYYY HH:MM uur` instead of raw `YYYY-MM-DD_HHMMSS`. Applied to: server detail snapshot list, modal snapshot list, browse breadcrumb, and archive last backup column. Old `YYYY-MM-DD` format displays as `DD-MM-YYYY`
+
 ## [2.18.4] - 2026-02-10
 
 ### Fixed

@@ -762,7 +762,7 @@ async function refreshArchived() {
         tbody.innerHTML = servers.map(function(srv) {
             return '<tr>' +
                 '<td><strong>' + esc(srv.hostname) + '</strong></td>' +
-                '<td>' + esc(srv.last_backup || '--') + '</td>' +
+                '<td>' + formatSnapDate(srv.last_backup || '--') + '</td>' +
                 '<td>' + (srv.snapshots || 0) + '</td>' +
                 '<td>' + esc(srv.total_size || '--') + '</td>' +
                 '<td>' +
@@ -1220,7 +1220,7 @@ function _renderServerDetail() {
 
     var rows = pageData.map(function(s) {
         return '<tr>' +
-            '<td>' + esc(s.date) + '</td>' +
+            '<td>' + formatSnapDate(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
             '<td>' + (s.has_db ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
@@ -1271,7 +1271,7 @@ async function viewSnapshots(hostname, page) {
 
     var rows = pageData.map(function(s) {
         return '<tr>' +
-            '<td>' + esc(s.date) + '</td>' +
+            '<td>' + formatSnapDate(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
             '<td>' + (s.has_db ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
@@ -1321,7 +1321,7 @@ async function browseSnapshot(hostname, snapshot, subPath) {
         var filesData = await apiGet('/api/browse/' + hostname + '/' + snapshot);
         var sqlData = await apiGet('/api/browse/' + hostname + '/' + snapshot + '/sql');
 
-        var html = '<div class="breadcrumb"><strong>' + esc(hostname) + ' / ' + esc(snapshot) + '</strong></div>';
+        var html = '<div class="breadcrumb"><strong>' + esc(hostname) + ' / ' + formatSnapDate(snapshot) + '</strong></div>';
 
         // Files section
         html += '<h3 style="margin:0.75rem 0 0.5rem;font-size:0.9rem">&#x1F4C1; Files</h3>';
@@ -1540,6 +1540,17 @@ async function doRestore(hostname, snapshot, itemPath, mode) {
 /* ============================================================
    UTILITIES
    ============================================================ */
+
+function formatSnapDate(raw) {
+    if (!raw) return '';
+    // YYYY-MM-DD_HHMMSS -> DD-MM-YYYY HH:MM uur
+    // YYYY-MM-DD -> DD-MM-YYYY
+    var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:_(\d{2})(\d{2})(\d{2}))?$/);
+    if (!m) return raw;
+    var date = m[3] + '-' + m[2] + '-' + m[1];
+    if (m[4]) date += ' ' + m[4] + ':' + m[5] + ' uur';
+    return date;
+}
 
 function esc(str) {
     if (!str) return '';
