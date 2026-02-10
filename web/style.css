@@ -185,6 +185,10 @@ main {
     grid-column: span 2;
 }
 
+.cards-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
 .cards-6 {
     grid-template-columns: 1fr 1fr 1fr 2fr;
 }
@@ -881,6 +885,7 @@ footer {
     .header-content { flex-wrap: wrap; gap: 0.5rem; }
     .nav-tabs { order: 3; width: 100%; justify-content: center; }
     .cards { grid-template-columns: repeat(2, 1fr); }
+    .cards-3 { grid-template-columns: repeat(3, 1fr); }
     .cards-6 { grid-template-columns: repeat(2, 1fr); }
     .card-wide { grid-column: span 2; }
     .sysinfo-grid { grid-template-columns: repeat(2, 1fr); }
@@ -894,6 +899,7 @@ footer {
     .nav-tabs { gap: 0.15rem; }
     .nav-tab { padding: 0.35rem 0.6rem; font-size: 0.72rem; }
     .cards { grid-template-columns: 1fr 1fr; }
+    .cards-3 { grid-template-columns: 1fr 1fr 1fr; }
     .cards-6 { grid-template-columns: 1fr 1fr; }
     .card-wide { grid-column: span 2; }
     .quick-action { flex-direction: column; }

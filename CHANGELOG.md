@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] - 2026-02-10
+
+### Added
+- **DB credential alerts** — When a database dump fails due to missing or wrong credentials, a targeted email notification is sent to the admin. Detects specific issues per engine: MySQL password file missing, MySQL auth failed, PostgreSQL auth failed, MongoDB credentials issue, Redis BGSAVE failed
+- **Custom 502 auto-retry page** — `web/502.html` shows a friendly "API temporarily unavailable" message with 5-second auto-retry instead of raw nginx error
+
+### Fixed
+- **HTTP server stability** — socat now runs with `max-children=10` (prevents fork bomb under load), `keepalive` (reuses TCP connections), and `pty,stderr` (proper I/O handling). This significantly reduces 502 errors for concurrent users
+
+### Changed
+- **Dashboard layout** — Removed Uptime card; dashboard now shows Hostname, Active Jobs, Servers on row 1 (3 cards) and CPU 1m, CPU 5m, Memory, Disk on row 2 (4 cards) — fits cleanly in 2 rows
+- Row 1 uses new `cards-3` CSS grid class
+
 ## [2.11.0] - 2026-02-10
 
 ### Added

@@ -171,14 +171,12 @@ var _serverHostname = '';
 async function refreshStatus() {
     var data = await apiGet('/api/status');
     var badge = document.getElementById('service-status');
-    var uptimeEl = document.getElementById('uptime');
     var hostnameEl = document.getElementById('hostname');
     var activeEl = document.getElementById('active-jobs');
 
     if (data) {
         badge.querySelector('.badge-text').textContent = 'Running';
         badge.className = 'badge badge-running';
-        uptimeEl.textContent = formatUptime(data.uptime || 0);
         hostnameEl.textContent = data.hostname || '--';
         _serverHostname = data.hostname || '';
         var running = (data.processes || []).filter(function(p) { return p.status === 'running'; }).length;
@@ -190,7 +188,6 @@ async function refreshStatus() {
     } else {
         badge.querySelector('.badge-text').textContent = 'Offline';
         badge.className = 'badge badge-stopped';
-        uptimeEl.textContent = '--';
         activeEl.textContent = '0';
     }
 

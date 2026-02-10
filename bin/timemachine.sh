@@ -149,9 +149,38 @@ main() {
         db_output=$(tm_trigger_remote_dump "${HOSTNAME}" 2>&1)
         local db_rc=$?
 
+        # Log remote output for visibility
+        if [[ -n "${db_output}" ]]; then
+            while IFS= read -r line; do
+                [[ -n "${line}" ]] && tm_log "INFO" "  [remote] ${line}"
+            done <<< "${db_output}"
+        fi
+
         if [[ ${db_rc} -ne 0 ]]; then
             tm_log "ERROR" "Remote database dump failed on ${HOSTNAME}"
             exit_code=1
+
+            # Check for credential/auth issues and send targeted alert
+            local db_errors=""
+            if echo "${db_output}" | grep -qi "No MySQL password found\|No.*password.*found"; then
+                db_errors+="MySQL/MariaDB: password file missing or empty\n"
+            fi
+            if echo "${db_output}" | grep -qi "Failed to retrieve MySQL database list"; then
+                db_errors+="MySQL/MariaDB: authentication failed (wrong password or access denied)\n"
+            fi
+            if echo "${db_output}" | grep -qi "Failed to retrieve PostgreSQL database list"; then
+                db_errors+="PostgreSQL: authentication failed (peer auth or connection refused)\n"
+            fi
+            if echo "${db_output}" | grep -qi "mongodump failed"; then
+                db_errors+="MongoDB: dump failed (check credentials in mongodb.conf)\n"
+            fi
+            if echo "${db_output}" | grep -qi "Failed to trigger Redis BGSAVE"; then
+                db_errors+="Redis: BGSAVE failed (check password in redis.pw)\n"
+            fi
+            if [[ -n "${db_errors}" ]]; then
+                local alert_body="Database backup failed on ${HOSTNAME} due to credential/access issues:\n\n${db_errors}\nFull output:\n$(echo "${db_output}" | tail -20)"
+                tm_notify "DB credentials issue: ${HOSTNAME}" "${alert_body}" "error" "backup_fail" "${HOSTNAME}"
+            fi
         elif echo "${db_output}" | grep -q "No databases to dump"; then
             tm_log "INFO" "No databases detected on ${HOSTNAME} — skipping DB sync"
         else
@@ -160,13 +189,6 @@ main() {
                 tm_log "ERROR" "SQL sync failed for ${HOSTNAME}"
                 exit_code=1
             fi
-        fi
-
-        # Log remote output for visibility
-        if [[ -n "${db_output}" ]]; then
-            while IFS= read -r line; do
-                [[ -n "${line}" ]] && tm_log "INFO" "  [remote] ${line}"
-            done <<< "${db_output}"
         fi
     fi
 

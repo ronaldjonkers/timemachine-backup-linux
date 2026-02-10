@@ -1358,8 +1358,10 @@ _start_http_server() {
 
     if command -v socat &>/dev/null; then
         # socat: best option — handles concurrent connections via fork
-        socat TCP-LISTEN:${TM_API_PORT},bind=${TM_API_BIND},reuseaddr,fork \
-            EXEC:"${handler}" &
+        # max-children limits parallel forks to prevent resource exhaustion
+        # keepalive keeps TCP connections alive for repeated requests
+        socat TCP-LISTEN:${TM_API_PORT},bind=${TM_API_BIND},reuseaddr,fork,max-children=10,keepalive \
+            EXEC:"${handler}",pty,stderr &
         HTTP_PID=$!
         tm_log "INFO" "HTTP API started via socat (PID ${HTTP_PID})"
 
