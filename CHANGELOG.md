@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.1] - 2026-02-10
+
+### Fixed
+- **API broken pipe** — Removed `pty,stderr` options from socat `EXEC:` that caused all API requests to fail with "Broken pipe". The pseudo-terminal interfered with HTTP request/response over TCP sockets
+- **Scheduler octal parsing** — `date +'%H'` returns zero-padded hours (e.g. `09`) which bash interprets as invalid octal. Fixed with `10#` prefix to force base-10 arithmetic
+
 ## [2.13.0] - 2026-02-10
 
 ### Added

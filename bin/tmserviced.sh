@@ -314,7 +314,7 @@ _scheduler_loop() {
         current_hour=$(date +'%H')
         local schedule_hour="${TM_SCHEDULE_HOUR:-11}"
 
-        if [[ "${last_run}" != "${today}" && "${current_hour}" -ge "${schedule_hour}" ]]; then
+        if [[ "${last_run}" != "${today}" && 10#${current_hour} -ge 10#${schedule_hour} ]]; then
             tm_log "INFO" "Scheduler: triggering daily backup run"
 
             if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
@@ -1386,9 +1386,8 @@ _start_http_server() {
     if command -v socat &>/dev/null; then
         # socat: best option — handles concurrent connections via fork
         # max-children limits parallel forks to prevent resource exhaustion
-        # keepalive keeps TCP connections alive for repeated requests
-        socat TCP-LISTEN:${TM_API_PORT},bind=${TM_API_BIND},reuseaddr,fork,max-children=10,keepalive \
-            EXEC:"${handler}",pty,stderr &
+        socat TCP-LISTEN:${TM_API_PORT},bind=${TM_API_BIND},reuseaddr,fork,max-children=10 \
+            EXEC:"${handler}" &
         HTTP_PID=$!
         tm_log "INFO" "HTTP API started via socat (PID ${HTTP_PID})"
 
