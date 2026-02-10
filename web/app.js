@@ -185,6 +185,11 @@ async function refreshStatus() {
             var vEl = document.getElementById('version');
             if (vEl) vEl.textContent = 'v' + data.version;
         }
+        // Show/hide "no backups today" banner
+        var banner = document.getElementById('no-backups-banner');
+        if (banner) {
+            banner.style.display = data.backups_today ? 'none' : '';
+        }
     } else {
         badge.querySelector('.badge-text').textContent = 'Offline';
         badge.className = 'badge badge-stopped';
@@ -296,9 +301,11 @@ var _prevRunningHosts = {};
 async function refreshProcesses() {
     var data = await apiGet('/api/processes');
     var tbody = document.getElementById('processes-body');
+    var clearBtn = document.getElementById('processes-clear-btn');
 
     if (!data || data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty">No active processes</td></tr>';
+        if (clearBtn) clearBtn.style.display = 'none';
         // Check if any previously running hosts just finished
         for (var h in _prevRunningHosts) {
             if (_prevRunningHosts[h]) toast('Backup completed: ' + h, 'success');
@@ -306,6 +313,10 @@ async function refreshProcesses() {
         _prevRunningHosts = {};
         return;
     }
+
+    // Show clear button if there are finished processes
+    var hasFinished = data.some(function(p) { return p.status !== 'running'; });
+    if (clearBtn) clearBtn.style.display = hasFinished ? '' : 'none';
 
     // Detect transitions from running -> completed/failed
     var currentRunning = {};
@@ -341,6 +352,16 @@ async function refreshProcesses() {
                 '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\')">Rsync</button>' +
             '</td></tr>';
     }).join('');
+}
+
+async function clearProcesses() {
+    var result = await apiDelete('/api/processes');
+    if (result) {
+        toast('Cleared ' + (result.cleared || 0) + ' finished process(es)', 'success');
+        refreshProcesses();
+        refreshFailures();
+        refreshServers();
+    }
 }
 
 /* ============================================================
@@ -1018,6 +1039,21 @@ async function runBackupFor(hostname) {
         toast('Failed to start backup', 'error');
     }
     setTimeout(refreshProcesses, 1000);
+}
+
+async function startAllBackups() {
+    if (!confirm('Start backups for all configured servers now?')) return;
+    var result = await apiPost('/api/backup-all');
+    if (result && result.count > 0) {
+        toast('Started backups for ' + result.count + ' server(s)', 'success');
+        var banner = document.getElementById('no-backups-banner');
+        if (banner) banner.style.display = 'none';
+    } else if (result && result.count === 0) {
+        toast('All servers already have running backups', 'info');
+    } else {
+        toast('Failed to start backups', 'error');
+    }
+    setTimeout(refreshAll, 1500);
 }
 
 async function killBackup(hostname) {

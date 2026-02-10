@@ -953,7 +953,7 @@ reconfigure_server() {
     echo -e "  ${MAGENTA}${BOLD}Reconfiguring Server${NC}"
     echo ""
 
-    local total=8
+    local total=9
 
     step 1 ${total} "Checking dependencies"
     # Collect missing packages
@@ -1013,7 +1013,11 @@ reconfigure_server() {
     _reconfigure_nginx
     step_done "Nginx check complete"
 
-    step 8 ${total} "Restarting service"
+    step 8 ${total} "Configuring postfix (if present)"
+    _configure_postfix
+    step_done "Postfix check complete"
+
+    step 9 ${total} "Restarting service"
     if command -v systemctl &>/dev/null; then
         systemctl daemon-reload 2>/dev/null || true
         systemctl restart timemachine 2>/dev/null || true
@@ -1030,6 +1034,27 @@ reconfigure_server() {
     echo ""
     echo -e "  ${GREEN}${BOLD}Reconfiguration complete${NC}"
     echo ""
+}
+
+# Configure postfix message_size_limit for large backup emails (called during reconfigure/update)
+_configure_postfix() {
+    if ! command -v postconf &>/dev/null; then
+        return 0
+    fi
+
+    # Set message_size_limit to 50MB (default is 10MB which is too small for backup logs)
+    local current_limit
+    current_limit=$(postconf -h message_size_limit 2>/dev/null || echo "0")
+    local desired_limit=52428800  # 50MB
+
+    if [[ "${current_limit}" -lt ${desired_limit} ]]; then
+        info "Setting postfix message_size_limit to 50MB (was ${current_limit})"
+        postconf -e "message_size_limit = ${desired_limit}" 2>/dev/null || true
+        # Also set mailbox_size_limit to 0 (unlimited) to avoid conflicts
+        postconf -e "mailbox_size_limit = 0" 2>/dev/null || true
+        # Reload postfix to apply changes
+        systemctl reload postfix 2>/dev/null || postfix reload 2>/dev/null || true
+    fi
 }
 
 # Refresh nginx config if it exists (called during reconfigure/update)

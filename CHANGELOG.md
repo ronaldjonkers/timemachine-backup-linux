@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.8] - 2026-02-10
+
+### Added
+- **"No backups today" banner** — Dashboard shows a warning banner at the top when no backups have run today, with a "Start All Backups Now" button to trigger all configured servers at once (`POST /api/backup-all`)
+- **Clear finished processes** — "Clear Finished" button in the Backup Processes panel to remove completed/failed entries from the dashboard (`DELETE /api/processes`)
+- **Postfix message_size_limit** — `install.sh` and `tmctl update` now automatically configure postfix `message_size_limit` to 50MB (default 10MB was too small for backup log emails, causing "File too large" errors)
+
+### Fixed
+- **`_TM_BACKUP_LOGFILE` for API-triggered backups** — Single-server backups started via the dashboard API now also pass the logfile path so failure emails include the full backup log
+
 ## [2.18.7] - 2026-02-10
 
 ### Fixed

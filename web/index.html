@@ -101,6 +101,14 @@
                 </div>
             </section>
 
+            <!-- No Backups Today Banner -->
+            <section class="panel" id="no-backups-banner" style="display:none">
+                <div class="panel-header panel-header-danger">
+                    <h2>&#x23F0; No backups have run today</h2>
+                    <button class="btn btn-sm btn-success" onclick="startAllBackups()">Start All Backups Now</button>
+                </div>
+            </section>
+
             <!-- Failed Backups -->
             <section class="panel" id="failures-panel" style="display:none">
                 <div class="panel-header panel-header-danger">
@@ -125,7 +133,10 @@
             <section class="panel">
                 <div class="panel-header">
                     <h2>&#x1F504; Backup Processes</h2>
-                    <button class="btn btn-sm" onclick="refreshProcesses()">Refresh</button>
+                    <div>
+                        <button class="btn btn-sm btn-danger" id="processes-clear-btn" style="display:none" onclick="clearProcesses()">Clear Finished</button>
+                        <button class="btn btn-sm" onclick="refreshProcesses()">Refresh</button>
+                    </div>
                 </div>
                 <table>
                     <thead>

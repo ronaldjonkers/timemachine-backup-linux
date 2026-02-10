@@ -649,7 +649,9 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         body = self._read_body()
 
-        if path.startswith('/api/backup/'):
+        if path == '/api/backup-all':
+            self._api_backup_all()
+        elif path.startswith('/api/backup/'):
             self._api_backup_start(path[len('/api/backup/'):], body)
         elif path.startswith('/api/restore/'):
             self._api_restore_start(path[len('/api/restore/'):], body)
@@ -695,7 +697,9 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
 
-        if path == '/api/restores':
+        if path == '/api/processes':
+            self._api_processes_clear()
+        elif path == '/api/restores':
             self._api_restores_clear()
         elif path.startswith('/api/restore/'):
             self._api_restore_delete(path[len('/api/restore/'):])
@@ -722,16 +726,42 @@ class APIHandler(BaseHTTPRequestHandler):
     def _api_status(self):
         procs = get_processes_json()
         uptime_secs = int(time.time()) - SERVICE_START_TIME
+        # Check if any backups ran today (look for today's log files)
+        today = datetime.now().strftime('%Y-%m-%d')
+        ld = log_dir()
+        today_logs = glob.glob(os.path.join(ld, f'backup-*-{today}_*.log'))
+        has_running = any(p['status'] == 'running' for p in procs)
         self._send_json({
             'status': 'running',
             'uptime': uptime_secs,
             'hostname': get_hostname(),
             'version': get_version(),
             'processes': procs,
+            'backups_today': len(today_logs) > 0 or has_running,
         })
 
     def _api_processes(self):
         self._send_json(get_processes_json())
+
+    def _api_processes_clear(self):
+        """Delete all finished (completed/failed) process state files."""
+        sd = state_dir()
+        cleared = 0
+        for sf in glob.glob(os.path.join(sd, 'proc-*.state')):
+            try:
+                content = open(sf).read().strip()
+                parts = content.split('|')
+                if len(parts) >= 5 and parts[4] in ('completed', 'failed'):
+                    os.remove(sf)
+                    # Also remove exit code file
+                    hostname = parts[1]
+                    exit_file = os.path.join(sd, f'exit-{hostname}.code')
+                    if os.path.isfile(exit_file):
+                        os.remove(exit_file)
+                    cleared += 1
+            except Exception:
+                continue
+        self._send_json({'cleared': cleared})
 
     def _api_snapshots(self, hostname):
         snap_dir = os.path.join(backup_root(), hostname)
@@ -870,10 +900,12 @@ class APIHandler(BaseHTTPRequestHandler):
 
         def run_backup():
             try:
+                env = os.environ.copy()
+                env['_TM_BACKUP_LOGFILE'] = logfile
                 with open(logfile, 'w') as lf:
                     cmd = f'{script} {target_host} --trigger api {opts}'.strip()
                     proc = subprocess.Popen(
-                        cmd, shell=True, stdout=lf, stderr=lf
+                        cmd, shell=True, stdout=lf, stderr=lf, env=env
                     )
                     # Update state file with the real subprocess PID
                     try:
@@ -909,6 +941,65 @@ class APIHandler(BaseHTTPRequestHandler):
             'status': 'started',
             'hostname': target_host,
         })
+
+    def _api_backup_all(self):
+        """Start backups for all configured servers."""
+        servers = read_servers_conf()
+        started = []
+        for srv in servers:
+            hostname = srv['hostname']
+            # Skip if already running
+            sd = state_dir()
+            already_running = False
+            for sf in glob.glob(os.path.join(sd, f'proc-{hostname}*.state')):
+                try:
+                    content = open(sf).read().strip()
+                    if '|running|' in content:
+                        already_running = True
+                        break
+                except Exception:
+                    pass
+            if already_running:
+                continue
+            # Start backup via the same mechanism as single backup
+            ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+            logfile = os.path.join(log_dir(), f'backup-{hostname}-{ts}.log')
+            script = os.path.join(SCRIPT_DIR, 'timemachine.sh')
+            started_ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            sf_path = os.path.join(sd, f'proc-{hostname}-{ts}.state')
+            with open(sf_path, 'w') as f:
+                f.write(f'0|{hostname}|full|{started_ts}|running|{logfile}')
+
+            def _run(h=hostname, lf=logfile, sfp=sf_path, st=started_ts):
+                try:
+                    env = os.environ.copy()
+                    env['_TM_BACKUP_LOGFILE'] = lf
+                    with open(lf, 'w') as log_fh:
+                        cmd = f'{script} {h} --trigger dashboard'
+                        proc = subprocess.Popen(cmd, shell=True, stdout=log_fh, stderr=log_fh, env=env)
+                        try:
+                            with open(sfp, 'w') as sf:
+                                sf.write(f'{proc.pid}|{h}|full|{st}|running|{lf}')
+                        except Exception:
+                            pass
+                        exit_code = proc.wait()
+                        code_file = os.path.join(state_dir(), f'exit-{h}.code')
+                        with open(code_file, 'w') as cf:
+                            cf.write(str(exit_code))
+                        try:
+                            status = 'completed' if exit_code == 0 else 'failed'
+                            with open(sfp, 'w') as sf:
+                                sf.write(f'{proc.pid}|{h}|full|{st}|{status}|{lf}')
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+            started.append(hostname)
+
+        self._send_json({'status': 'started', 'servers': started, 'count': len(started)})
 
     def _api_backup_kill(self, target_host):
         sd = state_dir()
