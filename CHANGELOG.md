@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.4] - 2026-02-10
+
+### Fixed
+- **Service restart no longer triggers immediate backups** — After `tmctl update` (which restarts the service), the scheduler would immediately trigger the daily backup run and all interval-based backups. Two fixes applied:
+  - **5-minute startup grace period**: The daily run will not trigger within the first 5 minutes after service startup, giving the service time to stabilize. If the server was genuinely down during the scheduled time, the daily run triggers after the grace period
+  - **Interval timestamp initialization**: On startup, all servers with `--backup-interval` or `--db-interval` that don't have a timestamp file get initialized to "now", preventing immediate triggering due to `elapsed = now - 0`
+
 ## [2.18.3] - 2026-02-10
 
 ### Fixed

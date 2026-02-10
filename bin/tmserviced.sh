@@ -352,6 +352,38 @@ _scheduler_loop() {
     local last_run_file="${STATE_DIR}/last-daily-run"
     local _loop_count=0
 
+    # On startup, initialize missing interval timestamps to "now" so the
+    # scheduler waits for the full interval before triggering. Without this,
+    # a service restart (e.g. tmctl update) would immediately trigger all
+    # interval-based backups because elapsed = now - 0 = huge.
+    local _init_now
+    _init_now=$(date +%s)
+    if [[ -f "${servers_conf}" ]]; then
+        grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
+            sed 's/^[[:space:]]*//' | while IFS= read -r _init_line; do
+                local _init_host
+                _init_host=$(echo "${_init_line}" | awk '{print $1}')
+                local _init_db_int
+                _init_db_int=$(_parse_db_interval "${_init_line}")
+                if [[ -n "${_init_db_int}" && ! -f "${STATE_DIR}/last-db-${_init_host}" ]]; then
+                    echo "${_init_now}" > "${STATE_DIR}/last-db-${_init_host}"
+                fi
+                local _init_bk_int
+                _init_bk_int=$(_parse_backup_interval "${_init_line}")
+                if [[ -n "${_init_bk_int}" && ! -f "${STATE_DIR}/last-backup-${_init_host}" ]]; then
+                    echo "${_init_now}" > "${STATE_DIR}/last-backup-${_init_host}"
+                fi
+            done
+        tm_log "INFO" "Scheduler: initialized missing interval timestamps"
+    fi
+
+    # Record startup time — the scheduler will not trigger the daily run
+    # within the first 5 minutes after startup. This prevents an immediate
+    # backup after a service restart (e.g. tmctl update). If the server
+    # was genuinely down during the scheduled time, the daily run will
+    # trigger 5 minutes after the service comes back up.
+    local _startup_time=${_init_now}
+
     while true; do
         _loop_count=$(( _loop_count + 1 ))
 
@@ -374,7 +406,10 @@ _scheduler_loop() {
         local current_time=$((10#${current_hour} * 60 + 10#${current_minute}))
         local schedule_time=$((10#${schedule_hour} * 60 + 10#${schedule_minute}))
 
-        if [[ "${last_run}" != "${today}" && ${current_time} -ge ${schedule_time} ]]; then
+        # Skip daily run during the first 5 minutes after startup to prevent
+        # immediate backup after service restart (e.g. tmctl update)
+        local _uptime=$(( $(date +%s) - _startup_time ))
+        if [[ "${last_run}" != "${today}" && ${current_time} -ge ${schedule_time} && ${_uptime} -ge 300 ]]; then
             tm_log "INFO" "Scheduler: triggering daily backup run (time=${current_hour}:${current_minute}, schedule=${schedule_hour}:$(printf '%02d' "${schedule_minute}"))"
 
             if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
