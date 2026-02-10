@@ -277,23 +277,39 @@ async function refreshFailures() {
    PROCESSES
    ============================================================ */
 
+function formatDuration(startedStr) {
+    if (!startedStr) return '--';
+    var started = new Date(startedStr.replace(' ', 'T'));
+    if (isNaN(started.getTime())) return '--';
+    var secs = Math.floor((Date.now() - started.getTime()) / 1000);
+    if (secs < 0) secs = 0;
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+}
+
 async function refreshProcesses() {
     var data = await apiGet('/api/processes');
     var tbody = document.getElementById('processes-body');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No active processes</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No active processes</td></tr>';
         return;
     }
 
     tbody.innerHTML = data.map(function(proc) {
         var sc = proc.status || 'unknown';
         var canKill = proc.status === 'running';
+        var duration = proc.status === 'running' ? formatDuration(proc.started) : '--';
         return '<tr>' +
             '<td><strong>' + esc(proc.hostname) + '</strong></td>' +
             '<td>' + proc.pid + '</td>' +
             '<td>' + esc(proc.mode) + '</td>' +
             '<td>' + esc(proc.started) + '</td>' +
+            '<td>' + duration + '</td>' +
             '<td><span class="status-cell ' + sc + '"><span class="status-dot"></span>' + esc(proc.status) + '</span></td>' +
             '<td>' +
                 (canKill ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +

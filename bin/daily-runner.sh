@@ -30,10 +30,12 @@ tm_require_user
 
 SERVERS_CONF="${TM_PROJECT_ROOT}/config/servers.conf"
 LOG_DIR="${TM_LOG_DIR}"
+STATE_DIR="${TM_RUN_DIR}/state"
 TODAY=$(tm_date_today)
 LOGFILE="${LOG_DIR}/daily-${TODAY}.log"
 
 tm_ensure_dir "${LOG_DIR}"
+tm_ensure_dir "${STATE_DIR}"
 
 # ============================================================
 # PRE-FLIGHT CHECK
@@ -98,6 +100,30 @@ PIDS_FILE="${TM_RUN_DIR}/daily-pids-$$.tmp"
 : > "${PIDS_FILE}"
 EXIT_CODE=0
 
+# Register a backup process in the state directory (visible to dashboard)
+_register_proc() {
+    local hostname="$1" pid="$2" mode="${3:-full}" logfile="${4:-}"
+    local ts
+    ts=$(date +'%Y-%m-%d %H:%M:%S')
+    echo "${pid}|${hostname}|${mode}|${ts}|running|${logfile}" > "${STATE_DIR}/proc-${hostname}.state"
+}
+
+# Update process state in the state directory
+_update_proc_state() {
+    local hostname="$1" status="$2"
+    local state_file="${STATE_DIR}/proc-${hostname}.state"
+    [[ -f "${state_file}" ]] || return 0
+    local content
+    content=$(cat "${state_file}")
+    local f1 f2 f3 f4 f6
+    f1=$(echo "${content}" | cut -d'|' -f1)
+    f2=$(echo "${content}" | cut -d'|' -f2)
+    f3=$(echo "${content}" | cut -d'|' -f3)
+    f4=$(echo "${content}" | cut -d'|' -f4)
+    f6=$(echo "${content}" | cut -d'|' -f6)
+    echo "${f1}|${f2}|${f3}|${f4}|${status}|${f6}" > "${state_file}"
+}
+
 # Collect finished jobs and add to report
 _collect_finished() {
     local new_entries=""
@@ -119,8 +145,10 @@ _collect_finished() {
             srv_duration=$(_tm_format_duration $(( srv_end - srv_start )))
             if [[ ${rc} -eq 0 ]]; then
                 tm_report_add "${srv_host}" "success" "${srv_duration}" "full"
+                _update_proc_state "${srv_host}" "completed"
             else
                 tm_report_add "${srv_host}" "failed" "${srv_duration}" "full" "exit code ${rc}"
+                _update_proc_state "${srv_host}" "failed"
                 EXIT_CODE=1
             fi
         fi
@@ -150,18 +178,33 @@ _wait_all() {
     done
 }
 
+# Determine backup mode from server options
+_parse_mode() {
+    local opts="$1"
+    if echo "${opts}" | grep -q '\-\-files-only'; then echo "files-only"
+    elif echo "${opts}" | grep -q '\-\-db-only'; then echo "db-only"
+    else echo "full"
+    fi
+}
+
 # Launch backups in priority order with parallel limit
 while IFS= read -r line; do
     [[ -z "${line}" ]] && continue
     srv_host=$(echo "${line}" | awk '{print $1}')
+    srv_mode=$(_parse_mode "${line}")
 
     _wait_for_slot
 
     srv_start=$(date +%s)
-    "${SCRIPT_DIR}/timemachine.sh" ${line} >> "${LOGFILE}" 2>&1 &
+    srv_logfile="${LOG_DIR}/backup-${srv_host}-$(date +'%Y-%m-%d_%H%M%S').log"
+    "${SCRIPT_DIR}/timemachine.sh" ${line} >> "${srv_logfile}" 2>&1 &
     pid=$!
     echo "${pid}:${srv_host}:${srv_start}" >> "${PIDS_FILE}"
-    tm_log "INFO" "Started backup for ${srv_host} (PID ${pid})"
+
+    # Register in state directory so the dashboard can see it
+    _register_proc "${srv_host}" "${pid}" "${srv_mode}" "${srv_logfile}"
+
+    tm_log "INFO" "Started backup for ${srv_host} (PID ${pid}, mode=${srv_mode})"
 done <<< "${SORTED_JOBS}"
 
 # Wait for all remaining jobs

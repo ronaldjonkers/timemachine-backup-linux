@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.4] - 2026-02-10
+
+### Fixed
+- **Daily backups invisible in dashboard** — `daily-runner.sh` launched backup processes but never wrote `proc-*.state` files to the state directory. The dashboard reads these files to show active jobs and the process table. Daily automated backups were completely invisible: "Active Jobs" always showed 0 and the Backup Processes table was empty during scheduled runs. Now `daily-runner.sh` registers each backup in the state directory on launch and updates the status (completed/failed) when finished
+- **Per-server log files for daily backups** — Daily runner now writes individual `backup-<host>-<timestamp>.log` files instead of a single `daily-<date>.log`, so the dashboard log viewer can find and display them
+
+### Changed
+- **Process table: Duration column** — Added a live-updating Duration column to the Backup Processes table. Running backups show elapsed time (e.g. "12m 34s"), refreshed every poll cycle
+- **Process sorting** — Running processes now always appear at the top of the process table, followed by finished processes sorted newest-first
+
 ## [2.14.3] - 2026-02-10
 
 ### Fixed

@@ -221,7 +221,13 @@ def get_processes_json():
             })
         except Exception:
             continue
-    return procs
+    # Sort: running first, then by started time descending
+    procs.sort(key=lambda p: (0 if p['status'] == 'running' else 1, p.get('started', '')), reverse=False)
+    # For non-running, reverse the started sort (newest first)
+    running = [p for p in procs if p['status'] == 'running']
+    finished = [p for p in procs if p['status'] != 'running']
+    finished.sort(key=lambda p: p.get('started', ''), reverse=True)
+    return running + finished
 
 
 def parse_priority(line):
