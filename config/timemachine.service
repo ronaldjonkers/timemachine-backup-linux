@@ -2,6 +2,9 @@
 Description=TimeMachine Backup Service
 Documentation=https://github.com/ronaldjonkers/timemachine-backup-linux
 After=network.target
+# Restart limits must be in [Unit], not [Service] (older systemd versions reject them in [Service])
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -14,10 +17,6 @@ ExecReload=/bin/kill -HUP $MAINPID
 # Auto-restart: always restart, wait 10s between attempts
 Restart=always
 RestartSec=10
-
-# Allow up to 5 restarts within 300 seconds before giving up
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal

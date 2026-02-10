@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.5] - 2026-02-10
+
+### Fixed
+- **Systemd `StartLimitIntervalSec` warning** — Moved `StartLimitIntervalSec` and `StartLimitBurst` from `[Service]` to `[Unit]` section. Older systemd versions (CentOS 7, RHEL 7) only accept these directives in `[Unit]` and logged `Unknown key name 'StartLimitIntervalSec' in section 'Service'` on every daemon-reload
+- **Service exit code 1 on shutdown** — When systemd sent SIGTERM, `wait` returned non-zero and the script exited with code 1, causing systemd to report `status=1/FAILURE`. The `_cleanup` trap now waits for child processes to terminate and explicitly exits 0 for a clean shutdown
+
 ## [2.14.4] - 2026-02-10
 
 ### Fixed

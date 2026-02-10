@@ -1535,8 +1535,11 @@ _cleanup() {
     tm_log "INFO" "Service shutting down..."
     [[ -n "${HTTP_PID:-}" ]] && kill "${HTTP_PID}" 2>/dev/null
     [[ -n "${SCHEDULER_PID:-}" ]] && kill "${SCHEDULER_PID}" 2>/dev/null
+    wait "${HTTP_PID}" 2>/dev/null || true
+    wait "${SCHEDULER_PID}" 2>/dev/null || true
     rm -f "${TM_RUN_DIR}/tmserviced.pid"
     tm_log "INFO" "Service stopped"
+    exit 0
 }
 
 main "$@"
