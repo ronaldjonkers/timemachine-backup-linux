@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeMachine - Connecting...</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0b0e14;
+            color: #e4e8f1;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+        }
+        .container {
+            max-width: 420px;
+            padding: 2rem;
+        }
+        .icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        p {
+            color: #6b7280;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin-bottom: 1.5rem;
+        }
+        .retry-btn {
+            display: inline-block;
+            padding: 0.5rem 1.5rem;
+            background: #7c5cfc;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .retry-btn:hover { background: #9b82fc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">&#x23F3;</div>
+        <h1>API temporarily unavailable</h1>
+        <p>The TimeMachine service is restarting or briefly busy. This page will retry automatically.</p>
+        <a class="retry-btn" href="/">Retry Now</a>
+    </div>
+    <script>setTimeout(function() { location.reload(); }, 5000);</script>
+</body>
+</html>

@@ -524,6 +524,7 @@ async function refreshSettings() {
     var el = function(id) { return document.getElementById(id); };
     if (el('setting-schedule-hour')) el('setting-schedule-hour').value = data.schedule_hour;
     if (el('setting-retention-days')) el('setting-retention-days').value = data.retention_days;
+    if (el('setting-parallel-jobs')) el('setting-parallel-jobs').value = data.parallel_jobs || 5;
     if (el('setting-alert-enabled')) el('setting-alert-enabled').checked = (data.alert_enabled === 'true');
     if (el('setting-alert-email')) el('setting-alert-email').value = data.alert_email || '';
     if (el('setting-notify-backup-ok')) el('setting-notify-backup-ok').checked = (data.notify_backup_ok !== 'false');
@@ -550,9 +551,16 @@ async function saveSettings() {
         return;
     }
 
+    var parallelJobs = parseInt(document.getElementById('setting-parallel-jobs').value, 10);
+    if (isNaN(parallelJobs) || parallelJobs < 1 || parallelJobs > 50) {
+        toast('Parallel jobs must be 1-50', 'error');
+        return;
+    }
+
     var payload = {
         schedule_hour: hour,
         retention_days: retention,
+        parallel_jobs: parallelJobs,
         alert_enabled: document.getElementById('setting-alert-enabled').checked ? 'true' : 'false',
         alert_email: document.getElementById('setting-alert-email').value.trim(),
         notify_backup_ok: document.getElementById('setting-notify-backup-ok').checked ? 'true' : 'false',
@@ -883,7 +891,7 @@ function _renderServerDetail() {
             '<td>' + esc(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
-            '<td>' + (s.has_sql ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' + (s.has_db ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button> ' +
@@ -906,7 +914,7 @@ function _renderServerDetail() {
     }
 
     body.innerHTML = '<table>' +
-        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>SQL</th><th>Actions</th></tr></thead>' +
+        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>Database</th><th>Actions</th></tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table>' + pagination;
 }
@@ -934,7 +942,7 @@ async function viewSnapshots(hostname, page) {
             '<td>' + esc(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
-            '<td>' + (s.has_sql ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' + (s.has_db ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button>' +
@@ -956,7 +964,7 @@ async function viewSnapshots(hostname, page) {
     }
 
     var html = '<table>' +
-        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>SQL</th><th>Actions</th></tr></thead>' +
+        '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>Database</th><th>Actions</th></tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table>' + pagination;
 

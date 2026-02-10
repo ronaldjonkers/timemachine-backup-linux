@@ -388,6 +388,20 @@ ${ssh_key_location}
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
+
+        # Stability: retry on connection errors (bash HTTP server may briefly drop)
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 10s;
+        proxy_next_upstream error timeout;
+        proxy_next_upstream_tries 2;
+    }
+
+    # Custom error page for 502 (API temporarily unavailable)
+    error_page 502 /502.html;
+    location = /502.html {
+        root ${TM_PROJECT_ROOT}/web;
+        internal;
     }
 }
 NGINX_EOF
@@ -770,6 +784,20 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
+
+        # Stability: retry on connection errors (bash HTTP server may briefly drop)
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 10s;
+        proxy_next_upstream error timeout;
+        proxy_next_upstream_tries 2;
+    }
+
+    # Custom error page for 502 (API temporarily unavailable)
+    error_page 502 /502.html;
+    location = /502.html {
+        root ${TM_PROJECT_ROOT}/web;
+        internal;
     }
 }
 NGINX_SS

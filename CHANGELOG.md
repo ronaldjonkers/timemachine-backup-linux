@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-02-10
+
+### Added
+- **Parallel jobs setting** — `TM_PARALLEL_JOBS` now configurable in Settings UI (1-50, default 5). Controls how many backup processes run simultaneously
+- **Config reload** — Saving settings triggers automatic config reload: the scheduler loop detects a `.reload_config` signal file, re-reads `.env`, and regenerates the HTTP handler script. No service restart needed
+- **502 error page** — Custom `web/502.html` with auto-retry (5s) shown when the API is temporarily unavailable instead of a raw nginx error
+
+### Fixed
+- **False database backup display** — Snapshot detail now checks for actual dump files inside `sql/` instead of just directory existence. Servers without databases no longer show "Yes" in the Database column
+- **Column renamed** — "SQL" column renamed to "Database" in snapshot detail tables (more accurate since multiple DB engines are supported)
+
+### Changed
+- Nginx proxy config (`setup-web.sh`) now includes `proxy_connect_timeout`, `proxy_read_timeout`, `proxy_next_upstream` with retry for better stability against brief API drops
+- `GET/PUT /api/settings` extended with `parallel_jobs` field
+- `GET /api/snapshots` returns `has_db` (was `has_sql`), checks for actual files not empty dirs
+
 ## [2.10.0] - 2026-02-09
 
 ### Added

@@ -344,6 +344,15 @@ _scheduler_loop() {
         # Check DB interval backups (runs every minute)
         _check_db_intervals "${servers_conf}"
 
+        # Check if config reload was requested (e.g. after settings save)
+        if [[ -f "${STATE_DIR}/.reload_config" ]]; then
+            rm -f "${STATE_DIR}/.reload_config"
+            tm_log "INFO" "Scheduler: reloading configuration"
+            tm_load_config
+            _generate_handler_script
+            tm_log "INFO" "Scheduler: handler script regenerated with new config"
+        fi
+
         # Notify systemd watchdog that we're alive
         if [[ -n "${WATCHDOG_USEC:-}" ]] && command -v systemd-notify &>/dev/null; then
             systemd-notify WATCHDOG=1 2>/dev/null || true
@@ -477,12 +486,17 @@ _handle_request() {
                     [[ "${dn}" < "${cutoff_date}" ]] && continue
                     local sz
                     sz=$(du -sh "${d}" 2>/dev/null | cut -f1)
-                    local hf="false" hs="false"
+                    local hf="false" hd="false"
                     [[ -d "${d}/files" ]] && hf="true"
-                    [[ -d "${d}/sql" ]] && hs="true"
+                    # Only mark as having DB backups if sql/ contains actual dump files
+                    if [[ -d "${d}/sql" ]]; then
+                        local db_file_count
+                        db_file_count=$(find "${d}/sql" -type f 2>/dev/null | wc -l | tr -d ' ')
+                        [[ ${db_file_count} -gt 0 ]] && hd="true"
+                    fi
                     [[ ${first} -eq 1 ]] && first=0 || snaps+=','
-                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_sql":%s}' \
-                        "${dn}" "${sz}" "${hf}" "${hs}")
+                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_db":%s}' \
+                        "${dn}" "${sz}" "${hf}" "${hd}")
                 done
             fi
             snaps+=']'
@@ -928,6 +942,7 @@ _handle_request() {
             resp=$(printf '{
                 "schedule_hour":%s,
                 "retention_days":%s,
+                "parallel_jobs":%s,
                 "alert_enabled":"%s",
                 "alert_email":"%s",
                 "notify_backup_ok":"%s",
@@ -941,6 +956,7 @@ _handle_request() {
             }' \
                 "$(_env_val TM_SCHEDULE_HOUR "${TM_SCHEDULE_HOUR:-11}")" \
                 "$(_env_val TM_RETENTION_DAYS "${TM_RETENTION_DAYS:-7}")" \
+                "$(_env_val TM_PARALLEL_JOBS "${TM_PARALLEL_JOBS:-5}")" \
                 "$(_env_val TM_ALERT_ENABLED "${TM_ALERT_ENABLED:-false}")" \
                 "$(_env_val TM_ALERT_EMAIL "${TM_ALERT_EMAIL:-}")" \
                 "$(_env_val TM_NOTIFY_BACKUP_OK "${TM_NOTIFY_BACKUP_OK:-true}")" \
@@ -981,6 +997,8 @@ _handle_request() {
             [[ -n "${jv}" ]] && _env_set TM_SCHEDULE_HOUR "${jv}"
             jv=$(echo "${body}" | grep -o '"retention_days":[0-9]*' | cut -d: -f2)
             [[ -n "${jv}" ]] && _env_set TM_RETENTION_DAYS "${jv}"
+            jv=$(echo "${body}" | grep -o '"parallel_jobs":[0-9]*' | cut -d: -f2)
+            [[ -n "${jv}" ]] && _env_set TM_PARALLEL_JOBS "${jv}"
             jv=$(echo "${body}" | grep -o '"alert_enabled":"[^"]*"' | cut -d'"' -f4)
             [[ -n "${jv}" ]] && _env_set TM_ALERT_ENABLED "${jv}"
             jv=$(echo "${body}" | grep -o '"alert_email":"[^"]*"' | cut -d'"' -f4)
@@ -1006,7 +1024,10 @@ _handle_request() {
             jv=$(echo "${body}" | grep -o '"alert_email_restore_fail":"[^"]*"' | cut -d'"' -f4)
             [[ -n "${jv}" ]] && _env_set TM_ALERT_EMAIL_RESTORE_FAIL "${jv}"
 
-            tm_log "INFO" "API: settings updated"
+            # Signal the scheduler to reload config and regenerate handler script
+            touch "${STATE_DIR}/.reload_config" 2>/dev/null || true
+
+            tm_log "INFO" "API: settings updated (reload scheduled)"
             _http_response "200 OK" "application/json" '{"status":"saved"}'
             ;;
 
