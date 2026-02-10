@@ -23,16 +23,15 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=timemachine
 
-# Runtime directories (systemd creates these automatically with correct ownership)
+# Runtime directory (systemd creates /run/timemachine with correct ownership)
 RuntimeDirectory=timemachine
 RuntimeDirectoryMode=0750
-StateDirectory=timemachine
-LogsDirectory=timemachine
 
-# Security hardening
-NoNewPrivileges=false
-ProtectSystem=false
-ProtectHome=false
+# NOTE: Do NOT use ProtectSystem, ProtectHome, StateDirectory, or LogsDirectory.
+# This service needs full filesystem access to read/write backup directories
+# at arbitrary mount points (e.g. /backups, /mnt/storage). Mount namespacing
+# directives cause "Failed to set up mount namespacing" errors when the backup
+# directory does not exist yet at service start time.
 
 # Environment
 EnvironmentFile=-/opt/timemachine-backup-linux/.env
