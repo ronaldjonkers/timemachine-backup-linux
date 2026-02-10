@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.3] - 2026-02-10
+
+### Fixed
+- **Daily report email now includes full per-server logs** — The daily summary report email previously only contained a brief summary table (OK/FAIL per server). Now includes the complete backup log for each server (all phases, timing, errors) plus the full rsync transfer log (file-by-file details). The report format is: summary table → per-server backup log → per-server rsync transfer log
+- `tm_report_add()` now accepts a 6th parameter (logfile path). `daily-runner.sh` passes each server's backup log path from the state file
+- `tm_report_send()` reads each server's backup log and finds the latest rsync log, appending both to the email body
+
 ## [2.18.2] - 2026-02-10
 
 ### Fixed

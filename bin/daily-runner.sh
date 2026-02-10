@@ -145,11 +145,15 @@ _collect_finished() {
             srv_end=$(date +%s)
             local srv_duration
             srv_duration=$(_tm_format_duration $(( srv_end - srv_start )))
+            # Get logfile path from state file for inclusion in report
+            local srv_logfile=""
+            local srv_state="${STATE_DIR}/proc-${srv_host}.state"
+            [[ -f "${srv_state}" ]] && srv_logfile=$(cut -d'|' -f6 "${srv_state}")
             if [[ ${rc} -eq 0 ]]; then
-                tm_report_add "${srv_host}" "success" "${srv_duration}" "full"
+                tm_report_add "${srv_host}" "success" "${srv_duration}" "full" "" "${srv_logfile}"
                 _update_proc_state "${srv_host}" "completed"
             else
-                tm_report_add "${srv_host}" "failed" "${srv_duration}" "full" "exit code ${rc}"
+                tm_report_add "${srv_host}" "failed" "${srv_duration}" "full" "exit code ${rc}" "${srv_logfile}"
                 _update_proc_state "${srv_host}" "failed"
                 EXIT_CODE=1
             fi

@@ -26,7 +26,7 @@ tm_report_init() {
 }
 
 # Add a result line to the report
-# Usage: tm_report_add <hostname> <status> <duration> <mode> [details]
+# Usage: tm_report_add <hostname> <status> <duration> <mode> [details] [logfile]
 #   status: success | failed | skipped
 #   duration: e.g. "45s" or "2m 30s"
 #   mode: files+db | files | db-only | db-interval
@@ -36,10 +36,11 @@ tm_report_add() {
     local duration="$3"
     local mode="${4:-full}"
     local details="${5:-}"
+    local logfile="${6:-}"
 
     [[ -z "${_TM_REPORT_FILE}" ]] && return
 
-    echo "${hostname}|${status}|${duration}|${mode}|${details}" >> "${_TM_REPORT_FILE}"
+    echo "${hostname}|${status}|${duration}|${mode}|${details}|${logfile}" >> "${_TM_REPORT_FILE}"
 }
 
 # Format duration from seconds to human-readable
@@ -64,9 +65,11 @@ tm_report_send() {
 
     local total=0 succeeded=0 failed=0 skipped=0
     local success_lines="" fail_lines="" skip_lines=""
+    local -a server_logfiles=()
 
-    while IFS='|' read -r hostname status duration mode details; do
+    while IFS='|' read -r hostname status duration mode details logfile; do
         total=$((total + 1))
+        [[ -n "${logfile}" ]] && server_logfiles+=("${hostname}|${logfile}")
         case "${status}" in
             success)
                 succeeded=$((succeeded + 1))
@@ -130,6 +133,30 @@ tm_report_send() {
         body+="${skip_lines}"
         body+=""$'\n'
     fi
+
+    # Append per-server backup logs (full output including rsync + DB)
+    for entry in "${server_logfiles[@]+"${server_logfiles[@]}"}"; do
+        local srv_name="${entry%%|*}"
+        local srv_log="${entry#*|}"
+        if [[ -n "${srv_log}" && -f "${srv_log}" ]]; then
+            body+=$'\n'
+            body+="============================================================"$'\n'
+            body+="BACKUP LOG: ${srv_name}"$'\n'
+            body+="============================================================"$'\n'
+            body+=$(cat "${srv_log}" 2>/dev/null)$'\n'
+
+            # Also find and append the rsync transfer log for this server
+            local rsync_log
+            rsync_log=$(ls -t "${TM_LOG_DIR}"/rsync-"${srv_name}"-*.log 2>/dev/null | head -1)
+            if [[ -n "${rsync_log}" && -f "${rsync_log}" ]]; then
+                body+=$'\n'
+                body+="------------------------------------------------------------"$'\n'
+                body+="RSYNC TRANSFER LOG: ${srv_name} (${rsync_log##*/})"$'\n'
+                body+="------------------------------------------------------------"$'\n'
+                body+=$(cat "${rsync_log}" 2>/dev/null)$'\n'
+            fi
+        fi
+    done
 
     # Log the report
     tm_log "INFO" "Backup report (${report_type}): ${succeeded} OK, ${failed} FAILED, ${skipped} skipped"
