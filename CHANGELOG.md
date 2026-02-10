@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.2] - 2026-02-10
+
+### Changed
+- **Full logs in backup emails** — Per-server backup notification emails now include the complete backup log (all phases, timing, errors) followed by the full rsync transfer log (file-by-file details). Email structure: summary header → backup log → rsync transfer log. Both OK and FAILED emails include all logs so you can see exactly what happened
+- `timemachine.sh` now captures its own output to an internal log file via `tee` so it can be included in the email body
+- `_TM_RSYNC_LOGFILE` is now a global variable (set by `tm_rsync_backup`) so `timemachine.sh` can read it for the email
+
 ## [2.17.1] - 2026-02-10
 
 ### Fixed

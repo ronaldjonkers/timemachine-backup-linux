@@ -109,6 +109,10 @@ LOCK_NAME="backup-${HOSTNAME}"
 # ============================================================
 
 main() {
+    # Capture all output to a known file for inclusion in email notifications
+    _TM_BACKUP_LOGFILE="${TM_LOG_DIR:-${TM_HOME}/logs}/backup-${HOSTNAME}-$(date +'%Y-%m-%d_%H%M%S')-internal.log"
+    exec > >(tee -a "${_TM_BACKUP_LOGFILE}") 2>&1
+
     tm_log "INFO" "=========================================="
     tm_log "INFO" "Starting backup for: ${HOSTNAME}"
     tm_log "INFO" "Triggered by: ${TRIGGER}"
@@ -207,37 +211,58 @@ main() {
     end_time=$(date +%s)
     local duration=$(( end_time - start_time ))
 
+    # Build summary header
+    local snap_dir="${BACKUP_BASE}/$(tm_date_today)"
+    local snap_size=""
+    [[ -d "${snap_dir}" ]] && snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
+    local snap_count
+    snap_count=$(ls -d "${BACKUP_BASE}"/20* 2>/dev/null | wc -l | tr -d ' ')
+    local disk_free
+    disk_free=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | awk 'NR==2{print $4}')
+
+    local mode="full"
+    [[ ${FILES_ONLY} -eq 1 ]] && mode="files-only"
+    [[ ${DB_ONLY} -eq 1 ]] && mode="db-only"
+
+    local status_line="OK"
+    [[ ${exit_code} -ne 0 ]] && status_line="FAILED"
+
     if [[ ${exit_code} -eq 0 ]]; then
         tm_log "INFO" "Backup completed successfully for ${HOSTNAME} (${duration}s)"
+    else
+        tm_log "ERROR" "Backup completed with errors for ${HOSTNAME} (${duration}s)"
+    fi
 
-        # Build summary for notification
-        local snap_dir="${BACKUP_BASE}/$(tm_date_today)"
-        local snap_size=""
-        [[ -d "${snap_dir}" ]] && snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1)
-        local snap_count
-        snap_count=$(ls -d "${BACKUP_BASE}"/20* 2>/dev/null | wc -l | tr -d ' ')
-        local disk_free
-        disk_free=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | awk 'NR==2{print $4}')
-
-        local mode="full"
-        [[ ${FILES_ONLY} -eq 1 ]] && mode="files-only"
-        [[ ${DB_ONLY} -eq 1 ]] && mode="db-only"
-
-        local summary="Backup completed successfully for ${HOSTNAME}
-
+    # Build full email body with all logs
+    local email_body="Status:     ${status_line}
 Server:     ${HOSTNAME}
 Date:       $(tm_date_today)
+Triggered:  ${TRIGGER}
 Mode:       ${mode}
 Duration:   ${duration}s
 Snap size:  ${snap_size:-unknown}
 Snapshots:  ${snap_count}
-Disk free:  ${disk_free:-unknown}"
+Disk free:  ${disk_free:-unknown}
 
-        tm_notify "Backup OK: ${HOSTNAME}" "${summary}" "info" "backup_ok" "${HOSTNAME}"
+============================================================
+BACKUP LOG
+============================================================
+$(cat "${_TM_BACKUP_LOGFILE}" 2>/dev/null || echo '(log not available)')"
+
+    # Append rsync transfer log if available
+    if [[ -n "${_TM_RSYNC_LOGFILE:-}" && -f "${_TM_RSYNC_LOGFILE}" ]]; then
+        email_body+="
+
+============================================================
+RSYNC TRANSFER LOG (${_TM_RSYNC_LOGFILE##*/})
+============================================================
+$(cat "${_TM_RSYNC_LOGFILE}" 2>/dev/null)"
+    fi
+
+    if [[ ${exit_code} -eq 0 ]]; then
+        tm_notify "Backup OK: ${HOSTNAME}" "${email_body}" "info" "backup_ok" "${HOSTNAME}"
     else
-        tm_log "ERROR" "Backup completed with errors for ${HOSTNAME} (${duration}s)"
-        tm_notify "Backup FAILED: ${HOSTNAME}" \
-            "Backup for ${HOSTNAME} completed with errors after ${duration} seconds." "error" "backup_fail" "${HOSTNAME}"
+        tm_notify "Backup FAILED: ${HOSTNAME}" "${email_body}" "error" "backup_fail" "${HOSTNAME}"
     fi
 
     return ${exit_code}

@@ -87,8 +87,8 @@ tm_rsync_backup() {
     tm_log "INFO" "Starting file backup: ${hostname}:${source_path} -> ${target_dir}/files"
 
     # Save detailed rsync transfer log for live viewing in the dashboard
-    local rsync_logfile="${TM_LOG_DIR:-${TM_HOME}/logs}/rsync-${hostname}-$(date +'%Y-%m-%d_%H%M%S').log"
-    rsync_cmd+=" --log-file='${rsync_logfile}'"
+    _TM_RSYNC_LOGFILE="${TM_LOG_DIR:-${TM_HOME}/logs}/rsync-${hostname}-$(date +'%Y-%m-%d_%H%M%S').log"
+    rsync_cmd+=" --log-file='${_TM_RSYNC_LOGFILE}'"
 
     local exit_code=0
     eval ${rsync_cmd} ${exclude_args} \
