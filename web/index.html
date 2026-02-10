@@ -19,6 +19,7 @@
                 <button class="nav-tab" data-page="servers" onclick="showPage('servers')">&#x1F4E1; Servers</button>
                 <button class="nav-tab" data-page="restores" onclick="showPage('restores')">&#x1F501; Restores</button>
                 <button class="nav-tab" data-page="settings" onclick="showPage('settings')">&#x2699; Settings</button>
+                <button class="nav-tab" data-page="help" onclick="showPage('help')">&#x2753; Help</button>
             </nav>
             <div id="service-status" class="badge badge-unknown">
                 <span class="pulse"></span>
@@ -173,6 +174,39 @@
                 </div>
             </section>
 
+            <!-- System Info (moved from Settings) -->
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x2699; System Info</h2>
+                </div>
+                <div class="sysinfo-grid">
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Operating System</span>
+                        <span class="sysinfo-value" id="sys-os">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Kernel</span>
+                        <span class="sysinfo-value" id="sys-kernel">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">CPU Cores</span>
+                        <span class="sysinfo-value" id="sys-cpus">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Total Memory</span>
+                        <span class="sysinfo-value" id="sys-mem-total">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">System Uptime</span>
+                        <span class="sysinfo-value" id="sys-uptime">--</span>
+                    </div>
+                    <div class="sysinfo-item">
+                        <span class="sysinfo-label">Load Average</span>
+                        <span class="sysinfo-value" id="sys-load-full">--</span>
+                    </div>
+                </div>
+            </section>
+
         </div>
 
         <!-- ============================================================
@@ -233,9 +267,9 @@
 
             <section class="panel" id="restores-panel">
                 <div class="panel-header">
-                    <h2>&#x1F501; Restore Tasks</h2>
+                    <h2>&#x1F501; Restore History <span class="text-muted" style="font-size:0.75rem;font-weight:400">(last 30 days)</span></h2>
                     <div>
-                        <button class="btn btn-sm btn-danger" id="restores-clear-btn" style="display:none" onclick="clearFinishedRestores()">Clear Finished</button>
+                        <button class="btn btn-sm btn-danger" id="restores-clear-btn" style="display:none" onclick="clearFinishedRestores()">Clear All</button>
                         <button class="btn btn-sm" onclick="refreshRestores()">Refresh</button>
                     </div>
                 </div>
@@ -364,36 +398,190 @@
                 <pre id="ssh-key" class="code-block">Loading...</pre>
             </section>
 
-            <!-- System Info -->
+        </div>
+
+        <!-- ============================================================
+             PAGE: HELP
+             ============================================================ -->
+        <div class="page" id="page-help">
+
             <section class="panel">
                 <div class="panel-header">
-                    <h2>&#x2699; System Info</h2>
+                    <h2>&#x1F4D6; Getting Started</h2>
                 </div>
-                <div class="sysinfo-grid">
-                    <div class="sysinfo-item">
-                        <span class="sysinfo-label">Operating System</span>
-                        <span class="sysinfo-value" id="sys-os">--</span>
-                    </div>
-                    <div class="sysinfo-item">
-                        <span class="sysinfo-label">Kernel</span>
-                        <span class="sysinfo-value" id="sys-kernel">--</span>
-                    </div>
-                    <div class="sysinfo-item">
-                        <span class="sysinfo-label">CPU Cores</span>
-                        <span class="sysinfo-value" id="sys-cpus">--</span>
-                    </div>
-                    <div class="sysinfo-item">
-                        <span class="sysinfo-label">Total Memory</span>
-                        <span class="sysinfo-value" id="sys-mem-total">--</span>
-                    </div>
-                    <div class="sysinfo-item">
-                        <span class="sysinfo-label">System Uptime</span>
-                        <span class="sysinfo-value" id="sys-uptime">--</span>
-                    </div>
-                    <div class="sysinfo-item">
-                        <span class="sysinfo-label">Load Average</span>
-                        <span class="sysinfo-value" id="sys-load-full">--</span>
-                    </div>
+                <div class="help-content">
+                    <p>TimeMachine creates daily incremental backups of your Linux servers using rsync hardlink snapshots. Each day's backup is a full browsable copy, but only changed files use extra disk space.</p>
+
+                    <h3>Quick Setup (3 steps)</h3>
+                    <ol>
+                        <li><strong>Install the server</strong> &mdash; You've already done this if you're reading this page.</li>
+                        <li><strong>Add a client</strong> &mdash; Run the one-liner from the Dashboard on each server you want to back up.</li>
+                        <li><strong>Add the server</strong> &mdash; Go to <em>Servers</em> &rarr; <em>+ Add Server</em> and enter the hostname.</li>
+                    </ol>
+                    <p>Backups will start automatically at the configured schedule hour (see <em>Settings</em>).</p>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F5A5; Client Setup</h2>
+                </div>
+                <div class="help-content">
+                    <h3>Adding a backup client</h3>
+                    <p>On the remote server you want to back up, run:</p>
+                    <pre class="code-block">curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash -s -- client --server &lt;backup-server-hostname&gt;</pre>
+                    <p>This will:</p>
+                    <ul>
+                        <li>Create the <code>timemachine</code> user</li>
+                        <li>Install the SSH public key from the backup server</li>
+                        <li>Configure sudoers for passwordless rsync</li>
+                        <li>Optionally set up database backup tools</li>
+                    </ul>
+
+                    <h3>Backup modes per server</h3>
+                    <table class="help-table">
+                        <thead><tr><th>Mode</th><th>What it backs up</th><th>Option</th></tr></thead>
+                        <tbody>
+                            <tr><td><strong>Full</strong></td><td>Files + databases</td><td>(default)</td></tr>
+                            <tr><td><strong>Files only</strong></td><td>Filesystem only, skip DB</td><td><code>--files-only</code></td></tr>
+                            <tr><td><strong>DB only</strong></td><td>Databases only, skip files</td><td><code>--db-only</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F4BE; Database Backup Setup</h2>
+                </div>
+                <div class="help-content">
+                    <p>TimeMachine auto-detects installed database engines on each client. For authentication, you need to create credential files on the <strong>client server</strong>.</p>
+
+                    <h3>MySQL / MariaDB</h3>
+                    <pre class="code-block"># Create password file on the client server:
+echo 'your-mysql-root-password' | sudo tee /home/timemachine/.credentials/mysql.pw
+sudo chmod 600 /home/timemachine/.credentials/mysql.pw
+sudo chown timemachine:timemachine /home/timemachine/.credentials/mysql.pw</pre>
+                    <p class="help-note">TimeMachine will dump all databases (except system DBs). If the password is missing or wrong, you'll receive an email alert.</p>
+
+                    <h3>PostgreSQL</h3>
+                    <pre class="code-block"># PostgreSQL uses peer authentication by default.
+# The timemachine user needs sudo access to the postgres user.
+# This is configured automatically by the client installer.
+# No password file needed for local connections.
+
+# For remote PostgreSQL, set in .env on the backup server:
+# TM_PG_HOST="db.example.com"
+# And create a pgpass file on the client:
+echo "db.example.com:5432:*:postgres:yourpassword" | sudo tee /home/timemachine/.credentials/pgpass
+sudo chmod 600 /home/timemachine/.credentials/pgpass</pre>
+
+                    <h3>MongoDB</h3>
+                    <pre class="code-block"># Create credentials file on the client server:
+echo 'admin_user:admin_password' | sudo tee /home/timemachine/.credentials/mongodb.conf
+sudo chmod 600 /home/timemachine/.credentials/mongodb.conf
+sudo chown timemachine:timemachine /home/timemachine/.credentials/mongodb.conf</pre>
+                    <p class="help-note">Format: <code>username:password</code> on a single line. Uses the <code>admin</code> auth database by default.</p>
+
+                    <h3>Redis</h3>
+                    <pre class="code-block"># Create password file on the client server:
+echo 'your-redis-password' | sudo tee /home/timemachine/.credentials/redis.pw
+sudo chmod 600 /home/timemachine/.credentials/redis.pw
+sudo chown timemachine:timemachine /home/timemachine/.credentials/redis.pw</pre>
+                    <p class="help-note">TimeMachine triggers a BGSAVE and copies the RDB snapshot file.</p>
+
+                    <h3>SQLite</h3>
+                    <pre class="code-block"># Set the paths in .env on the backup server:
+# TM_SQLITE_PATHS="/var/lib/app/db.sqlite3,/opt/wiki/data.db"</pre>
+                    <p class="help-note">No credentials needed. TimeMachine uses <code>sqlite3 .backup</code> for a safe online copy.</p>
+
+                    <h3>Credential file summary</h3>
+                    <table class="help-table">
+                        <thead><tr><th>Database</th><th>File on client</th><th>Format</th></tr></thead>
+                        <tbody>
+                            <tr><td>MySQL/MariaDB</td><td><code>/home/timemachine/.credentials/mysql.pw</code></td><td>Password (single line)</td></tr>
+                            <tr><td>PostgreSQL</td><td><code>/home/timemachine/.credentials/pgpass</code></td><td>host:port:db:user:pass</td></tr>
+                            <tr><td>MongoDB</td><td><code>/home/timemachine/.credentials/mongodb.conf</code></td><td>username:password</td></tr>
+                            <tr><td>Redis</td><td><code>/home/timemachine/.credentials/redis.pw</code></td><td>Password (single line)</td></tr>
+                            <tr><td>SQLite</td><td>N/A</td><td>Paths in <code>.env</code></td></tr>
+                        </tbody>
+                    </table>
+                    <p class="help-note">All credential files must be owned by <code>timemachine</code> with permissions <code>600</code>. If a credential file is missing or contains a wrong password, TimeMachine will send an email alert to the configured notification address.</p>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F501; Restoring Backups</h2>
+                </div>
+                <div class="help-content">
+                    <h3>From the web UI</h3>
+                    <ol>
+                        <li>Go to <em>Servers</em> &rarr; click <strong>Details</strong> on a server</li>
+                        <li>Click <strong>Browse</strong> on a snapshot to explore files</li>
+                        <li>Click <strong>Restore</strong> on a file, folder, or entire snapshot</li>
+                        <li>Track progress on the <em>Restores</em> tab</li>
+                    </ol>
+
+                    <h3>From the command line</h3>
+                    <pre class="code-block"># Restore latest snapshot to original location:
+sudo tmctl restore hostname.example.com
+
+# Restore specific snapshot:
+sudo tmctl restore hostname.example.com --snapshot 2026-02-10
+
+# Restore to a different directory:
+sudo tmctl restore hostname.example.com --target /tmp/restore
+
+# Restore only databases:
+sudo tmctl restore hostname.example.com --db-only</pre>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>&#x1F527; Server Configuration</h2>
+                </div>
+                <div class="help-content">
+                    <h3>Per-server options</h3>
+                    <p>Each server in <code>config/servers.conf</code> can have these options (also editable via the UI):</p>
+                    <table class="help-table">
+                        <thead><tr><th>Option</th><th>Description</th><th>Example</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>--priority N</code></td><td>Backup order (1 = first, default 10)</td><td><code>--priority 1</code></td></tr>
+                            <tr><td><code>--files-only</code></td><td>Skip database backup</td><td></td></tr>
+                            <tr><td><code>--db-only</code></td><td>Skip file backup</td><td></td></tr>
+                            <tr><td><code>--no-rotate</code></td><td>Keep all snapshots (no auto-delete)</td><td></td></tr>
+                            <tr><td><code>--db-interval Xh</code></td><td>Extra DB-only backups every X hours</td><td><code>--db-interval 4h</code></td></tr>
+                            <tr><td><code>--notify EMAIL</code></td><td>Extra notification recipient</td><td><code>--notify admin@example.com</code></td></tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Exclude files from backup</h3>
+                    <p>Global excludes: <code>config/exclude.conf</code><br>
+                    Per-server excludes: <code>config/exclude.&lt;hostname&gt;.conf</code></p>
+                    <pre class="code-block"># Example exclude.conf:
+/tmp/
+/var/cache/
+/var/log/*.gz
+*.swap
+.docker/</pre>
+
+                    <h3>CLI commands</h3>
+                    <table class="help-table">
+                        <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>tmctl status</code></td><td>Show service status</td></tr>
+                            <tr><td><code>tmctl servers</code></td><td>List configured servers</td></tr>
+                            <tr><td><code>tmctl server add &lt;host&gt;</code></td><td>Add a server</td></tr>
+                            <tr><td><code>tmctl backup &lt;host&gt;</code></td><td>Start a backup</td></tr>
+                            <tr><td><code>tmctl restore &lt;host&gt;</code></td><td>Restore from backup</td></tr>
+                            <tr><td><code>tmctl snapshots &lt;host&gt;</code></td><td>List snapshots</td></tr>
+                            <tr><td><code>tmctl logs [host]</code></td><td>View logs</td></tr>
+                            <tr><td><code>tmctl setup-web</code></td><td>Configure Nginx + SSL + Auth</td></tr>
+                            <tr><td><code>tmctl update</code></td><td>Update to latest version</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
 

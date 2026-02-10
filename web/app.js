@@ -344,14 +344,13 @@ async function deleteRestore(id) {
 }
 
 async function clearFinishedRestores() {
-    var data = await apiGet('/api/restores');
-    if (!data) return;
-    var finished = data.filter(function(r) { return r.status !== 'running'; });
-    for (var i = 0; i < finished.length; i++) {
-        await apiDelete('/api/restore/' + finished[i].id);
+    var result = await apiDelete('/api/restores');
+    if (result && result.status === 'cleared') {
+        toast('Cleared ' + result.count + ' finished restore task(s)', 'info');
+        refreshRestores();
+    } else {
+        toast('Failed to clear restore tasks', 'error');
     }
-    toast('Cleared ' + finished.length + ' finished restore task(s)', 'info');
-    refreshRestores();
 }
 
 async function viewRestoreLog(logfile, hostname) {

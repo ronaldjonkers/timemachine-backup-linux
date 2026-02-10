@@ -766,6 +766,84 @@ td.empty {
     .settings-table .settings-text-input { max-width: 100%; }
 }
 
+/* Help page */
+.help-content {
+    padding: 0.75rem 1.25rem 1.25rem;
+    font-size: 0.88rem;
+    line-height: 1.7;
+    color: var(--text);
+}
+
+.help-content h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 1.25rem 0 0.5rem;
+    color: var(--text);
+}
+
+.help-content h3:first-child {
+    margin-top: 0.25rem;
+}
+
+.help-content p {
+    margin: 0.4rem 0;
+}
+
+.help-content ol,
+.help-content ul {
+    margin: 0.4rem 0 0.4rem 1.5rem;
+}
+
+.help-content li {
+    margin-bottom: 0.3rem;
+}
+
+.help-content code {
+    background: rgba(124,92,252,0.12);
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    font-size: 0.82rem;
+    color: var(--accent);
+}
+
+.help-content pre.code-block {
+    margin: 0.5rem 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.help-note {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin: 0.25rem 0 0.75rem;
+}
+
+.help-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0 1rem;
+    font-size: 0.85rem;
+}
+
+.help-table th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.help-table td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.help-table td code {
+    font-size: 0.78rem;
+}
+
 /* Footer */
 footer {
     text-align: center;

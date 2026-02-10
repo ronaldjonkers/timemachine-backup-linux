@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.0] - 2026-02-10
+
+### Added
+- **Help/Wiki page** — New "Help" tab in the portal with comprehensive setup documentation:
+  - Getting Started (3-step quick setup)
+  - Client Setup (installer one-liner, backup modes)
+  - Database Backup Setup (credential file instructions for all 5 engines: MySQL, PostgreSQL, MongoDB, Redis, SQLite with copy-paste commands)
+  - Credential file summary table
+  - Restoring Backups (UI and CLI instructions)
+  - Server Configuration (per-server options, exclude files, CLI command reference)
+- **Restore history** — Restores page now shows all tasks from the last 30 days (was limited to 50 most recent). Renamed to "Restore History"
+- **Bulk clear restores** — New `DELETE /api/restores` endpoint clears all finished restore tasks at once. "Clear All" button replaces the old one-by-one delete loop
+
+### Changed
+- **System Info moved to Dashboard** — System Info panel relocated from Settings to the bottom of the Dashboard for better visibility
+- Restore state files are now filtered by date (30-day window) instead of count
+
 ## [2.12.0] - 2026-02-10
 
 ### Added

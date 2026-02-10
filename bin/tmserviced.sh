@@ -688,11 +688,31 @@ _handle_request() {
             fi
             ;;
 
+        "DELETE /api/restores")
+            # Clear all finished restore tasks
+            local cleared=0
+            for sf in "${STATE_DIR}"/restore-*.state; do
+                [[ -f "${sf}" ]] || continue
+                local sf_status sf_pid
+                sf_status=$(cut -d'|' -f5 "${sf}")
+                sf_pid=$(cut -d'|' -f1 "${sf}")
+                if [[ "${sf_status}" == "running" ]] && kill -0 "${sf_pid}" 2>/dev/null; then
+                    continue
+                fi
+                rm -f "${sf}"
+                cleared=$((cleared + 1))
+            done
+            _http_response "200 OK" "application/json" \
+                "{\"status\":\"cleared\",\"count\":${cleared}}"
+            ;;
+
         "GET /api/restores")
-            # List all restore tasks (active + recent completed)
+            # List all restore tasks from last 30 days
             local restores='['
             local first=1
-            for sf in $(ls -t "${STATE_DIR}"/restore-*.state 2>/dev/null | head -50); do
+            local cutoff_epoch
+            cutoff_epoch=$(date -d '30 days ago' +%s 2>/dev/null || date -v-30d +%s 2>/dev/null || echo 0)
+            for sf in $(ls -t "${STATE_DIR}"/restore-*.state 2>/dev/null); do
                 [[ -f "${sf}" ]] || continue
                 local content
                 content=$(cat "${sf}")
@@ -703,6 +723,13 @@ _handle_request() {
                 rstarted=$(echo "${content}" | cut -d'|' -f4)
                 rstatus=$(echo "${content}" | cut -d'|' -f5)
                 rlogfile=$(echo "${content}" | cut -d'|' -f6)
+
+                # Skip entries older than 30 days
+                if [[ -n "${rstarted}" && ${cutoff_epoch} -gt 0 ]]; then
+                    local started_epoch
+                    started_epoch=$(date -d "${rstarted}" +%s 2>/dev/null || date -j -f '%Y-%m-%d %H:%M:%S' "${rstarted}" +%s 2>/dev/null || echo 0)
+                    [[ ${started_epoch} -lt ${cutoff_epoch} ]] && continue
+                fi
 
                 # Check if running process is actually still alive
                 if [[ "${rstatus}" == "running" ]] && ! kill -0 "${rpid}" 2>/dev/null; then
