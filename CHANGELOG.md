@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.2] - 2026-02-16
+
+### Fixed
+- **Manual backup respects server mode** — When starting a manual backup for a server configured as "files-only", only the "Files only" option is shown (no "Full" or "DB only"). Same for "db-only" servers. Prevents errors from trying to back up a non-existent database.
+
 ## [3.1.1] - 2026-02-16
 
 ### Fixed

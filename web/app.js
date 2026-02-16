@@ -1111,14 +1111,28 @@ async function startBackup() {
 }
 
 function startBackupFor(hostname) {
+    // Find server config to determine allowed modes
+    var srv = null;
+    for (var i = 0; i < _serverData.length; i++) {
+        if (_serverData[i].hostname === hostname) { srv = _serverData[i]; break; }
+    }
+
+    var options = '';
+    if (srv && srv.files_only) {
+        options = '<option value="?files-only" selected>Files only</option>';
+    } else if (srv && srv.db_only) {
+        options = '<option value="?db-only" selected>Database only</option>';
+    } else {
+        options =
+            '<option value="">Full (files + DB)</option>' +
+            '<option value="?files-only">Files only</option>' +
+            '<option value="?db-only">Database only</option>';
+    }
+
     var html = '<div class="edit-server-form">' +
         '<div class="form-group">' +
             '<label>Backup Mode</label>' +
-            '<select id="backup-for-mode">' +
-                '<option value="">Full (files + DB)</option>' +
-                '<option value="?files-only">Files only</option>' +
-                '<option value="?db-only">Database only</option>' +
-            '</select>' +
+            '<select id="backup-for-mode">' + options + '</select>' +
         '</div>' +
         '<div class="form-actions">' +
             '<button class="btn btn-primary btn-success" onclick="runBackupFor(\'' + esc(hostname) + '\')">Start Backup</button>' +
