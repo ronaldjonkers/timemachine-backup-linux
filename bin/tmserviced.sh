@@ -96,6 +96,38 @@ _reconcile_state_files() {
     if [[ $((count_alive + count_dead)) -gt 0 ]]; then
         tm_log "INFO" "Reconcile: ${count_alive} still running, ${count_dead} marked failed"
     fi
+
+    # Detect orphaned backup processes (running timemachine.sh with no state file).
+    # This happens when state files were lost (e.g. old tmpfs location wiped on restart)
+    # but the backup process survived thanks to setsid.
+    local count_orphans=0
+    local _pids
+    _pids=$(pgrep -f "timemachine.sh.*--trigger" 2>/dev/null || true)
+    for _pid in ${_pids}; do
+        # Skip if we already have a state file for this PID
+        if grep -rl "^${_pid}|" "${STATE_DIR}"/proc-*.state 2>/dev/null | head -1 | grep -q .; then
+            continue
+        fi
+        # Extract hostname from the process command line
+        local _cmdline
+        _cmdline=$(ps -p "${_pid}" -o args= 2>/dev/null) || continue
+        local _host
+        _host=$(echo "${_cmdline}" | grep -oP 'timemachine\.sh\s+\K[^\s]+' 2>/dev/null || \
+                echo "${_cmdline}" | sed -n 's/.*timemachine\.sh[[:space:]]\+\([^[:space:]]\+\).*/\1/p')
+        [[ -n "${_host}" ]] || continue
+        # Find the log file for this process
+        local _logfile=""
+        _logfile=$(ls -t "${TM_LOG_DIR}"/backup-"${_host}"-*.log 2>/dev/null | head -1)
+        local _mode="full"
+        [[ "${_cmdline}" == *"--files-only"* ]] && _mode="files-only"
+        [[ "${_cmdline}" == *"--db-only"* ]] && _mode="db-only"
+        local _started
+        _started=$(ps -p "${_pid}" -o lstart= 2>/dev/null | xargs -I{} date -d "{}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date +'%Y-%m-%d %H:%M:%S')
+        tm_log "INFO" "Reconcile: found orphan backup for ${_host} (PID ${_pid}) — re-registering"
+        echo "${_pid}|${_host}|${_mode}|${_started}|running|${_logfile}" > "${STATE_DIR}/proc-${_host}.state"
+        count_orphans=$((count_orphans + 1))
+    done
+    [[ ${count_orphans} -gt 0 ]] && tm_log "INFO" "Reconcile: re-registered ${count_orphans} orphaned backup(s)"
 }
 
 # Register a running backup process

@@ -1883,7 +1883,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
 def _reconcile_state_files(sd):
     """Check state files for 'running' entries and verify PIDs are alive.
-    Mark dead ones as failed so the dashboard shows correct status after restart."""
+    Mark dead ones as failed so the dashboard shows correct status after restart.
+    Also detect orphaned backup processes that have no state file."""
+    # 1. Check existing state files
     for sf in glob.glob(os.path.join(sd, 'proc-*.state')):
         try:
             content = open(sf).read().strip()
@@ -1913,6 +1915,52 @@ def _reconcile_state_files(sd):
                         cf.write('137')
         except Exception:
             pass
+
+    # 2. Detect orphaned backup processes (running timemachine.sh with no state file)
+    try:
+        result = subprocess.run(['pgrep', '-af', 'timemachine.sh.*--trigger'],
+                                capture_output=True, text=True, timeout=5)
+        known_pids = set()
+        for sf in glob.glob(os.path.join(sd, 'proc-*.state')):
+            try:
+                pid_str = open(sf).read().strip().split('|')[0]
+                known_pids.add(pid_str)
+            except Exception:
+                pass
+        for line in result.stdout.strip().splitlines():
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            pid_str = parts[0]
+            cmdline = parts[1] if len(parts) > 1 else ''
+            if pid_str in known_pids:
+                continue
+            # Extract hostname (first arg after timemachine.sh)
+            m = re.search(r'timemachine\.sh\s+(\S+)', cmdline)
+            if not m:
+                continue
+            host = m.group(1)
+            mode = 'full'
+            if '--files-only' in cmdline:
+                mode = 'files-only'
+            elif '--db-only' in cmdline:
+                mode = 'db-only'
+            # Find latest log file for this host
+            ld = log_dir()
+            logfile = ''
+            try:
+                logs = sorted(glob.glob(os.path.join(ld, f'backup-{host}-*.log')), reverse=True)
+                if logs:
+                    logfile = logs[0]
+            except Exception:
+                pass
+            started = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            print(f'Reconcile: found orphan backup for {host} (PID {pid_str}) — re-registering', flush=True)
+            sf_path = os.path.join(sd, f'proc-{host}.state')
+            with open(sf_path, 'w') as f:
+                f.write(f'{pid_str}|{host}|{mode}|{started}|running|{logfile}')
+    except Exception:
+        pass
 
 
 # ============================================================

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.5] - 2026-02-16
+
+### Fixed
+- **Orphaned backup processes re-discovered after restart** — On startup, the service now scans for running `timemachine.sh` processes that have no state file (e.g. state files were lost during an upgrade from an older version). These orphaned backups are automatically re-registered so they appear in the dashboard immediately. This fixes the issue where running backups became invisible after `tmctl update` and stayed invisible even on fresh page loads.
+
 ## [3.1.4] - 2026-02-16
 
 ### Fixed
