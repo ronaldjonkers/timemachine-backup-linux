@@ -1071,7 +1071,8 @@ async function startAllBackups() {
     if (!confirm('Start backups for all configured servers now?')) return;
     var result = await apiPost('/api/backup-all');
     if (result && result.count > 0) {
-        toast('Started backups for ' + result.count + ' server(s)', 'success');
+        var limit = result.parallel_limit || '?';
+        toast('Queued ' + result.count + ' server(s), max ' + limit + ' parallel', 'success');
         var banner = document.getElementById('no-backups-banner');
         if (banner) banner.style.display = 'none';
     } else if (result && result.count === 0) {

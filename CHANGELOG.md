@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-02-16
+
+### Fixed
+- **CRITICAL: "Start All Backups" ignored parallel job limit** — `_api_backup_all` spawned one thread per server simultaneously with no throttling. With 50 servers this meant 50 parallel `timemachine.sh` processes, overloading the backup server. Now uses a `threading.Semaphore` limited to `TM_PARALLEL_JOBS` (default 5), matching the behavior of `daily-runner.sh`.
+- **Priority sorting for "Start All Backups"** — Servers are now sorted by `--priority` (ascending) before starting, so high-priority servers back up first.
+- **Server mode respected** — `--files-only` and `--db-only` options from `servers.conf` are now correctly passed through when starting all backups via the dashboard.
+
 ## [3.0.0] - 2026-02-10
 
 **TimeMachine Backup v3.0.0 — Production-Ready Release**

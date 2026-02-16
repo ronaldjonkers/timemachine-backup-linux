@@ -1005,13 +1005,19 @@ class APIHandler(BaseHTTPRequestHandler):
         })
 
     def _api_backup_all(self):
-        """Start backups for all configured servers."""
+        """Start backups for all configured servers, respecting TM_PARALLEL_JOBS and priority order."""
         servers = read_servers_conf()
-        started = []
+        max_jobs = int(env_val('TM_PARALLEL_JOBS', '5'))
+        script = os.path.join(SCRIPT_DIR, 'timemachine.sh')
+        sd = state_dir()
+
+        # Sort by priority (ascending — lower number = higher priority)
+        servers.sort(key=lambda s: s.get('priority', 10))
+
+        # Filter out already-running servers and build queue
+        queue = []
         for srv in servers:
             hostname = srv['hostname']
-            # Skip if already running
-            sd = state_dir()
             already_running = False
             for sf in glob.glob(os.path.join(sd, f'proc-{hostname}*.state')):
                 try:
@@ -1021,47 +1027,69 @@ class APIHandler(BaseHTTPRequestHandler):
                         break
                 except Exception:
                     pass
-            if already_running:
-                continue
-            # Start backup via the same mechanism as single backup
-            ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
-            logfile = os.path.join(log_dir(), f'backup-{hostname}-{ts}.log')
-            script = os.path.join(SCRIPT_DIR, 'timemachine.sh')
-            started_ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            sf_path = os.path.join(sd, f'proc-{hostname}-{ts}.state')
-            with open(sf_path, 'w') as f:
-                f.write(f'0|{hostname}|full|{started_ts}|running|{logfile}')
+            if not already_running:
+                queue.append(srv)
 
-            def _run(h=hostname, lf=logfile, sfp=sf_path, st=started_ts):
-                try:
-                    env = os.environ.copy()
-                    env['_TM_BACKUP_LOGFILE'] = lf
-                    with open(lf, 'w') as log_fh:
-                        cmd = f'{script} {h} --trigger dashboard'
-                        proc = subprocess.Popen(cmd, shell=True, stdout=log_fh, stderr=log_fh, env=env)
-                        try:
-                            with open(sfp, 'w') as sf:
-                                sf.write(f'{proc.pid}|{h}|full|{st}|running|{lf}')
-                        except Exception:
-                            pass
-                        exit_code = proc.wait()
-                        code_file = os.path.join(state_dir(), f'exit-{h}.code')
-                        with open(code_file, 'w') as cf:
-                            cf.write(str(exit_code))
-                        try:
-                            status = 'completed' if exit_code == 0 else 'failed'
-                            with open(sfp, 'w') as sf:
-                                sf.write(f'{proc.pid}|{h}|full|{st}|{status}|{lf}')
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+        if not queue:
+            self._send_json({'status': 'started', 'servers': [], 'count': 0})
+            return
 
-            t = threading.Thread(target=_run, daemon=True)
+        started = [s['hostname'] for s in queue]
+
+        # Use a semaphore to limit concurrent backup processes
+        sem = threading.Semaphore(max_jobs)
+
+        def _run_backup(srv_entry):
+            h = srv_entry['hostname']
+            sem.acquire()
+            try:
+                ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+                lf = os.path.join(log_dir(), f'backup-{h}-{ts}.log')
+                st = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                sfp = os.path.join(sd, f'proc-{h}-{ts}.state')
+                # Determine mode from server options
+                opts = srv_entry.get('options', '')
+                mode = 'full'
+                trigger_opts = ''
+                if '--files-only' in opts:
+                    mode = 'files-only'
+                    trigger_opts = ' --files-only'
+                elif '--db-only' in opts:
+                    mode = 'db-only'
+                    trigger_opts = ' --db-only'
+                with open(sfp, 'w') as f:
+                    f.write(f'0|{h}|{mode}|{st}|running|{lf}')
+                env = os.environ.copy()
+                env['_TM_BACKUP_LOGFILE'] = lf
+                with open(lf, 'w') as log_fh:
+                    cmd = f'{script} {h}{trigger_opts} --trigger dashboard'
+                    proc = subprocess.Popen(cmd, shell=True, stdout=log_fh, stderr=log_fh, env=env)
+                    try:
+                        with open(sfp, 'w') as sf:
+                            sf.write(f'{proc.pid}|{h}|{mode}|{st}|running|{lf}')
+                    except Exception:
+                        pass
+                    exit_code = proc.wait()
+                    code_file = os.path.join(state_dir(), f'exit-{h}.code')
+                    with open(code_file, 'w') as cf:
+                        cf.write(str(exit_code))
+                    try:
+                        status = 'completed' if exit_code == 0 else 'failed'
+                        with open(sfp, 'w') as sf:
+                            sf.write(f'{proc.pid}|{h}|{mode}|{st}|{status}|{lf}')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            finally:
+                sem.release()
+
+        # Launch all in threads — semaphore ensures max_jobs run concurrently
+        for srv in queue:
+            t = threading.Thread(target=_run_backup, args=(srv,), daemon=True)
             t.start()
-            started.append(hostname)
 
-        self._send_json({'status': 'started', 'servers': started, 'count': len(started)})
+        self._send_json({'status': 'started', 'servers': started, 'count': len(started), 'parallel_limit': max_jobs})
 
     def _api_backup_kill(self, target_host):
         sd = state_dir()
