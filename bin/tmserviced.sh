@@ -1221,7 +1221,8 @@ _handle_request() {
                     local snap_dir="${TM_BACKUP_ROOT}/${ahost}"
                     local snap_count=0 last_bk="--" total_sz="--"
                     if [[ -d "${snap_dir}" ]]; then
-                        snap_count=$(find "${snap_dir}" -maxdepth 1 -type d -name '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' 2>/dev/null | wc -l | tr -d ' ')
+                        # Count unique dates (YYYY-MM-DD), not individual snapshot dirs
+                        snap_count=$(find "${snap_dir}" -maxdepth 1 -type d -name '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' 2>/dev/null | sed 's|.*/||; s|_.*||' | sort -u | wc -l | tr -d ' ')
                         last_bk=$(ls -1d "${snap_dir}"/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]* 2>/dev/null | sort -r | head -1 | xargs basename 2>/dev/null || echo "--")
                         total_sz=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1 || echo "--")
                     fi

@@ -333,7 +333,8 @@ def read_archived_conf():
                     total_size = result.stdout.split()[0]
             except Exception:
                 pass
-            srv['snapshots'] = len(snaps)
+            # Count unique dates (YYYY-MM-DD), not individual snapshot dirs
+            srv['snapshots'] = len(set(s[:10] for s in snaps))
             srv['last_backup'] = snaps[0] if snaps else '--'
             srv['total_size'] = total_size
             servers.append(srv)
@@ -1779,7 +1780,8 @@ class APIHandler(BaseHTTPRequestHandler):
             if os.path.isdir(snap_dir):
                 snapshots = [d for d in os.listdir(snap_dir)
                              if os.path.isdir(os.path.join(snap_dir, d)) and re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', d)]
-                snap_count = len(snapshots)
+                # Count unique dates (YYYY-MM-DD), not individual snapshot dirs
+                snap_count = len(set(s[:10] for s in snapshots))
                 if snapshots:
                     last_backup = sorted(snapshots)[-1]
                 total_size = du_sh(snap_dir)

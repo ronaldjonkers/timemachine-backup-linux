@@ -136,8 +136,23 @@ tm_rsync_sql() {
     local backup_base="$2"
     local remote_user="${TM_USER}"
 
-    # Reuse snapshot ID from tm_rsync_backup if available, otherwise generate new one
-    local snap_id="${_TM_SNAP_ID:-$(tm_snapshot_id)}"
+    # Reuse snapshot ID from tm_rsync_backup if available.
+    # For DB-only runs (no file backup), find today's latest snapshot to avoid
+    # creating extra directories that inflate the version count during rotation.
+    local snap_id="${_TM_SNAP_ID:-}"
+    if [[ -z "${snap_id}" ]]; then
+        local today_prefix
+        today_prefix=$(date +'%Y-%m-%d')
+        local latest_today
+        latest_today=$(ls -1d "${backup_base}/${today_prefix}"* 2>/dev/null | sort -r | head -1)
+        if [[ -n "${latest_today}" && -d "${latest_today}" ]]; then
+            snap_id=$(basename "${latest_today}")
+            tm_log "INFO" "DB-only: reusing today's snapshot ${snap_id}"
+        else
+            snap_id=$(tm_snapshot_id)
+            tm_log "INFO" "DB-only: no existing snapshot today, creating ${snap_id}"
+        fi
+    fi
     local target_dir="${backup_base}/${snap_id}/sql"
 
     tm_ensure_dir "${target_dir}"

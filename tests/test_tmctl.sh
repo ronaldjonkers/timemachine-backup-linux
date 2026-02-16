@@ -74,7 +74,7 @@ echo ""
 echo "=== Testing: tmctl version ==="
 
 output=$(bash "${PROJECT_ROOT}/bin/tmctl.sh" version 2>&1)
-assert_contains "Version output" "3.1.7" "${output}"
+assert_contains "Version output" "3.2.0" "${output}"
 
 # ============================================================
 # TESTS: SSH KEY

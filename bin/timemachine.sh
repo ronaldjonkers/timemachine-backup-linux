@@ -222,7 +222,10 @@ main() {
         snap_size=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1) || snap_size="unknown"
     fi
     local snap_count="0"
-    snap_count=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name '20*' 2>/dev/null | wc -l | tr -d ' ') || snap_count="0"
+    # Count unique dates (YYYY-MM-DD), not individual snapshot dirs, so
+    # multiple DB-only runs on the same day count as 1 version.
+    snap_count=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name '20*' 2>/dev/null | \
+        sed 's|.*/||; s|_.*||' | sort -u | wc -l | tr -d ' ') || snap_count="0"
     local disk_free=""
     disk_free=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | awk 'NR==2{print $4}') || disk_free="unknown"
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-02-16
+
+### Fixed
+- **CRITICAL: DB-only backups no longer create extra snapshot directories** — Previously, each `--db-interval` run created a new timestamped directory (e.g. `2026-02-16_160000/sql/`), inflating the version count and causing premature deletion of file backups during rotation. DB-only backups now reuse today's existing snapshot directory, keeping SQL dumps alongside the file backup.
+- **Snapshot count shows unique dates** — Dashboard, email summaries, and API now count unique dates (YYYY-MM-DD) instead of individual snapshot directories. Multiple backups on the same day count as 1 version.
+
 ## [3.1.7] - 2026-02-16
 
 ### Fixed
