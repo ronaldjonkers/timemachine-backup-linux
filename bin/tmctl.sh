@@ -199,7 +199,7 @@ cmd_ps() {
     fi
 
     # State files
-    for state_file in "${TM_RUN_DIR}/state"/proc-*.state; do
+    for state_file in "${TM_STATE_DIR}"/proc-*.state; do
         [[ -f "${state_file}" ]] || continue
         local content
         content=$(cat "${state_file}")
@@ -414,7 +414,7 @@ cmd_server_add() {
     fi
 
     # Write skip marker so the daily runner won't auto-include this server today
-    local state_dir="${TM_RUN_DIR:-/var/run/timemachine}/state"
+    local state_dir="${TM_STATE_DIR:-${TM_HOME}/state}"
     tm_ensure_dir "${state_dir}"
     date +'%Y-%m-%d' > "${state_dir}/skip-daily-${hostname}"
 
@@ -589,7 +589,7 @@ cmd_server_edit() {
 }
 
 cmd_version() {
-    echo "TimeMachine Backup v3.1.2"
+    echo "TimeMachine Backup v3.1.3"
 }
 
 cmd_fix_permissions() {

@@ -40,9 +40,19 @@ fi
 # STATE DIRECTORY
 # ============================================================
 
-STATE_DIR="${TM_RUN_DIR}/state"
+STATE_DIR="${TM_STATE_DIR}"
 tm_ensure_dir "${STATE_DIR}"
 tm_ensure_dir "${TM_LOG_DIR}"
+
+# Migrate state files from old tmpfs location (v3.0.x used TM_RUN_DIR/state)
+_old_state="${TM_RUN_DIR}/state"
+if [[ -d "${_old_state}" && "${_old_state}" != "${STATE_DIR}" ]]; then
+    for _sf in "${_old_state}"/proc-*.state "${_old_state}"/exit-*.code "${_old_state}"/last-* "${_old_state}"/skip-*; do
+        [[ -f "${_sf}" ]] || continue
+        mv -n "${_sf}" "${STATE_DIR}/" 2>/dev/null || true
+    done
+fi
+unset _old_state _sf
 
 # Write service PID
 echo $$ > "${TM_RUN_DIR}/tmserviced.pid"

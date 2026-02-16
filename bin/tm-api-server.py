@@ -58,10 +58,13 @@ def get_config(project_root):
     env_file = os.path.join(project_root, '.env')
     env = load_env(env_file)
 
+    home_dir = env.get('TM_HOME', '/home/timemachine')
     return {
         'project_root': project_root,
         'backup_root': env.get('TM_BACKUP_ROOT', os.path.join(project_root, 'backups')),
-        'log_dir': env.get('TM_LOG_DIR', '/var/log/timemachine'),
+        'home_dir': home_dir,
+        'log_dir': env.get('TM_LOG_DIR', os.path.join(home_dir, 'logs')),
+        'state_dir': env.get('TM_STATE_DIR', os.path.join(home_dir, 'state')),
         'run_dir': env.get('TM_RUN_DIR', '/var/run/timemachine'),
         'ssh_key': env.get('TM_SSH_KEY', os.path.expanduser('~/.ssh/id_ed25519')),
         'schedule_hour': env.get('TM_SCHEDULE_HOUR', '11'),
@@ -151,7 +154,7 @@ def env_set(key, val):
 # ============================================================
 
 def state_dir():
-    return os.path.join(CONFIG.get('run_dir', '/var/run/timemachine'), 'state')
+    return CONFIG.get('state_dir', os.path.join(CONFIG.get('home_dir', '/home/timemachine'), 'state'))
 
 
 def log_dir():

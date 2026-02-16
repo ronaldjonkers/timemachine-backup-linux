@@ -77,6 +77,7 @@ tm_load_config() {
     : "${TM_SMTP_TLS:=true}"
     : "${TM_LOG_LEVEL:=INFO}"
     : "${TM_LOG_DIR:=${TM_HOME}/logs}"
+    : "${TM_STATE_DIR:=${TM_HOME}/state}"
     : "${TM_RUN_DIR:=/var/run/timemachine}"
     : "${TM_ENCRYPT_ENABLED:=false}"
     : "${TM_ENCRYPT_MODE:=symmetric}"

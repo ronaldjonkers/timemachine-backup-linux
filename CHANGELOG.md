@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.3] - 2026-02-16
+
+### Fixed
+- **CRITICAL: Backup process state persists across service restarts** — State files (`proc-*.state`, `exit-*.code`, scheduler markers) are now stored in `TM_HOME/state` (persistent disk) instead of `TM_RUN_DIR/state` (tmpfs `/run/timemachine` which was wiped on every restart). Running backups now remain visible in the dashboard after `tmctl update` or `systemctl restart timemachine`.
+- **Automatic migration** — On first start after update, existing state files are automatically moved from the old tmpfs location to the new persistent directory.
+
 ## [3.1.2] - 2026-02-16
 
 ### Fixed

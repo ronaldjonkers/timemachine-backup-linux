@@ -30,7 +30,7 @@ tm_require_user
 
 SERVERS_CONF="${TM_PROJECT_ROOT}/config/servers.conf"
 LOG_DIR="${TM_LOG_DIR}"
-STATE_DIR="${TM_RUN_DIR}/state"
+STATE_DIR="${TM_STATE_DIR}"
 TODAY=$(tm_date_today)
 LOGFILE="${LOG_DIR}/daily-${TODAY}.log"
 

@@ -384,10 +384,10 @@ server_setup_directories() {
     local dirs=(
         "${TM_HOME}"
         "${TM_HOME}/logs"
+        "${TM_HOME}/state"
         "${TM_HOME}/.ssh"
         "${TM_BACKUP_ROOT}"
         "${TM_RUN_DIR}"
-        "${TM_RUN_DIR}/state"
     )
 
     for dir in "${dirs[@]}"; do
@@ -399,7 +399,7 @@ server_setup_directories() {
     # Set restrictive permissions on sensitive dirs
     chmod 750 "${TM_BACKUP_ROOT}"
     chmod 750 "${TM_RUN_DIR}"
-    chmod 750 "${TM_RUN_DIR}/state"
+    chmod 750 "${TM_HOME}/state"
     chmod 750 "${TM_HOME}"
     chmod 750 "${TM_HOME}/logs"
     chmod 700 "${TM_HOME}/.ssh"
