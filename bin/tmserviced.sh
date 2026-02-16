@@ -101,32 +101,43 @@ _reconcile_state_files() {
     # This happens when state files were lost (e.g. old tmpfs location wiped on restart)
     # but the backup process survived thanks to setsid.
     local count_orphans=0
-    local _pids
-    _pids=$(pgrep -f "timemachine.sh.*--trigger" 2>/dev/null || true)
-    for _pid in ${_pids}; do
-        # Skip if we already have a state file for this PID
-        if grep -rl "^${_pid}|" "${STATE_DIR}"/proc-*.state 2>/dev/null | head -1 | grep -q .; then
-            continue
-        fi
-        # Extract hostname from the process command line
-        local _cmdline
-        _cmdline=$(ps -p "${_pid}" -o args= 2>/dev/null) || continue
-        local _host
-        _host=$(echo "${_cmdline}" | grep -oP 'timemachine\.sh\s+\K[^\s]+' 2>/dev/null || \
-                echo "${_cmdline}" | sed -n 's/.*timemachine\.sh[[:space:]]\+\([^[:space:]]\+\).*/\1/p')
-        [[ -n "${_host}" ]] || continue
-        # Find the log file for this process
-        local _logfile=""
-        _logfile=$(ls -t "${TM_LOG_DIR}"/backup-"${_host}"-*.log 2>/dev/null | head -1)
-        local _mode="full"
-        if [[ "${_cmdline}" == *"--files-only"* ]]; then _mode="files-only"; fi
-        if [[ "${_cmdline}" == *"--db-only"* ]]; then _mode="db-only"; fi
-        local _started
-        _started=$(ps -p "${_pid}" -o lstart= 2>/dev/null | xargs -I{} date -d "{}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date +'%Y-%m-%d %H:%M:%S')
-        tm_log "INFO" "Reconcile: found orphan backup for ${_host} (PID ${_pid}) — re-registering"
-        echo "${_pid}|${_host}|${_mode}|${_started}|running|${_logfile}" > "${STATE_DIR}/proc-${_host}.state"
-        count_orphans=$((count_orphans + 1))
-    done
+    local _ps_output
+    _ps_output=$(ps -eo pid,args 2>/dev/null | grep '[t]imemachine\.sh' | grep '\-\-trigger' || true)
+    if [[ -n "${_ps_output}" ]]; then
+        while IFS= read -r _line; do
+            _line=$(echo "${_line}" | sed 's/^[[:space:]]*//')
+            local _pid="${_line%% *}"
+            local _cmdline="${_line#* }"
+            [[ -n "${_pid}" ]] || continue
+
+            # Extract hostname: first argument after timemachine.sh
+            local _host
+            _host=$(echo "${_cmdline}" | sed -n 's|.*timemachine\.sh[[:space:]]\+\([^[:space:]]\+\).*|\1|p')
+            [[ -n "${_host}" ]] || continue
+
+            # Skip if we already have a running state file for this hostname
+            local _sf="${STATE_DIR}/proc-${_host}.state"
+            if [[ -f "${_sf}" ]]; then
+                local _sf_status
+                _sf_status=$(cut -d'|' -f5 "${_sf}" 2>/dev/null)
+                if [[ "${_sf_status}" == "running" ]]; then
+                    continue
+                fi
+            fi
+
+            # Find the log file for this host
+            local _logfile=""
+            _logfile=$(ls -t "${TM_LOG_DIR}"/backup-"${_host}"-*.log 2>/dev/null | head -1)
+            local _mode="full"
+            if [[ "${_cmdline}" == *"--files-only"* ]]; then _mode="files-only"; fi
+            if [[ "${_cmdline}" == *"--db-only"* ]]; then _mode="db-only"; fi
+            local _started
+            _started=$(date +'%Y-%m-%d %H:%M:%S')
+            tm_log "INFO" "Reconcile: found orphan backup for ${_host} (PID ${_pid}) — re-registering"
+            echo "${_pid}|${_host}|${_mode}|${_started}|running|${_logfile}" > "${_sf}"
+            count_orphans=$((count_orphans + 1))
+        done <<< "${_ps_output}"
+    fi
     if [[ ${count_orphans} -gt 0 ]]; then
         tm_log "INFO" "Reconcile: re-registered ${count_orphans} orphaned backup(s)"
     fi
