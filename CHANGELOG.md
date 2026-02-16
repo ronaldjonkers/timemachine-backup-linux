@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-02-16
+
+### Fixed
+- **Backups no longer re-trigger on every service restart** — Three fixes:
+  1. Daily run marker (`last-daily-run`) is now written **before** starting the daily run, not after. Previously, a restart mid-run would lose the marker and re-trigger all backups.
+  2. Interval checks (`--db-interval`, `--backup-interval`) now have the same 5-minute startup delay as the daily run, preventing immediate re-triggering after `tmctl update`.
+  3. Interval checks now skip servers that already have a running backup, preventing duplicate backups for the same server.
+
 ## [3.2.0] - 2026-02-16
 
 ### Fixed

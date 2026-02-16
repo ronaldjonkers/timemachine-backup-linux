@@ -382,6 +382,12 @@ _check_db_intervals() {
                 continue
             fi
 
+            # Skip if a backup is already running for this server
+            local _sf="${STATE_DIR}/proc-${srv_host}.state"
+            if [[ -f "${_sf}" ]] && grep -q '|running|' "${_sf}" 2>/dev/null; then
+                continue
+            fi
+
             local last_db_file="${STATE_DIR}/last-db-${srv_host}"
             local now
             now=$(date +%s)
@@ -438,6 +444,12 @@ _check_backup_intervals() {
             # Skip servers added today (user chose not to backup now)
             local skip_file="${STATE_DIR}/skip-daily-${srv_host}"
             if [[ -f "${skip_file}" && "$(cat "${skip_file}" 2>/dev/null)" == "$(tm_date_today)" ]]; then
+                continue
+            fi
+
+            # Skip if a backup is already running for this server
+            local _sf="${STATE_DIR}/proc-${srv_host}.state"
+            if [[ -f "${_sf}" ]] && grep -q '|running|' "${_sf}" 2>/dev/null; then
                 continue
             fi
 
@@ -533,12 +545,14 @@ _scheduler_loop() {
         if [[ "${last_run}" != "${today}" && ${current_time} -ge ${schedule_time} && ${_uptime} -ge 300 ]]; then
             tm_log "INFO" "Scheduler: triggering daily backup run (time=${current_hour}:${current_minute}, schedule=${schedule_hour}:$(printf '%02d' "${schedule_minute}"))"
 
+            # Mark today BEFORE starting so a restart mid-run won't re-trigger
+            echo "${today}" > "${last_run_file}"
+
             if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
                 # Use daily-runner.sh which handles priority sorting,
                 # parallel execution, per-server tracking, and report generation
                 "${SCRIPT_DIR}/daily-runner.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1 || true
-                echo "${today}" > "${last_run_file}"
-                tm_log "INFO" "Scheduler: daily run completed, marked ${today}"
+                tm_log "INFO" "Scheduler: daily run completed"
 
                 # Reset interval timestamps after daily run
                 # (daily run already includes full + DB backup)
@@ -559,17 +573,19 @@ _scheduler_loop() {
                     done
             else
                 tm_log "ERROR" "Scheduler: pre-backup check failed (previous backups still running?)"
-                # Mark the day as attempted so we don't retry every minute
-                # and spam alerts. The check runs once at the scheduled time.
-                echo "${today}" > "${last_run_file}"
+                # last_run_file already written above — no retry today
             fi
         fi
 
-        # Check DB interval backups (runs every minute)
-        _check_db_intervals "${servers_conf}" || true
+        # Check interval backups only after startup delay (prevents re-triggering
+        # all interval backups immediately after a service restart / tmctl update)
+        if [[ ${_uptime} -ge 300 ]]; then
+            # Check DB interval backups (runs every minute)
+            _check_db_intervals "${servers_conf}" || true
 
-        # Check backup interval full backups (runs every minute)
-        _check_backup_intervals "${servers_conf}" || true
+            # Check backup interval full backups (runs every minute)
+            _check_backup_intervals "${servers_conf}" || true
+        fi
 
         # Check if config reload was requested (e.g. after settings save)
         if [[ -f "${STATE_DIR}/.reload_config" ]]; then
