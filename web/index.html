@@ -241,7 +241,7 @@
                         <option value="--db-only">Database only</option>
                         <option value="--no-rotate">No rotation</option>
                     </select>
-                    <input type="number" id="add-server-priority" placeholder="Priority (1-99)" min="1" max="99" style="width:130px">
+                    <input type="number" id="add-server-priority" placeholder="Priority 1=high" min="1" max="99" style="width:130px" title="1 = highest priority, default 10">
                     <input type="number" id="add-server-db-interval" placeholder="DB interval (h)" min="1" max="24" style="width:130px">
                     <button class="btn btn-primary" onclick="addServer()">Add Server</button>
                 </div>
@@ -249,7 +249,7 @@
                     <thead>
                         <tr>
                             <th class="sortable" data-sort="hostname" onclick="sortServers('hostname')">Hostname <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-sort="priority" onclick="sortServers('priority')">Priority <span class="sort-arrow">&#x25B2;</span></th>
+                            <th class="sortable" data-sort="priority" onclick="sortServers('priority')" title="1 = highest priority">Priority (1=high) <span class="sort-arrow">&#x25B2;</span></th>
                             <th class="sortable" data-sort="last_backup" onclick="sortServers('last_backup')">Last Backup <span class="sort-arrow"></span></th>
                             <th>Snapshots</th>
                             <th>Total Size</th>
