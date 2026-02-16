@@ -119,15 +119,17 @@ _reconcile_state_files() {
         local _logfile=""
         _logfile=$(ls -t "${TM_LOG_DIR}"/backup-"${_host}"-*.log 2>/dev/null | head -1)
         local _mode="full"
-        [[ "${_cmdline}" == *"--files-only"* ]] && _mode="files-only"
-        [[ "${_cmdline}" == *"--db-only"* ]] && _mode="db-only"
+        if [[ "${_cmdline}" == *"--files-only"* ]]; then _mode="files-only"; fi
+        if [[ "${_cmdline}" == *"--db-only"* ]]; then _mode="db-only"; fi
         local _started
         _started=$(ps -p "${_pid}" -o lstart= 2>/dev/null | xargs -I{} date -d "{}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date +'%Y-%m-%d %H:%M:%S')
         tm_log "INFO" "Reconcile: found orphan backup for ${_host} (PID ${_pid}) — re-registering"
         echo "${_pid}|${_host}|${_mode}|${_started}|running|${_logfile}" > "${STATE_DIR}/proc-${_host}.state"
         count_orphans=$((count_orphans + 1))
     done
-    [[ ${count_orphans} -gt 0 ]] && tm_log "INFO" "Reconcile: re-registered ${count_orphans} orphaned backup(s)"
+    if [[ ${count_orphans} -gt 0 ]]; then
+        tm_log "INFO" "Reconcile: re-registered ${count_orphans} orphaned backup(s)"
+    fi
 }
 
 # Register a running backup process
@@ -258,8 +260,8 @@ WRAPPER_EOF
     disown ${pid} 2>/dev/null || true
 
     local mode="full"
-    [[ "${opts}" == *"--files-only"* ]] && mode="files-only"
-    [[ "${opts}" == *"--db-only"* ]] && mode="db-only"
+    if [[ "${opts}" == *"--files-only"* ]]; then mode="files-only"; fi
+    if [[ "${opts}" == *"--db-only"* ]]; then mode="db-only"; fi
 
     _register_process "${hostname}" "${pid}" "${mode}" "${logfile}"
     tm_log "INFO" "Service: backup started for ${hostname} (PID ${pid}, log: ${logfile})"
@@ -1877,8 +1879,8 @@ _cleanup() {
     # Hard kill — no grace period
     [[ -n "${HTTP_PID:-}" ]] && kill -9 "${HTTP_PID}" 2>/dev/null
     [[ -n "${SCHEDULER_PID:-}" ]] && kill -9 "${SCHEDULER_PID}" 2>/dev/null
-    wait "${HTTP_PID}" 2>/dev/null || true
-    wait "${SCHEDULER_PID}" 2>/dev/null || true
+    [[ -n "${HTTP_PID:-}" ]] && wait "${HTTP_PID}" 2>/dev/null || true
+    [[ -n "${SCHEDULER_PID:-}" ]] && wait "${SCHEDULER_PID}" 2>/dev/null || true
     rm -f "${TM_RUN_DIR}/tmserviced.pid"
     tm_log "INFO" "Service stopped"
     exit 0

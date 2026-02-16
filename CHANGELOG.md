@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.6] - 2026-02-16
+
+### Fixed
+- **CRITICAL: Service crash on startup** — The `_cleanup` trap referenced unbound variables (`HTTP_PID`, `SCHEDULER_PID`) when triggered before the HTTP server was started. Fixed with `${:-}` default guards on all `wait` calls.
+- **CRITICAL: `set -e` exit in orphan detection** — Several `[[ condition ]] && action` patterns caused immediate script exit under `set -e` when the condition was false. Replaced all with `if/then` blocks in `_reconcile_state_files` and `run_backup`.
+
 ## [3.1.5] - 2026-02-16
 
 ### Fixed
