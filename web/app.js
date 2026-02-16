@@ -258,7 +258,10 @@ async function refreshFailures() {
     var panel = document.getElementById('failures-panel');
     var tbody = document.getElementById('failures-body');
 
-    if (!data || data.length === 0) {
+    // API unreachable — keep current panel contents
+    if (data === null) return;
+
+    if (data.length === 0) {
         panel.style.display = 'none';
         return;
     }
@@ -304,7 +307,10 @@ async function refreshProcesses() {
     var tbody = document.getElementById('processes-body');
     var clearBtn = document.getElementById('processes-clear-btn');
 
-    if (!data || data.length === 0) {
+    // API unreachable — keep current table contents
+    if (data === null) return;
+
+    if (data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty">No active processes</td></tr>';
         if (clearBtn) clearBtn.style.display = 'none';
         // Check if any previously running hosts just finished
@@ -399,7 +405,10 @@ async function refreshRestores() {
     var tbody = document.getElementById('restores-body');
     var clearBtn = document.getElementById('restores-clear-btn');
 
-    if (!data || data.length === 0) {
+    // API unreachable — keep current table contents
+    if (data === null) return;
+
+    if (data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty">No restore tasks</td></tr>';
         if (clearBtn) clearBtn.style.display = 'none';
         return;
@@ -619,7 +628,10 @@ async function refreshServers() {
     var data = await apiGet('/api/servers');
     var countEl = document.getElementById('server-count');
 
-    if (!data || data.length === 0) {
+    // API unreachable — keep current table contents
+    if (data === null) return;
+
+    if (data.length === 0) {
         _serverData = [];
         countEl.textContent = '0';
         _renderServersTable();
