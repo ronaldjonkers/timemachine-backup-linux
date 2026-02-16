@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-02-16
+
+### Added
+- **Sortable server overview** — Server table columns (Hostname, Priority, Last Backup, Status) are now clickable to sort. Default sort is by priority (ascending), so high-priority servers appear first.
+- **Priority column** — Server priority is now visible in the overview table.
+- **Add Server form moved to top** — Clicking "+ Add Server" now shows the form above the table instead of below it, so it's immediately visible even with a long server list. The hostname input is auto-focused.
+
 ## [3.0.3] - 2026-02-16
 
 ### Fixed

@@ -316,6 +316,22 @@ thead th {
     border-bottom: 1px solid var(--border);
 }
 
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color var(--transition);
+}
+
+th.sortable:hover {
+    color: var(--text);
+}
+
+.sort-arrow {
+    font-size: 0.6rem;
+    margin-left: 0.25rem;
+    opacity: 0.7;
+}
+
 tbody td {
     padding: 0.7rem 1.25rem;
     font-size: 0.85rem;

@@ -518,18 +518,69 @@ async function refreshHistory() {
     }
 }
 
-async function refreshServers() {
-    var data = await apiGet('/api/servers');
+var _serverSortField = 'priority';
+var _serverSortAsc = true;
+var _serverData = [];
+
+function sortServers(field) {
+    if (_serverSortField === field) {
+        _serverSortAsc = !_serverSortAsc;
+    } else {
+        _serverSortField = field;
+        _serverSortAsc = true;
+    }
+    _renderServersTable();
+}
+
+function _renderServersTable() {
+    var data = _serverData.slice();
     var tbody = document.getElementById('servers-body');
-    var countEl = document.getElementById('server-count');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No servers configured</td></tr>';
-        countEl.textContent = '0';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No servers configured</td></tr>';
         return;
     }
 
-    countEl.textContent = data.length;
+    // Sort
+    var field = _serverSortField;
+    var asc = _serverSortAsc;
+    data.sort(function(a, b) {
+        var va, vb;
+        if (field === 'hostname') {
+            va = a.hostname.toLowerCase();
+            vb = b.hostname.toLowerCase();
+        } else if (field === 'priority') {
+            va = a.priority || 10;
+            vb = b.priority || 10;
+        } else if (field === 'last_backup') {
+            var ha = _historyData[a.hostname] || {};
+            var hb = _historyData[b.hostname] || {};
+            va = ha.last_backup_time || ha.last_backup || '';
+            vb = hb.last_backup_time || hb.last_backup || '';
+        } else if (field === 'status') {
+            var sa = (_historyData[a.hostname] || {}).status || 'unknown';
+            var sb = (_historyData[b.hostname] || {}).status || 'unknown';
+            var order = { 'error': 0, 'unknown': 1, 'ok': 2 };
+            va = order[sa] !== undefined ? order[sa] : 1;
+            vb = order[sb] !== undefined ? order[sb] : 1;
+        } else {
+            va = a[field] || '';
+            vb = b[field] || '';
+        }
+        if (va < vb) return asc ? -1 : 1;
+        if (va > vb) return asc ? 1 : -1;
+        return 0;
+    });
+
+    // Update sort arrows in header
+    document.querySelectorAll('#page-servers th.sortable').forEach(function(th) {
+        var arrow = th.querySelector('.sort-arrow');
+        if (th.getAttribute('data-sort') === field) {
+            arrow.innerHTML = asc ? '&#x25B2;' : '&#x25BC;';
+        } else {
+            arrow.innerHTML = '';
+        }
+    });
 
     tbody.innerHTML = data.map(function(srv) {
         var h = _historyData[srv.hostname] || {};
@@ -540,6 +591,7 @@ async function refreshServers() {
         var status = h.status || 'unknown';
         var statusClass = status === 'ok' ? 'completed' : status === 'error' ? 'failed' : '';
         var statusLabel = status === 'ok' ? 'OK' : status === 'error' ? 'Error' : '--';
+        var prio = srv.priority || 10;
 
         // Show full datetime if available, otherwise just date
         var backupDisplay = lastTime ? formatDateTime(lastTime) : esc(lastBackup);
@@ -548,6 +600,7 @@ async function refreshServers() {
 
         return '<tr>' +
             '<td><strong>' + esc(srv.hostname) + '</strong></td>' +
+            '<td>' + prio + '</td>' +
             '<td>' + backupCell + '</td>' +
             '<td>' + snapCount + '</td>' +
             '<td>' + esc(totalSize) + '</td>' +
@@ -560,6 +613,22 @@ async function refreshServers() {
                 '<button class="btn btn-sm btn-danger" onclick="removeServer(\'' + esc(srv.hostname) + '\')">&#x2715;</button>' +
             '</td></tr>';
     }).join('');
+}
+
+async function refreshServers() {
+    var data = await apiGet('/api/servers');
+    var countEl = document.getElementById('server-count');
+
+    if (!data || data.length === 0) {
+        _serverData = [];
+        countEl.textContent = '0';
+        _renderServersTable();
+        return;
+    }
+
+    _serverData = data;
+    countEl.textContent = data.length;
+    _renderServersTable();
 }
 
 /* ============================================================
@@ -1016,6 +1085,10 @@ function _startRsyncLogStream(hostname) {
 function toggleAddServer() {
     var form = document.getElementById('add-server-form');
     form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden')) {
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        document.getElementById('add-server-hostname').focus();
+    }
 }
 
 async function startBackup() {
