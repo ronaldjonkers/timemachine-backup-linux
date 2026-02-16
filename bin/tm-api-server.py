@@ -1005,91 +1005,32 @@ class APIHandler(BaseHTTPRequestHandler):
         })
 
     def _api_backup_all(self):
-        """Start backups for all configured servers, respecting TM_PARALLEL_JOBS and priority order."""
+        """Trigger daily-runner.sh which handles priority, parallel jobs, reporting, and state."""
+        runner = os.path.join(SCRIPT_DIR, 'daily-runner.sh')
         servers = read_servers_conf()
         max_jobs = int(env_val('TM_PARALLEL_JOBS', '5'))
-        script = os.path.join(SCRIPT_DIR, 'timemachine.sh')
-        sd = state_dir()
+        ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        logfile = os.path.join(log_dir(), f'daily-manual-{ts}.log')
 
-        # Sort by priority (ascending — lower number = higher priority)
-        servers.sort(key=lambda s: s.get('priority', 10))
-
-        # Filter out already-running servers and build queue
-        queue = []
-        for srv in servers:
-            hostname = srv['hostname']
-            already_running = False
-            for sf in glob.glob(os.path.join(sd, f'proc-{hostname}*.state')):
-                try:
-                    content = open(sf).read().strip()
-                    if '|running|' in content:
-                        already_running = True
-                        break
-                except Exception:
-                    pass
-            if not already_running:
-                queue.append(srv)
-
-        if not queue:
-            self._send_json({'status': 'started', 'servers': [], 'count': 0})
-            return
-
-        started = [s['hostname'] for s in queue]
-
-        # Use a semaphore to limit concurrent backup processes
-        sem = threading.Semaphore(max_jobs)
-
-        def _run_backup(srv_entry):
-            h = srv_entry['hostname']
-            sem.acquire()
+        def _run():
             try:
-                ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
-                lf = os.path.join(log_dir(), f'backup-{h}-{ts}.log')
-                st = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                sfp = os.path.join(sd, f'proc-{h}-{ts}.state')
-                # Determine mode from server options
-                opts = srv_entry.get('options', '')
-                mode = 'full'
-                trigger_opts = ''
-                if '--files-only' in opts:
-                    mode = 'files-only'
-                    trigger_opts = ' --files-only'
-                elif '--db-only' in opts:
-                    mode = 'db-only'
-                    trigger_opts = ' --db-only'
-                with open(sfp, 'w') as f:
-                    f.write(f'0|{h}|{mode}|{st}|running|{lf}')
-                env = os.environ.copy()
-                env['_TM_BACKUP_LOGFILE'] = lf
-                with open(lf, 'w') as log_fh:
-                    cmd = f'{script} {h}{trigger_opts} --trigger dashboard'
-                    proc = subprocess.Popen(cmd, shell=True, stdout=log_fh, stderr=log_fh, env=env)
-                    try:
-                        with open(sfp, 'w') as sf:
-                            sf.write(f'{proc.pid}|{h}|{mode}|{st}|running|{lf}')
-                    except Exception:
-                        pass
-                    exit_code = proc.wait()
-                    code_file = os.path.join(state_dir(), f'exit-{h}.code')
-                    with open(code_file, 'w') as cf:
-                        cf.write(str(exit_code))
-                    try:
-                        status = 'completed' if exit_code == 0 else 'failed'
-                        with open(sfp, 'w') as sf:
-                            sf.write(f'{proc.pid}|{h}|{mode}|{st}|{status}|{lf}')
-                    except Exception:
-                        pass
+                with open(logfile, 'w') as lf:
+                    subprocess.Popen(
+                        runner, shell=True, stdout=lf, stderr=lf,
+                        env=os.environ.copy()
+                    ).wait()
             except Exception:
                 pass
-            finally:
-                sem.release()
 
-        # Launch all in threads — semaphore ensures max_jobs run concurrently
-        for srv in queue:
-            t = threading.Thread(target=_run_backup, args=(srv,), daemon=True)
-            t.start()
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
 
-        self._send_json({'status': 'started', 'servers': started, 'count': len(started), 'parallel_limit': max_jobs})
+        self._send_json({
+            'status': 'started',
+            'count': len(servers),
+            'parallel_limit': max_jobs,
+            'logfile': os.path.basename(logfile),
+        })
 
     def _api_backup_kill(self, target_host):
         sd = state_dir()

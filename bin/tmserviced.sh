@@ -461,6 +461,9 @@ _scheduler_loop() {
                     done
             else
                 tm_log "ERROR" "Scheduler: pre-backup check failed (previous backups still running?)"
+                # Mark the day as attempted so we don't retry every minute
+                # and spam alerts. The check runs once at the scheduled time.
+                echo "${today}" > "${last_run_file}"
             fi
         fi
 

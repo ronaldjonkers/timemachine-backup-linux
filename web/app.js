@@ -1068,11 +1068,11 @@ async function runBackupFor(hostname) {
 }
 
 async function startAllBackups() {
-    if (!confirm('Start backups for all configured servers now?')) return;
+    if (!confirm('Start daily backup run for all configured servers now?')) return;
     var result = await apiPost('/api/backup-all');
     if (result && result.count > 0) {
         var limit = result.parallel_limit || '?';
-        toast('Queued ' + result.count + ' server(s), max ' + limit + ' parallel', 'success');
+        toast('Daily run started: ' + result.count + ' server(s), max ' + limit + ' parallel', 'success');
         var banner = document.getElementById('no-backups-banner');
         if (banner) banner.style.display = 'none';
     } else if (result && result.count === 0) {
