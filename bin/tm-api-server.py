@@ -967,7 +967,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 with open(logfile, 'w') as lf:
                     cmd = f'{script} {target_host} --trigger api {opts}'.strip()
                     proc = subprocess.Popen(
-                        cmd, shell=True, stdout=lf, stderr=lf, env=env
+                        cmd, shell=True, stdout=lf, stderr=lf, env=env,
+                        start_new_session=True
                     )
                     # Update state file with the real subprocess PID
                     try:
@@ -1017,7 +1018,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 with open(logfile, 'w') as lf:
                     subprocess.Popen(
                         runner, shell=True, stdout=lf, stderr=lf,
-                        env=os.environ.copy()
+                        env=os.environ.copy(),
+                        start_new_session=True
                     ).wait()
             except Exception:
                 pass
@@ -1876,6 +1878,40 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br})
 
 
+def _reconcile_state_files(sd):
+    """Check state files for 'running' entries and verify PIDs are alive.
+    Mark dead ones as failed so the dashboard shows correct status after restart."""
+    for sf in glob.glob(os.path.join(sd, 'proc-*.state')):
+        try:
+            content = open(sf).read().strip()
+            parts = content.split('|')
+            if len(parts) < 6:
+                continue
+            pid_str, hostname, mode, started, status, logfile = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
+            if status != 'running':
+                continue
+            pid = int(pid_str) if pid_str.isdigit() else 0
+            alive = False
+            if pid > 0:
+                try:
+                    os.kill(pid, 0)
+                    alive = True
+                except OSError:
+                    pass
+            if alive:
+                print(f'Reconcile: {hostname} (PID {pid}) still running — keeping', flush=True)
+            else:
+                print(f'Reconcile: {hostname} (PID {pid}) is dead — marking failed', flush=True)
+                with open(sf, 'w') as f:
+                    f.write(f'{pid_str}|{hostname}|{mode}|{started}|failed|{logfile}')
+                code_file = os.path.join(sd, f'exit-{hostname}.code')
+                if not os.path.exists(code_file):
+                    with open(code_file, 'w') as cf:
+                        cf.write('137')
+        except Exception:
+            pass
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -1902,6 +1938,9 @@ def main():
     # Ensure state directory exists
     sd = state_dir()
     os.makedirs(sd, exist_ok=True)
+
+    # Reconcile stale state files: check if "running" PIDs are still alive
+    _reconcile_state_files(sd)
 
     server = ThreadedHTTPServer((args.bind, args.port), APIHandler)
     print(f'TimeMachine API server listening on {args.bind}:{args.port}', flush=True)

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.3] - 2026-02-16
+
+### Fixed
+- **CRITICAL: Running backups survive service restarts** — Backup processes are now spawned in their own session (`setsid` in bash, `start_new_session=True` in Python) so they are fully detached from the service. Combined with `KillMode=process` in the systemd unit, a `tmctl update` or `systemctl restart timemachine` only kills the API server and scheduler — running backups continue uninterrupted.
+- **State reconciliation on startup** — After a service restart, all state files are checked: if a "running" PID is still alive (backup survived), it stays visible in the dashboard. If the PID is dead (killed by an older version), it's marked as "failed" so the dashboard shows the correct status instead of a ghost "running" entry.
+- **Increased TimeoutStopSec** — Changed from 3s to 10s for graceful API server shutdown.
+
 ## [3.0.2] - 2026-02-16
 
 ### Fixed

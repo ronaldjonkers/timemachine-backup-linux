@@ -51,6 +51,43 @@ echo $$ > "${TM_RUN_DIR}/tmserviced.pid"
 # PROCESS TRACKING
 # ============================================================
 
+# Reconcile state files after service restart: check if "running" PIDs
+# are still alive. Mark dead ones as failed; leave alive ones untouched.
+_reconcile_state_files() {
+    tm_ensure_dir "${STATE_DIR}"
+    local count_alive=0 count_dead=0
+    for sf in "${STATE_DIR}"/proc-*.state; do
+        [[ -f "${sf}" ]] || continue
+        local content
+        content=$(cat "${sf}" 2>/dev/null) || continue
+        local pid hostname mode started status logfile
+        pid=$(echo "${content}" | cut -d'|' -f1)
+        hostname=$(echo "${content}" | cut -d'|' -f2)
+        mode=$(echo "${content}" | cut -d'|' -f3)
+        started=$(echo "${content}" | cut -d'|' -f4)
+        status=$(echo "${content}" | cut -d'|' -f5)
+        logfile=$(echo "${content}" | cut -d'|' -f6)
+
+        # Only check entries that claim to be running
+        [[ "${status}" == "running" ]] || continue
+
+        if [[ -n "${pid}" ]] && [[ "${pid}" != "0" ]] && kill -0 "${pid}" 2>/dev/null; then
+            tm_log "INFO" "Reconcile: ${hostname} (PID ${pid}) still running — keeping"
+            count_alive=$((count_alive + 1))
+        else
+            tm_log "WARN" "Reconcile: ${hostname} (PID ${pid}) is dead — marking failed"
+            echo "${pid}|${hostname}|${mode}|${started}|failed|${logfile}" > "${sf}"
+            # Write exit code if not already present
+            local code_file="${STATE_DIR}/exit-${hostname}.code"
+            [[ -f "${code_file}" ]] || echo "137" > "${code_file}"
+            count_dead=$((count_dead + 1))
+        fi
+    done
+    if [[ $((count_alive + count_dead)) -gt 0 ]]; then
+        tm_log "INFO" "Reconcile: ${count_alive} still running, ${count_dead} marked failed"
+    fi
+}
+
 # Register a running backup process
 # State format: pid|hostname|mode|started|status|logfile
 _register_process() {
@@ -154,21 +191,27 @@ run_backup() {
     ts=$(date +'%Y-%m-%d_%H%M%S')
     local logfile="${TM_LOG_DIR}/backup-${hostname}-${ts}.log"
 
-    # Wrapper subshell: runs backup, captures exit code, updates state
+    # Run backup in its own session (setsid) so it survives service restarts
+    # (e.g. tmctl update). KillMode=process in the systemd unit only kills the
+    # main service process; setsid ensures the backup is fully detached.
     # Note: timemachine.sh sends its own failure email with full logs.
     # This wrapper only records the exit code for status detection.
-    (
-        export _TM_BACKUP_LOGFILE="${logfile}"
-        local exit_code=0
-        "${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} --trigger scheduler >> "${logfile}" 2>&1 || exit_code=$?
-
-        if [[ ${exit_code} -ne 0 ]]; then
-            echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] Backup exited with code ${exit_code}" >> "${logfile}"
-            echo "${exit_code}" > "${STATE_DIR}/exit-${hostname}.code"
-        else
-            echo "0" > "${STATE_DIR}/exit-${hostname}.code"
-        fi
-    ) &
+    local wrapper="${TM_RUN_DIR}/backup-wrapper-${hostname}-$$.sh"
+    cat > "${wrapper}" <<WRAPPER_EOF
+#!/usr/bin/env bash
+export _TM_BACKUP_LOGFILE="${logfile}"
+exit_code=0
+"${SCRIPT_DIR}/timemachine.sh" ${hostname} ${opts} --trigger scheduler >> "${logfile}" 2>&1 || exit_code=\$?
+if [[ \${exit_code} -ne 0 ]]; then
+    echo "[\$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] Backup exited with code \${exit_code}" >> "${logfile}"
+    echo "\${exit_code}" > "${STATE_DIR}/exit-${hostname}.code"
+else
+    echo "0" > "${STATE_DIR}/exit-${hostname}.code"
+fi
+rm -f "${wrapper}"
+WRAPPER_EOF
+    chmod +x "${wrapper}"
+    setsid "${wrapper}" &
     local pid=$!
     disown ${pid} 2>/dev/null || true
 
@@ -1762,6 +1805,12 @@ main() {
 
     # Cleanup on exit
     trap '_cleanup' EXIT INT TERM
+
+    # Reconcile stale state files from before restart: check if "running"
+    # PIDs are still alive. If the PID is dead, mark as failed (the backup
+    # was killed by the restart). If the PID is alive, leave it alone (the
+    # backup survived thanks to setsid).
+    _reconcile_state_files
 
     # Start HTTP API
     _start_http_server

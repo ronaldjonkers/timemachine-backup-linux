@@ -14,9 +14,11 @@ WorkingDirectory=/opt/timemachine-backup-linux
 ExecStart=/opt/timemachine-backup-linux/bin/tmserviced.sh --foreground
 ExecReload=/bin/kill -HUP $MAINPID
 
-# Fast shutdown: kill immediately, don't wait for graceful stop
-TimeoutStopSec=3
-KillMode=mixed
+# Graceful restart: only kill the main service process, not backup children.
+# Backup processes are spawned in their own session (setsid) so they survive
+# service restarts (e.g. tmctl update). They continue running independently.
+TimeoutStopSec=10
+KillMode=process
 SendSIGKILL=yes
 
 # Auto-restart: always restart, wait 10s between attempts
