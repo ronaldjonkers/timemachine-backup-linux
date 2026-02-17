@@ -944,8 +944,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 'label': datetime.fromtimestamp(newest).strftime('%H:%M:%S'),
                 'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S'),
                 'size': total_size,
-                'files': sorted([{'name': f, 'size': du_sh(os.path.join(sql_dir, f))}
-                                 for f in base_files], key=lambda x: x['name']),
+                'files': sorted([{
+                    'name': f,
+                    'size': du_sh(os.path.join(sql_dir, f)),
+                    'mtime': datetime.fromtimestamp(os.path.getmtime(os.path.join(sql_dir, f))).strftime('%Y-%m-%d %H:%M:%S'),
+                } for f in base_files], key=lambda x: x['name']),
                 'download_path': 'sql',
             })
 
@@ -967,8 +970,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 'label': t_label,
                 'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S'),
                 'size': sub_size,
-                'files': sorted([{'name': f, 'size': du_sh(os.path.join(full, f))}
-                                 for f in sub_files], key=lambda x: x['name']),
+                'files': sorted([{
+                    'name': f,
+                    'size': du_sh(os.path.join(full, f)),
+                    'mtime': datetime.fromtimestamp(os.path.getmtime(os.path.join(full, f))).strftime('%Y-%m-%d %H:%M:%S'),
+                } for f in sub_files], key=lambda x: x['name']),
                 'download_path': 'sql/' + entry,
             })
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.8] - 2026-02-17
+
+### Changed
+- **Two-step database browser** — Clicking the DB column now first shows a list of all backup date/times with type, database count, and size. Click "Open" to drill into a specific version and see individual database files with their modification timestamps, Download, and Restore buttons.
+- **Per-file modification time** — Each individual database file now shows its `mtime` in the detail view so you can verify exactly when it was backed up.
+
 ## [3.6.7] - 2026-02-17
 
 ### Added

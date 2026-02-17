@@ -1535,11 +1535,19 @@ async function browseSnapshot(hostname, snapshot, subPath) {
             html += '<p class="text-muted" style="font-size:0.82rem">No file backups in this snapshot</p>';
         }
 
-        // SQL section — fetch DB versions for a richer view
+        // SQL section — show summary + link to full DB versions browser
         var dbVersions = await apiGet('/api/db-versions/' + hostname + '/' + snapshot);
         html += '<h3 style="margin:1.25rem 0 0.5rem;font-size:0.9rem">&#x1F5C3; Databases</h3>';
         if (dbVersions && dbVersions.length > 0) {
-            html += _buildDbVersionsTable(hostname, snapshot, dbVersions);
+            var totalDbs = 0;
+            dbVersions.forEach(function(v) { totalDbs += (v.files ? v.files.length : 0); });
+            html += '<p style="font-size:0.85rem;margin-bottom:0.5rem">' + dbVersions.length + ' backup version' + (dbVersions.length !== 1 ? 's' : '') +
+                ' (' + totalDbs + ' database file' + (totalDbs !== 1 ? 's' : '') + ' total)</p>' +
+                '<div class="form-actions" style="border-top:none;padding-top:0">' +
+                    '<button class="btn btn-sm btn-primary" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\')">Browse Database Versions</button> ' +
+                    '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All</button> ' +
+                    '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__\')">Restore All</button>' +
+                '</div>';
         } else if (sqlData && sqlData.items && sqlData.items.length > 0) {
             html += _buildItemTable(hostname, snapshot, sqlData.items, '', 'sql');
             html += '<div class="form-actions" style="margin-top:0.5rem">' +
@@ -1627,42 +1635,8 @@ function _buildItemTable(hostname, snapshot, items, currentPath, section) {
         '<tbody>' + rows + '</tbody></table>';
 }
 
-function _buildDbVersionsTable(hostname, snapshot, versions) {
-    var sections = versions.map(function(v) {
-        var label = v.version === 'base' ? '&#x1F5C3; Daily backup' : '&#x23F0; Interval ' + esc(v.label);
-        var sqlRestorePath = '__sql__/' + (v.version === 'base' ? '' : v.version);
-
-        // Version header row
-        var html = '<div style="margin-top:1rem;margin-bottom:0.35rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' +
-            '<strong style="font-size:0.9rem">' + label + '</strong>' +
-            '<span class="text-muted" style="font-size:0.8rem">' + esc(v.time) + ' &mdash; ' + esc(v.size) + ' total</span>' +
-            '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download All</button> ' +
-            '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(sqlRestorePath) + '\')">Restore All</button>' +
-        '</div>';
-
-        // Individual database files table
-        if (v.files && v.files.length > 0) {
-            var fileRows = v.files.map(function(f) {
-                var fileDlPath = v.download_path + '/' + f.name;
-                var fileRestorePath = '__sql__/' + (v.version === 'base' ? '' : v.version + '/') + f.name;
-                return '<tr>' +
-                    '<td style="padding:0.25rem 0.75rem">&#x1F4C4; ' + esc(f.name) + '</td>' +
-                    '<td class="text-muted" style="padding:0.25rem 0.5rem;white-space:nowrap">' + esc(f.size) + '</td>' +
-                    '<td style="padding:0.25rem 0.5rem;white-space:nowrap">' +
-                        '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileDlPath) + '\')">Download</button> ' +
-                        '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileRestorePath) + '\')">Restore</button>' +
-                    '</td>' +
-                '</tr>';
-            }).join('');
-            html += '<table class="browse-table" style="margin-bottom:0.5rem">' +
-                '<thead><tr><th>Database</th><th>Size</th><th>Actions</th></tr></thead>' +
-                '<tbody>' + fileRows + '</tbody></table>';
-        }
-        return html;
-    }).join('');
-
-    return sections;
-}
+var _dbVersionsCache = null;
+var _dbVersionsCacheKey = '';
 
 async function browseDbVersions(hostname, snapshot) {
     var data = await apiGet('/api/db-versions/' + hostname + '/' + snapshot);
@@ -1671,15 +1645,81 @@ async function browseDbVersions(hostname, snapshot) {
         return;
     }
 
-    var html = '<div class="breadcrumb"><strong>' + esc(hostname) + ' / ' + formatSnapDate(snapshot) + ' / Databases</strong></div>';
-    html += _buildDbVersionsTable(hostname, snapshot, data);
-    html += '<div class="form-actions" style="margin-top:1rem">' +
-        '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All Databases</button> ' +
-        '<button class="btn" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\')">Back to Snapshot</button> ' +
-        '<button class="btn" onclick="openServerDetail(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
+    // Cache for drill-down without re-fetching
+    _dbVersionsCache = data;
+    _dbVersionsCacheKey = hostname + '/' + snapshot;
+
+    // Step 1: show list of backup timestamps
+    var rows = data.map(function(v, idx) {
+        var label = v.version === 'base' ? 'Daily backup' : 'Interval run';
+        var fileCount = v.files ? v.files.length : 0;
+        return '<tr>' +
+            '<td style="white-space:nowrap"><strong>' + esc(v.time) + '</strong></td>' +
+            '<td>' + esc(label) + '</td>' +
+            '<td class="text-muted">' + fileCount + ' database' + (fileCount !== 1 ? 's' : '') + '</td>' +
+            '<td class="text-muted" style="white-space:nowrap">' + esc(v.size) + '</td>' +
+            '<td style="white-space:nowrap">' +
+                '<button class="btn btn-sm btn-primary" onclick="browseDbVersion(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',' + idx + ')">Open</button> ' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download</button> ' +
+                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__/' + esc(v.version === 'base' ? '' : v.version) + '\')">Restore</button>' +
+            '</td>' +
+            '</tr>';
+    }).join('');
+
+    var html = '<table>' +
+        '<thead><tr><th>Date / Time</th><th>Type</th><th>Databases</th><th>Size</th><th>Actions</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>' +
+        '<div class="form-actions" style="margin-top:1rem">' +
+            '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All Versions</button> ' +
+            '<button class="btn" onclick="openServerDetail(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
+        '</div>';
+
+    openModal('Database Backups: ' + hostname + ' / ' + formatSnapDate(snapshot), html);
+}
+
+function browseDbVersion(hostname, snapshot, versionIdx) {
+    var cacheKey = hostname + '/' + snapshot;
+    if (_dbVersionsCacheKey !== cacheKey || !_dbVersionsCache || !_dbVersionsCache[versionIdx]) {
+        toast('Version data not found, please go back and try again', 'error');
+        return;
+    }
+    var v = _dbVersionsCache[versionIdx];
+    var label = v.version === 'base' ? 'Daily backup' : 'Interval ' + esc(v.label);
+    var sqlRestorePath = '__sql__/' + (v.version === 'base' ? '' : v.version);
+
+    var fileRows = '';
+    if (v.files && v.files.length > 0) {
+        fileRows = v.files.map(function(f) {
+            var fileDlPath = v.download_path + '/' + f.name;
+            var fileRestorePath = '__sql__/' + (v.version === 'base' ? '' : v.version + '/') + f.name;
+            return '<tr>' +
+                '<td>&#x1F4C4; ' + esc(f.name) + '</td>' +
+                '<td class="text-muted" style="white-space:nowrap">' + esc(f.mtime || '') + '</td>' +
+                '<td class="text-muted" style="white-space:nowrap">' + esc(f.size) + '</td>' +
+                '<td style="white-space:nowrap">' +
+                    '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileDlPath) + '\')">Download</button> ' +
+                    '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileRestorePath) + '\')">Restore</button>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    var html = '<div style="margin-bottom:0.75rem">' +
+        '<span class="text-muted">Version:</span> <strong>' + label + '</strong> &mdash; ' +
+        '<span class="text-muted">' + esc(v.time) + '</span> &mdash; ' +
+        '<span class="text-muted">' + esc(v.size) + ' total</span>' +
+    '</div>' +
+    '<table>' +
+        '<thead><tr><th>Database</th><th>Modified</th><th>Size</th><th>Actions</th></tr></thead>' +
+        '<tbody>' + fileRows + '</tbody>' +
+    '</table>' +
+    '<div class="form-actions" style="margin-top:1rem">' +
+        '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download All</button> ' +
+        '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(sqlRestorePath) + '\')">Restore All</button> ' +
+        '<button class="btn" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\')">Back to Versions</button>' +
     '</div>';
 
-    openModal('Database Versions: ' + hostname + ' / ' + formatSnapDate(snapshot), html);
+    openModal(label + ': ' + hostname + ' / ' + formatSnapDate(snapshot), html);
 }
 
 function _buildBreadcrumb(hostname, snapshot, relPath, section) {
