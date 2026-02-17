@@ -52,7 +52,7 @@ TM_RUN_DIR="${TM_RUN_DIR:-/var/run/timemachine}"
 
 # Minimal logging function (standalone; no lib dependency on client)
 log() {
-    printf "[%s] [%-5s] %s\n" "$(date +'%Y-%m-%d %H:%M:%S')" "$1" "$2"
+    printf "[%s] [%-5s] %s\n" "$(date +'%Y-%m-%d %H:%M:%S')" "$1" "$2" >&2
 }
 
 # ============================================================
@@ -68,10 +68,9 @@ fi
 # LOCK MANAGEMENT
 # ============================================================
 
-PIDFILE="${TM_RUN_DIR}/dump_dbs.pid"
-mkdir -p "${TM_RUN_DIR}"
-
 if [[ ${DB_CRONJOB} -eq 1 ]]; then
+    mkdir -p "${TM_RUN_DIR}"
+    PIDFILE="${TM_RUN_DIR}/dump_dbs.pid"
     if [[ -f "${PIDFILE}" ]]; then
         OLD_PID=$(cat "${PIDFILE}")
         if kill -0 "${OLD_PID}" 2>/dev/null; then
@@ -487,7 +486,7 @@ log "INFO" "Database types to dump: ${DB_TYPES:-none}"
 # Exit early if no databases detected
 if [[ -z "${DB_TYPES}" ]]; then
     log "INFO" "No databases to dump — skipping"
-    rm -f "${PIDFILE}"
+    [[ -n "${PIDFILE:-}" ]] && rm -f "${PIDFILE}"
     exit 0
 fi
 
@@ -525,5 +524,5 @@ else
     log "INFO" "All database dumps completed successfully"
 fi
 
-rm -f "${PIDFILE}"
+[[ -n "${PIDFILE:-}" ]] && rm -f "${PIDFILE}"
 exit ${FAILED}

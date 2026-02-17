@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.2] - 2026-02-17
+
+### Fixed
+- **dump_dbs.sh: `mkdir /var/run/timemachine` permission denied** — The lock management `mkdir -p` ran unconditionally, but the timemachine user doesn't have permission to create dirs in `/var/run/`. Moved `mkdir` and `PIDFILE` inside the `DB_CRONJOB` block (only needed for cron mode). Guarded `rm -f "${PIDFILE}"` at exit with `[[ -n "${PIDFILE:-}" ]]`.
+- **dump_dbs.sh: `log()` corrupted `detect_db_types` output** — `log()` wrote to stdout, so `DB_TYPES=$(detect_db_types)` captured both log lines AND the detected types string, causing "Unknown database type" errors. Fixed `log()` to write to stderr (`>&2`).
+
 ## [3.4.1] - 2026-02-17
 
 ### Fixed
