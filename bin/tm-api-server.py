@@ -22,6 +22,7 @@ import signal
 import subprocess
 import threading
 import re
+import logging
 import mimetypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -1991,23 +1992,30 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _api_disk(self):
         br = backup_root()
+        debug = {'backup_root': br}
         try:
             result = subprocess.run(['df', '-h', br], capture_output=True, text=True, timeout=10)
+            debug['df_rc'] = result.returncode
+            debug['df_stdout'] = result.stdout.strip()
+            debug['df_stderr'] = result.stderr.strip()
             lines = result.stdout.strip().splitlines()
+            debug['line_count'] = len(lines)
             if len(lines) >= 2:
                 # Handle wrapped output: long filesystem names cause df to
                 # split into 3+ lines. Join all non-header lines and re-split.
                 data_line = ' '.join(lines[1:])
                 parts = data_line.split()
+                debug['parts_count'] = len(parts)
+                debug['parts'] = parts
                 # Standard df columns: Filesystem Size Used Avail Use% Mounted
-                # With 6 parts: index 0=fs, 1=size, 2=used, 3=avail, 4=pct, 5=mount
+                # With 6+ parts: index 0=fs, 1=size, 2=used, 3=avail, 4=pct, 5+=mount
                 # With 5 parts (no fs on wrapped line): 0=size, 1=used, 2=avail, 3=pct, 4=mount
                 if len(parts) >= 6:
                     total, used, avail, pct_s, mount = parts[1], parts[2], parts[3], parts[4], parts[5]
                 elif len(parts) == 5:
                     total, used, avail, pct_s, mount = parts[0], parts[1], parts[2], parts[3], parts[4]
                 else:
-                    raise ValueError(f'Unexpected df output: {data_line}')
+                    raise ValueError(f'Unexpected df output ({len(parts)} parts): {data_line}')
                 pct = int(pct_s.rstrip('%')) if pct_s.rstrip('%').isdigit() else 0
                 self._send_json({
                     'total': total,
@@ -2016,12 +2024,13 @@ class APIHandler(BaseHTTPRequestHandler):
                     'percent': pct,
                     'mount': mount,
                     'path': br,
+                    '_debug': debug,
                 })
                 return
         except Exception as e:
-            import logging
-            logging.warning('Disk API error: %s', e)
-        self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br})
+            debug['error'] = str(e)
+            logging.warning('Disk API error: %s (debug: %s)', e, debug)
+        self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br, '_debug': debug})
 
 
 def _reconcile_state_files(sd):
