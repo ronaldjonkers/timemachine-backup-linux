@@ -609,14 +609,14 @@
                     <h2>&#x1F4BE; Database Backup Setup</h2>
                 </div>
                 <div class="help-content">
-                    <p>TimeMachine auto-detects installed database engines on each client. For authentication, you need to create credential files on the <strong>client server</strong>.</p>
+                    <p>TimeMachine auto-detects installed database engines on each client. Before each dump, all previous dumps are cleaned from <code>~/sql/</code> to prevent disk space buildup. For authentication, create credential files on the <strong>client server</strong>.</p>
 
                     <h3>MySQL / MariaDB</h3>
                     <pre class="code-block"># Create password file on the client server:
 echo 'your-mysql-root-password' | sudo tee /home/timemachine/.credentials/mysql.pw
 sudo chmod 600 /home/timemachine/.credentials/mysql.pw
 sudo chown timemachine:timemachine /home/timemachine/.credentials/mysql.pw</pre>
-                    <p class="help-note">TimeMachine will dump all databases (except system DBs). If the password is missing or wrong, you'll receive an email alert.</p>
+                    <p class="help-note">TimeMachine will dump all databases (except system DBs). The script also checks <code>/root/mysql.pw</code> as fallback. If no password is found, you'll receive an email alert.</p>
 
                     <h3>PostgreSQL</h3>
                     <pre class="code-block"># PostgreSQL uses peer authentication by default.
@@ -637,12 +637,17 @@ sudo chmod 600 /home/timemachine/.credentials/mongodb.conf
 sudo chown timemachine:timemachine /home/timemachine/.credentials/mongodb.conf</pre>
                     <p class="help-note">Format: <code>username:password</code> on a single line. Uses the <code>admin</code> auth database by default.</p>
 
-                    <h3>Redis</h3>
-                    <pre class="code-block"># Create password file on the client server:
+                    <h3>Redis (opt-in)</h3>
+                    <pre class="code-block"># Redis backup is opt-in. Enable it by creating a credential file:
+
+# Without password:
+sudo -u timemachine touch /home/timemachine/.credentials/redis.conf
+
+# With password:
 echo 'your-redis-password' | sudo tee /home/timemachine/.credentials/redis.pw
 sudo chmod 600 /home/timemachine/.credentials/redis.pw
 sudo chown timemachine:timemachine /home/timemachine/.credentials/redis.pw</pre>
-                    <p class="help-note">TimeMachine triggers a BGSAVE and copies the RDB snapshot file.</p>
+                    <p class="help-note">Redis is <strong>skipped</strong> unless <code>redis.conf</code> or <code>redis.pw</code> exists in <code>~/.credentials/</code>. When enabled, TimeMachine triggers a BGSAVE and copies the RDB snapshot file.</p>
 
                     <h3>SQLite</h3>
                     <pre class="code-block"># Set the paths in .env on the backup server:
@@ -656,7 +661,7 @@ sudo chown timemachine:timemachine /home/timemachine/.credentials/redis.pw</pre>
                             <tr><td>MySQL/MariaDB</td><td><code>/home/timemachine/.credentials/mysql.pw</code></td><td>Password (single line)</td></tr>
                             <tr><td>PostgreSQL</td><td><code>/home/timemachine/.credentials/pgpass</code></td><td>host:port:db:user:pass</td></tr>
                             <tr><td>MongoDB</td><td><code>/home/timemachine/.credentials/mongodb.conf</code></td><td>username:password</td></tr>
-                            <tr><td>Redis</td><td><code>/home/timemachine/.credentials/redis.pw</code></td><td>Password (single line)</td></tr>
+                            <tr><td>Redis</td><td><code>/home/timemachine/.credentials/redis.conf</code> or <code>redis.pw</code></td><td>Empty file (opt-in) or password</td></tr>
                             <tr><td>SQLite</td><td>N/A</td><td>Paths in <code>.env</code></td></tr>
                         </tbody>
                     </table>

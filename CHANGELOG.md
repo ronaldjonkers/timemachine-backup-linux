@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-02-17
+
+### Added
+- **Stale dump cleanup** — `dump_dbs.sh` now cleans old `.sql` files from `~/` (left by older script versions) and logs cleanup of `~/sql/` before each dump run, preventing disk space buildup.
+
+### Improved
+- **Documentation overhaul** — Updated README, Help page, and `.env.example` with:
+  - Redis backup is opt-in (requires `redis.conf` or `redis.pw` in `~/.credentials/`)
+  - MySQL password fallback to `/root/mysql.pw`
+  - Dump cleanup before each run
+  - Server search field in web dashboard
+  - Updated credential summary tables
+
 ## [3.4.5] - 2026-02-17
 
 ### Fixed

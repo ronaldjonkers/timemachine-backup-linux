@@ -340,6 +340,8 @@ tm-restore web1.example.com --decrypt --target /tmp/restore
 
 TimeMachine supports automatic backup of all major database engines. The `dump_dbs.sh` script runs on the client server, auto-detects installed databases, and dumps them before the file sync pulls the dumps back.
 
+Before each dump run, the script **cleans all previous dumps** from `~/sql/` (and any stale `.sql` files left by older script versions in `~/`). This prevents disk space from accumulating with old dumps.
+
 ### Supported Databases
 
 All database credentials are stored in a single directory: `~timemachine/.credentials/` (mode `700`).
@@ -349,7 +351,7 @@ All database credentials are stored in a single directory: `~timemachine/.creden
 | **MySQL / MariaDB** | `mysqldump` | `~/.credentials/mysql.pw` |
 | **PostgreSQL** | `pg_dump` + `pg_dumpall` | Peer auth (or `~/.credentials/pgpass`) |
 | **MongoDB** | `mongodump` | `~/.credentials/mongodb.conf` |
-| **Redis** | `redis-cli BGSAVE` | `~/.credentials/redis.pw` |
+| **Redis** | `redis-cli BGSAVE` | `~/.credentials/redis.conf` or `redis.pw` (opt-in) |
 | **SQLite** | `sqlite3 .backup` | No auth (file path based) |
 
 ### Configuration
@@ -374,7 +376,7 @@ echo 'your_root_password' | sudo tee /home/timemachine/.credentials/mysql.pw
 sudo chmod 600 /home/timemachine/.credentials/mysql.pw
 ```
 
-The dump uses `--defaults-extra-file` with a process substitution, so the password never appears in `ps` output. Dumps are stored per-database in `sql/mysql/<dbname>.sql`.
+The dump script also checks `/root/mysql.pw` as a fallback if the credentials file is missing. The dump uses `--defaults-extra-file` with a process substitution, so the password never appears in `ps` output. Dumps are stored per-database in `sql/mysql/<dbname>.sql`.
 
 #### PostgreSQL
 
@@ -410,13 +412,18 @@ If MongoDB has no authentication enabled, no credentials file is needed. Dumps a
 
 #### Redis
 
+Redis backup is **opt-in** — it is skipped unless a credential file exists. To enable Redis backup on a client:
+
 ```bash
-# On the CLIENT server, create a password file:
+# Enable Redis backup (no password):
+sudo -u timemachine touch ~timemachine/.credentials/redis.conf
+
+# Or with a password:
 echo 'your_redis_password' | sudo -u timemachine tee ~timemachine/.credentials/redis.pw
 sudo chmod 600 ~timemachine/.credentials/redis.pw
 ```
 
-If Redis has no password (`requirepass` not set), no file is needed. The dump copies the RDB snapshot to `sql/redis/dump.rdb`.
+Without either `redis.conf` or `redis.pw` in `~timemachine/.credentials/`, Redis is silently skipped even if `redis-cli` is installed. The dump copies the RDB snapshot to `sql/redis/dump.rdb`.
 
 #### SQLite
 
@@ -553,7 +560,7 @@ The service daemon serves a monitoring dashboard at `http://<host>:7600`:
 
 - **Status cards** — Uptime, hostname, active jobs, server count
 - **Process table** — Running/completed backups with kill button
-- **Server list** — Configured servers with one-click backup
+- **Server list** — Configured servers with search filter and one-click backup
 - **SSH key** — Copy key for client installation
 - **Quick backup** — Start ad-hoc backups from the UI
 

@@ -100,8 +100,17 @@ fi
 FAILED=0
 SQL_DIR="${TM_HOME}/sql"
 
-# Create or clean dump directory
+# Clean up stale .sql files from old script versions that dumped to TM_HOME directly
+if ls "${TM_HOME}"/*.sql 2>/dev/null | head -1 &>/dev/null; then
+    log "INFO" "Cleaning stale .sql files from ${TM_HOME}/"
+    rm -f "${TM_HOME}"/*.sql
+fi
+
+# Create or clean dump directory (removes old root-level dumps + subdirs)
 mkdir -p "${SQL_DIR}"
+if [[ -d "${SQL_DIR}" ]] && ls "${SQL_DIR}"/ 2>/dev/null | head -1 &>/dev/null; then
+    log "INFO" "Cleaning previous dumps from ${SQL_DIR}/"
+fi
 rm -rf "${SQL_DIR:?}"/*
 
 # ============================================================
