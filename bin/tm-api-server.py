@@ -322,10 +322,14 @@ def read_archived_conf():
             # Add snapshot info from backup_root
             snap_dir = os.path.join(backup_root(), srv['hostname'])
             snaps = []
+            legacy_snaps = []
             if os.path.isdir(snap_dir):
                 snaps = sorted([d for d in os.listdir(snap_dir)
                                if os.path.isdir(os.path.join(snap_dir, d))
                                and re.match(r'\d{4}-\d{2}-\d{2}', d)], reverse=True)
+                legacy_snaps = sorted([d for d in os.listdir(snap_dir)
+                                      if os.path.isdir(os.path.join(snap_dir, d))
+                                      and re.match(r'daily\.\d{4}-\d{2}-\d{2}$', d)], reverse=True)
             total_size = '--'
             try:
                 result = subprocess.run(['du', '-sh', snap_dir], capture_output=True, text=True, timeout=30)
@@ -333,9 +337,12 @@ def read_archived_conf():
                     total_size = result.stdout.split()[0]
             except Exception:
                 pass
-            # Count unique dates (YYYY-MM-DD), not individual snapshot dirs
-            srv['snapshots'] = len(set(s[:10] for s in snaps))
-            srv['last_backup'] = snaps[0] if snaps else '--'
+            # Count unique dates (YYYY-MM-DD) across current and legacy formats
+            all_dates = set(s[:10] for s in snaps)
+            all_dates.update(s[6:] for s in legacy_snaps)  # strip "daily." prefix
+            srv['snapshots'] = len(all_dates)
+            all_snaps = snaps + legacy_snaps
+            srv['last_backup'] = sorted(all_snaps, reverse=True)[0] if all_snaps else '--'
             srv['total_size'] = total_size
             servers.append(srv)
     return servers
@@ -837,11 +844,17 @@ class APIHandler(BaseHTTPRequestHandler):
         if os.path.isdir(snap_dir):
             for entry in sorted(os.listdir(snap_dir)):
                 full = os.path.join(snap_dir, entry)
-                # Match both YYYY-MM-DD and YYYY-MM-DD_HHMMSS
-                if not os.path.isdir(full) or not re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', entry):
+                if not os.path.isdir(full):
                     continue
-                # Compare date portion only (first 10 chars)
-                if entry[:10] < cutoff:
+                # Match current (YYYY-MM-DD, YYYY-MM-DD_HHMMSS) and legacy (daily.YYYY-MM-DD)
+                date_str = None
+                if re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', entry):
+                    date_str = entry[:10]
+                elif re.match(r'^daily\.\d{4}-\d{2}-\d{2}$', entry):
+                    date_str = entry[6:]  # strip "daily." prefix
+                else:
+                    continue
+                if date_str < cutoff:
                     continue
                 sz = du_sh(full)
                 has_files = os.path.isdir(os.path.join(full, 'files'))
@@ -1780,10 +1793,15 @@ class APIHandler(BaseHTTPRequestHandler):
             if os.path.isdir(snap_dir):
                 snapshots = [d for d in os.listdir(snap_dir)
                              if os.path.isdir(os.path.join(snap_dir, d)) and re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', d)]
-                # Count unique dates (YYYY-MM-DD), not individual snapshot dirs
-                snap_count = len(set(s[:10] for s in snapshots))
-                if snapshots:
-                    last_backup = sorted(snapshots)[-1]
+                legacy_snaps = [d for d in os.listdir(snap_dir)
+                                if os.path.isdir(os.path.join(snap_dir, d)) and re.match(r'^daily\.\d{4}-\d{2}-\d{2}$', d)]
+                # Count unique dates (YYYY-MM-DD) across current and legacy formats
+                all_dates = set(s[:10] for s in snapshots)
+                all_dates.update(s[6:] for s in legacy_snaps)
+                snap_count = len(all_dates)
+                all_snaps = snapshots + legacy_snaps
+                if all_snaps:
+                    last_backup = sorted(all_snaps)[-1]
                 total_size = du_sh(snap_dir)
 
             # Check last backup status

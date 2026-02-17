@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.3] - 2026-02-17
+
+### Fixed
+- **Legacy `daily.YYYY-MM-DD` snapshots now included in rotation** — Old backup directories from the previous backup script (format `daily.2026-02-15`) are now cleaned up during rotation when they exceed the retention period. Stale `latest-daily` symlinks are also removed.
+- **Legacy snapshots visible in dashboard and API** — Snapshot counting, last backup detection, and the snapshot browser all include legacy `daily.*` directories alongside the current format.
+
 ## [3.2.2] - 2026-02-17
 
 ### Fixed

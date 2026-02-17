@@ -720,17 +720,37 @@ _handle_request() {
             cutoff_date=$(date -d '3 months ago' '+%Y-%m-%d' 2>/dev/null || \
                           date -v-3m '+%Y-%m-%d' 2>/dev/null || echo "0000-00-00")
             if [[ -d "${snap_dir}" ]]; then
-                for d in "${snap_dir}"/????-??-??; do
+                # Current format: YYYY-MM-DD and YYYY-MM-DD_HHMMSS
+                for d in "${snap_dir}"/????-??-??*; do
                     [[ -d "${d}" ]] || continue
                     local dn
                     dn=$(basename "${d}")
-                    # Skip snapshots older than 3 months
-                    [[ "${dn}" < "${cutoff_date}" ]] && continue
+                    # Skip snapshots older than 3 months (compare date portion)
+                    [[ "${dn:0:10}" < "${cutoff_date}" ]] && continue
                     local sz
                     sz=$(du -sh "${d}" 2>/dev/null | cut -f1)
                     local hf="false" hd="false"
                     [[ -d "${d}/files" ]] && hf="true"
-                    # Only mark as having DB backups if sql/ contains actual dump files
+                    if [[ -d "${d}/sql" ]]; then
+                        local db_file_count
+                        db_file_count=$(find "${d}/sql" -type f 2>/dev/null | wc -l | tr -d ' ')
+                        [[ ${db_file_count} -gt 0 ]] && hd="true"
+                    fi
+                    [[ ${first} -eq 1 ]] && first=0 || snaps+=','
+                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_db":%s}' \
+                        "${dn}" "${sz}" "${hf}" "${hd}")
+                done
+                # Legacy format: daily.YYYY-MM-DD
+                for d in "${snap_dir}"/daily.????-??-??; do
+                    [[ -d "${d}" ]] || continue
+                    local dn
+                    dn=$(basename "${d}")
+                    local dn_date="${dn#daily.}"
+                    [[ "${dn_date}" < "${cutoff_date}" ]] && continue
+                    local sz
+                    sz=$(du -sh "${d}" 2>/dev/null | cut -f1)
+                    local hf="false" hd="false"
+                    [[ -d "${d}/files" ]] && hf="true"
                     if [[ -d "${d}/sql" ]]; then
                         local db_file_count
                         db_file_count=$(find "${d}/sql" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -1241,9 +1261,15 @@ _handle_request() {
                     local snap_dir="${TM_BACKUP_ROOT}/${ahost}"
                     local snap_count=0 last_bk="--" total_sz="--"
                     if [[ -d "${snap_dir}" ]]; then
-                        # Count unique dates (YYYY-MM-DD), not individual snapshot dirs
-                        snap_count=$(find "${snap_dir}" -maxdepth 1 -type d -name '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' 2>/dev/null | sed 's|.*/||; s|_.*||' | sort -u | wc -l | tr -d ' ')
-                        last_bk=$(ls -1d "${snap_dir}"/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]* 2>/dev/null | sort -r | head -1 | xargs basename 2>/dev/null || echo "--")
+                        # Count unique dates (YYYY-MM-DD) across current and legacy formats
+                        snap_count=$( {
+                            find "${snap_dir}" -maxdepth 1 -type d -name '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' 2>/dev/null | sed 's|.*/||; s|_.*||'
+                            find "${snap_dir}" -maxdepth 1 -type d -name 'daily.20*' 2>/dev/null | sed 's|.*/daily\.||'
+                        } | sort -u | wc -l | tr -d ' ')
+                        last_bk=$( {
+                            ls -1d "${snap_dir}"/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]* 2>/dev/null
+                            ls -1d "${snap_dir}"/daily.20* 2>/dev/null
+                        } | sort -r | head -1 | xargs basename 2>/dev/null || echo "--")
                         total_sz=$(du -sh "${snap_dir}" 2>/dev/null | cut -f1 || echo "--")
                     fi
                     [[ ${first} -eq 1 ]] && first=0 || resp+=','

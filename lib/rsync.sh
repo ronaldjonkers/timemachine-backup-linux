@@ -175,7 +175,10 @@ tm_rsync_sql() {
 }
 
 # Rotate old backups beyond retention period
-# Handles both YYYY-MM-DD (legacy) and YYYY-MM-DD_HHMMSS (timestamped) snapshot dirs
+# Handles:
+#   YYYY-MM-DD          (date-only)
+#   YYYY-MM-DD_HHMMSS   (timestamped)
+#   daily.YYYY-MM-DD    (legacy format from old backup script)
 tm_rotate_backups() {
     local backup_base="$1"
     local retention="${TM_RETENTION_DAYS:-7}"
@@ -193,6 +196,8 @@ tm_rotate_backups() {
     fi
 
     local count=0
+
+    # Current format: YYYY-MM-DD and YYYY-MM-DD_HHMMSS
     for dir in "${backup_base}"/????-??-??*; do
         [[ -d "${dir}" ]] || continue
         local dir_name dir_date
@@ -206,6 +211,32 @@ tm_rotate_backups() {
             ((count++))
         fi
     done
+
+    # Legacy format: daily.YYYY-MM-DD (from old backup script)
+    for dir in "${backup_base}"/daily.????-??-??; do
+        [[ -d "${dir}" ]] || continue
+        local dir_name dir_date
+        dir_name=$(basename "${dir}")
+        # Extract date: strip "daily." prefix
+        dir_date="${dir_name#daily.}"
+
+        if [[ "${dir_date}" < "${cutoff_date}" ]]; then
+            tm_log "INFO" "Removing legacy backup: ${dir}"
+            rm -rf "${dir}"
+            ((count++))
+        fi
+    done
+
+    # Clean up stale legacy symlink (latest-daily)
+    local legacy_link="${backup_base}/latest-daily"
+    if [[ -L "${legacy_link}" ]]; then
+        local link_target
+        link_target=$(readlink "${legacy_link}" 2>/dev/null)
+        if [[ ! -d "${link_target}" ]]; then
+            tm_log "INFO" "Removing stale legacy symlink: ${legacy_link}"
+            rm -f "${legacy_link}"
+        fi
+    fi
 
     tm_log "INFO" "Rotation complete: removed ${count} old backup(s)"
 }
