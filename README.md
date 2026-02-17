@@ -48,10 +48,11 @@ curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-lin
 
 - **Time Machine-style snapshots** — Rotating backups with hardlinks (only changed files use extra disk space). Supports multiple backups per day with timestamped snapshots (`YYYY-MM-DD_HHMMSS`)
 - **Service daemon** — Runs as a systemd service with built-in backup scheduler
-- **Web dashboard** — Modern dark-themed monitoring UI with real-time status, process control, and disk usage
+- **Web dashboard** — Modern dark-themed monitoring UI with real-time status, process control, disk usage, snapshot browsing, and database version management
 - **CLI control tool (`tmctl`)** — Full backup management from the command line
-- **Restore** — Selective file and database restore from any snapshot
+- **Restore** — Selective file and database restore from any snapshot, including individual database files
 - **Multi-database support** — MySQL/MariaDB, PostgreSQL, MongoDB, Redis, SQLite with auto-detection
+- **Database version browser** — Browse multiple DB backup versions per day (daily + interval runs), drill into individual files with timestamps, download or restore any single database file
 - **Exclude system** — Global defaults + per-server exclude patterns
 - **Backup intervals** — Configure `--backup-interval Xh` per server for multiple full backups per day, plus `--db-interval Xh` for extra database-only backups
 - **Overrun detection** — Automatic alert when daily backup run exceeds the time limit, with per-server status (completed/running/pending)
@@ -256,7 +257,7 @@ tmctl kill <host>         # Kill a running backup
 tmctl restore <host>      # Restore from backup (interactive)
 tmctl logs [host]         # View logs
 tmctl servers             # List configured servers
-tmctl server add <host>   # Add a server (--files-only, --db-only, --no-rotate, --priority N, --db-interval Xh)
+tmctl server add <host>   # Add a server (--files-only, --db-only, --no-rotate, --priority N, --db-interval Xh, --db-compress, --no-db-compress)
 tmctl server remove <host> # Remove a server
 tmctl snapshots <host>    # List available snapshots
 tmctl ssh-key             # Show SSH public key
@@ -438,8 +439,10 @@ Dumps use `sqlite3 .backup` (hot-copy safe) with SQL dump fallback. Stored in `s
 
 ### Dump Directory Structure
 
+The daily backup stores dumps in `sql/` directly. DB interval runs (`--db-interval`) create timestamped subdirectories so every version is preserved:
+
 ```
-sql/
+sql/                              ← daily backup (base version)
 ├── mysql/
 │   ├── wordpress.sql
 │   └── nextcloud.sql
@@ -452,9 +455,41 @@ sql/
 │   └── logs/
 ├── redis/
 │   └── dump.rdb
-└── sqlite/
-    └── app.db.sql
+├── sqlite/
+│   └── app.db.sql
+├── 163701/                       ← interval run at 16:37:01
+│   └── mysql/
+│       ├── wordpress.sql
+│       └── nextcloud.sql
+└── 224600/                       ← interval run at 22:46:00
+    └── mysql/
+        ├── wordpress.sql
+        └── nextcloud.sql
 ```
+
+### Database Version Browser (Dashboard)
+
+When a server has DB interval backups, the dashboard lets you browse all versions:
+
+1. **Servers** → click **Snapshots** → click the **DB** column
+2. A list shows all backup date/times (daily + interval runs) with type, database count, and total size
+3. Click **Open** on any version to see individual database files with modification timestamps
+4. **Download** or **Restore** individual files, or use **Download All** / **Restore All** per version
+
+Single files are downloaded directly (no archive wrapper). Entire versions can be downloaded as `tar.gz` or `zip`.
+
+### Per-Server DB Compression
+
+Override the global `TM_DB_COMPRESS` setting per server:
+
+```bash
+# In servers.conf:
+db1.example.com --db-compress          # force compression on
+web1.example.com --no-db-compress      # force compression off
+app1.example.com                       # uses global default
+```
+
+Or via the dashboard: **Servers** → **Edit** → **DB Compression** dropdown (Global default / Enabled / Disabled).
 
 ---
 
@@ -558,9 +593,13 @@ TM_BACKUP_SOURCE="/home/"
 
 The service daemon serves a monitoring dashboard at `http://<host>:7600`:
 
-- **Status cards** — Uptime, hostname, active jobs, server count
-- **Process table** — Running/completed backups with kill button
-- **Server list** — Configured servers with search filter and one-click backup
+- **Status cards** — Hostname, active jobs, server count, CPU load, memory, disk usage
+- **Process table** — Running/completed backups with kill button and live rsync log viewer
+- **Server list** — Configured servers with search filter, sortable columns, and one-click backup
+- **Snapshot browser** — Browse snapshots in a modal, explore files and databases per snapshot
+- **Database version browser** — Two-step drill-down: first pick a backup date/time, then see individual database files with modification timestamps, Download, and Restore buttons per file
+- **Per-server settings** — Edit priority, mode, DB interval, backup interval, DB compression, and notification email per server
+- **Download & Restore** — Download individual files directly or entire directories as tar.gz/zip. Restore files or databases back to the original server
 - **SSH key** — Copy key for client installation
 - **Quick backup** — Start ad-hoc backups from the UI
 
@@ -581,6 +620,13 @@ The service exposes a REST API:
 | `GET` | `/api/ssh-key` | SSH public key (JSON) |
 | `GET` | `/api/ssh-key/raw` | SSH public key (plain text) |
 | `GET` | `/api/logs/<host>` | View host logs |
+| `GET` | `/api/db-versions/<host>/<snap>` | List DB dump versions for a snapshot |
+| `GET` | `/api/browse/<host>/<snap>/<path>` | Browse snapshot contents |
+| `GET` | `/api/download/<host>/<snap>/<path>` | Download file or directory from snapshot |
+| `GET` | `/api/disk` | Disk usage stats for backup volume |
+| `GET` | `/api/rsync-log/<host>` | Live rsync transfer log |
+| `POST` | `/api/restore/<host>` | Start a restore task |
+| `GET` | `/api/restores` | List restore tasks |
 
 ---
 
@@ -656,7 +702,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 | `TM_MYSQL_PW_FILE` | `~/.credentials/mysql.pw` | MySQL password file on client |
 | `TM_PG_USER` | `postgres` | PostgreSQL system user |
 | `TM_SQLITE_PATHS` | *(empty)* | Comma-separated SQLite file paths |
-| `TM_DB_COMPRESS` | `true` | Compress dumps with gzip before rsync |
+| `TM_DB_COMPRESS` | `true` | Compress dumps with gzip before rsync (overridable per-server via `--db-compress` / `--no-db-compress`) |
 | `TM_API_PORT` | `7600` | HTTP API / dashboard port |
 | `TM_API_BIND` | `0.0.0.0` | API bind address |
 | `TM_SCHEDULE_HOUR` | `11` | Hour to trigger daily backups |

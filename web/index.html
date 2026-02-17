@@ -660,10 +660,11 @@ sudo chown timemachine:timemachine /home/timemachine/.credentials/redis.pw</pre>
                     <p class="help-note">All credential files must be owned by <code>timemachine</code> with permissions <code>600</code>. If a credential file is missing or contains a wrong password, TimeMachine will send an email alert to the configured notification address.</p>
 
                     <h3>Dump Compression</h3>
-                    <p>Database dumps are <strong>gzip-compressed</strong> by default before rsync transfer, significantly reducing bandwidth usage (SQL files typically compress 5-10x). To disable:</p>
+                    <p>Database dumps are <strong>gzip-compressed</strong> by default before rsync transfer, significantly reducing bandwidth usage (SQL files typically compress 5-10x). To disable globally:</p>
                     <pre class="code-block"># In .env on the backup server:
 TM_DB_COMPRESS="false"</pre>
                     <p class="help-note">Compression is enabled by default (<code>TM_DB_COMPRESS="true"</code>). It adds a few seconds of CPU time but saves minutes of network transfer for large databases.</p>
+                    <p>You can also <strong>override per server</strong> from the dashboard: go to <em>Servers</em> &rarr; <strong>Edit</strong> &rarr; set <em>DB Compression</em> to Enabled or Disabled. This overrides the global setting for that server only. &ldquo;Global default&rdquo; follows the <code>.env</code> setting.</p>
                 </div>
             </section>
 
@@ -674,10 +675,19 @@ TM_DB_COMPRESS="false"</pre>
                 <div class="help-content">
                     <h3>From the web UI</h3>
                     <ol>
-                        <li>Go to <em>Servers</em> &rarr; click <strong>Details</strong> on a server</li>
-                        <li>Click <strong>Browse</strong> on a snapshot to explore files</li>
+                        <li>Go to <em>Servers</em> &rarr; click <strong>Snapshots</strong> on a server</li>
+                        <li>Click <strong>Browse</strong> on a snapshot to explore files and databases</li>
                         <li>Click <strong>Restore</strong> on a file, folder, or entire snapshot</li>
                         <li>Track progress on the <em>Restores</em> tab</li>
+                    </ol>
+
+                    <h3>Restoring individual databases</h3>
+                    <ol>
+                        <li>Go to <em>Servers</em> &rarr; click <strong>Snapshots</strong> &rarr; click the <strong>DB</strong> column (shows version count or &ldquo;Yes&rdquo;)</li>
+                        <li>You&rsquo;ll see a list of all backup date/times for that snapshot day (daily backup + interval runs)</li>
+                        <li>Click <strong>Open</strong> on a version to see individual database files with their modification timestamps</li>
+                        <li>Click <strong>Download</strong> on an individual file to download it directly, or <strong>Restore</strong> to restore it to the server</li>
+                        <li>Use <strong>Download All</strong> / <strong>Restore All</strong> to handle an entire version at once</li>
                     </ol>
 
                     <h3>From the command line</h3>
@@ -710,6 +720,8 @@ sudo tmctl restore hostname.example.com --db-only</pre>
                             <tr><td><code>--db-only</code></td><td>Skip file backup</td><td></td></tr>
                             <tr><td><code>--no-rotate</code></td><td>Keep all snapshots (no auto-delete)</td><td></td></tr>
                             <tr><td><code>--db-interval Xh</code></td><td>Extra DB-only backups every X hours</td><td><code>--db-interval 4h</code></td></tr>
+                            <tr><td><code>--db-compress</code></td><td>Force gzip compression for DB dumps</td><td></td></tr>
+                            <tr><td><code>--no-db-compress</code></td><td>Disable gzip compression for DB dumps</td><td></td></tr>
                             <tr><td><code>--notify EMAIL</code></td><td>Extra notification recipient</td><td><code>--notify admin@example.com</code></td></tr>
                         </tbody>
                     </table>
