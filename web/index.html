@@ -231,7 +231,10 @@
             <section class="panel">
                 <div class="panel-header">
                     <h2>&#x1F4E1; Servers &amp; Backup History</h2>
-                    <button class="btn btn-sm" id="toggle-add-server" onclick="toggleAddServer()">+ Add Server</button>
+                    <div class="panel-header-actions">
+                        <input type="text" id="server-search" class="search-input" placeholder="&#x1F50D; Search servers..." oninput="_renderServersTable()">
+                        <button class="btn btn-sm" id="toggle-add-server" onclick="toggleAddServer()">+ Add Server</button>
+                    </div>
                 </div>
                 <div class="quick-action hidden" id="add-server-form">
                     <input type="text" id="add-server-hostname" placeholder="hostname.example.com">

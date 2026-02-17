@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-02-17
+
+### Added
+- **Server search field** — The Servers page now has a search input in the panel header. Type to instantly filter servers by hostname, options, or status. Shows "No servers matching ..." when no results found.
+
 ## [3.3.6] - 2026-02-17
 
 ### Fixed

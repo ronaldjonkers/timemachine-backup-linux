@@ -290,6 +290,32 @@ main {
     font-weight: 600;
 }
 
+.panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.search-input {
+    padding: 0.35rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.82rem;
+    width: 220px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-input:focus {
+    border-color: var(--blue);
+}
+
+.search-input::placeholder {
+    color: var(--text-muted);
+}
+
 .panel-header-danger {
     background: var(--red-glow);
     border-bottom-color: rgba(248,113,113,0.3);

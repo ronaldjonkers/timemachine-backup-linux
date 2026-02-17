@@ -545,8 +545,21 @@ function _renderServersTable() {
     var data = _serverData.slice();
     var tbody = document.getElementById('servers-body');
 
+    // Filter by search term
+    var searchEl = document.getElementById('server-search');
+    var query = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    if (query) {
+        data = data.filter(function(srv) {
+            var h = _historyData[srv.hostname] || {};
+            var status = h.status || 'unknown';
+            var haystack = (srv.hostname + ' ' + (srv.options || '') + ' ' + status).toLowerCase();
+            return haystack.indexOf(query) !== -1;
+        });
+    }
+
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">No servers configured</td></tr>';
+        var msg = query ? 'No servers matching "' + esc(query) + '"' : 'No servers configured';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">' + msg + '</td></tr>';
         return;
     }
 
