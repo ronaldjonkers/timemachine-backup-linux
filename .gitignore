@@ -2,6 +2,10 @@
 .env
 *.pw
 
+# Server configuration (unique per installation)
+config/servers.conf
+config/servers.conf.archived
+
 # SSH keys (private)
 ssh/id_rsa
 ssh/id_ed25519
