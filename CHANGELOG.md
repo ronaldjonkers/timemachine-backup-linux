@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-02-17
+
+### Fixed
+- **DB backup: SCP failed with "Not a directory"** — `/home/timemachine` doesn't exist as a regular directory on some remote servers, causing SCP to fail. Replaced the SCP+SSH approach with pipe-via-SSH-stdin: the script is piped directly to `bash -s` on the remote, requiring no filesystem write at all. All error handling from v3.3.6 (set +e, `_TM_DB_OUTPUT`, line-by-line logging, failure emails) is preserved.
+
 ## [3.4.0] - 2026-02-17
 
 ### Added
