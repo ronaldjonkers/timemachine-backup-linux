@@ -149,19 +149,12 @@ main() {
     if [[ ${FILES_ONLY} -eq 0 ]]; then
         tm_log "INFO" "Phase 2: Database backup (trigger remote dump + rsync back)"
 
-        # Trigger remote database dump via SSH
-        tm_log "INFO" "Phase 2a: Triggering remote database dump on ${HOSTNAME}"
-        local db_output
-        db_output=$(tm_trigger_remote_dump "${HOSTNAME}" 2>&1)
-        local db_rc=$?
-        _TM_DB_OUTPUT="${db_output}"
-
-        # Log remote output for visibility
-        if [[ -n "${db_output}" ]]; then
-            while IFS= read -r line; do
-                [[ -n "${line}" ]] && tm_log "INFO" "  [remote] ${line}"
-            done <<< "${db_output}"
-        fi
+        # Trigger remote database dump via SSH.
+        # tm_trigger_remote_dump sets _TM_DB_OUTPUT and logs everything
+        # directly (not via subshell) so all output reaches the log file.
+        # It uses set +e internally so failures never kill this script.
+        local db_rc=0
+        tm_trigger_remote_dump "${HOSTNAME}" || db_rc=$?
 
         tm_log "INFO" "Remote dump finished with exit code ${db_rc}"
 
@@ -171,6 +164,7 @@ main() {
 
             # Check for credential/auth issues and send targeted alert
             local db_errors=""
+            local db_output="${_TM_DB_OUTPUT:-}"
             if echo "${db_output}" | grep -qi "No MySQL password found\|No.*password.*found"; then
                 db_errors+="MySQL/MariaDB: password file missing or empty\n"
             fi
@@ -190,7 +184,7 @@ main() {
                 local alert_body="Database backup failed on ${HOSTNAME} due to credential/access issues:\n\n${db_errors}\nFull output:\n$(echo "${db_output}" | tail -20)"
                 tm_notify "DB credentials issue: ${HOSTNAME}" "${alert_body}" "error" "backup_fail" "${HOSTNAME}"
             fi
-        elif echo "${db_output}" | grep -qi "No databases to dump\|No supported database engines detected"; then
+        elif echo "${_TM_DB_OUTPUT:-}" | grep -qi "No databases to dump\|No supported database engines detected"; then
             tm_log "INFO" "No databases found on ${HOSTNAME} — skipping database sync"
             tm_log "INFO" "If this server has databases, configure TM_DB_TYPES and credentials in .env"
         else

@@ -19,10 +19,16 @@ _tm_ssh_opts() {
     echo "-p ${TM_SSH_PORT} -i ${TM_SSH_KEY} -o ConnectTimeout=${TM_SSH_TIMEOUT} -o StrictHostKeyChecking=no"
 }
 
-# Trigger remote database dump via SSH
+# Trigger remote database dump via SSH.
 # Deploys the latest dump_dbs.sh to the remote server, then runs it.
-# This ensures the remote always has the latest version of the script
-# and performs a fresh database dump before rsync pulls the files back.
+#
+# Usage: tm_trigger_remote_dump <hostname>
+# Sets:  _TM_DB_OUTPUT  — captured remote script output (for email)
+# Returns: 0 on success, non-zero on failure
+#
+# IMPORTANT: This function uses set +e internally so that SCP/SSH
+# failures are caught and reported instead of killing the caller
+# via set -e (which would skip error handling and email notification).
 tm_trigger_remote_dump() {
     local hostname="$1"
     local remote_user="${TM_USER}"
@@ -32,33 +38,36 @@ tm_trigger_remote_dump() {
     local ssh_opts
     ssh_opts=$(_tm_ssh_opts)
 
+    # Disable set -e so failures are caught and reported, not fatal.
+    set +e
+
     tm_log "INFO" "Triggering remote database dump on ${hostname}"
 
     if [[ ! -f "${dump_script}" ]]; then
         tm_log "ERROR" "dump_dbs.sh not found at ${dump_script}"
+        set -e
         return 1
     fi
 
     # Step 1: Deploy latest dump_dbs.sh to the remote server via SCP.
-    # This ensures the remote always runs the current version, avoiding
-    # version mismatch issues between server and client.
     tm_log "INFO" "Step 1/2: Deploying dump_dbs.sh to ${hostname}:${remote_home}/"
-    local scp_output
+    local scp_output scp_rc
     scp_output=$(eval scp ${ssh_opts} \
         "${dump_script}" \
-        "${remote_user}@${hostname}:${remote_home}/dump_dbs.sh" 2>&1) || {
-            local rc=$?
-            tm_log "ERROR" "Failed to deploy dump_dbs.sh to ${hostname} (exit code ${rc})"
-            [[ -n "${scp_output}" ]] && tm_log "ERROR" "SCP output: ${scp_output}"
-            return ${rc}
-        }
-    tm_log "INFO" "Step 1/2: dump_dbs.sh deployed successfully to ${hostname}"
+        "${remote_user}@${hostname}:${remote_home}/dump_dbs.sh" 2>&1)
+    scp_rc=$?
+    if [[ ${scp_rc} -ne 0 ]]; then
+        tm_log "ERROR" "Step 1/2: SCP failed (exit code ${scp_rc})"
+        [[ -n "${scp_output}" ]] && tm_log "ERROR" "SCP output: ${scp_output}"
+        _TM_DB_OUTPUT="SCP deploy failed (exit code ${scp_rc}): ${scp_output}"
+        set -e
+        return ${scp_rc}
+    fi
+    tm_log "INFO" "Step 1/2: dump_dbs.sh deployed successfully"
 
     # Step 2: Run dump_dbs.sh on the remote server via SSH.
-    # Pass DB configuration as environment variables so the remote script
-    # uses the server's settings (not whatever the client has locally).
     tm_log "INFO" "Step 2/2: Running dump_dbs.sh on ${hostname} (TM_DB_TYPES=${TM_DB_TYPES})"
-    local ssh_output
+    local ssh_output ssh_rc
     ssh_output=$(eval ssh ${ssh_opts} \
         "${remote_user}@${hostname}" \
         "TM_DB_TYPES='${TM_DB_TYPES}' \
@@ -73,10 +82,10 @@ tm_trigger_remote_dump() {
          TM_SQLITE_PATHS='${TM_SQLITE_PATHS}' \
          TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}' \
          bash ${remote_home}/dump_dbs.sh" 2>&1)
-    local ssh_rc=$?
+    ssh_rc=$?
 
-    # Always output the remote script's output for the caller to log
-    [[ -n "${ssh_output}" ]] && echo "${ssh_output}"
+    # Store remote output for email/logging by the caller
+    _TM_DB_OUTPUT="${ssh_output}"
 
     if [[ ${ssh_rc} -eq 0 ]]; then
         tm_log "INFO" "Step 2/2: dump_dbs.sh completed successfully on ${hostname}"
@@ -84,6 +93,14 @@ tm_trigger_remote_dump() {
         tm_log "ERROR" "Step 2/2: dump_dbs.sh failed on ${hostname} (exit code ${ssh_rc})"
     fi
 
+    # Log remote output line by line for the backup log
+    if [[ -n "${ssh_output}" ]]; then
+        while IFS= read -r _line; do
+            [[ -n "${_line}" ]] && tm_log "INFO" "  [remote] ${_line}"
+        done <<< "${ssh_output}"
+    fi
+
+    set -e
     return ${ssh_rc}
 }
 

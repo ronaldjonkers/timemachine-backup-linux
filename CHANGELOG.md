@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.6] - 2026-02-17
+
+### Fixed
+- **CRITICAL: DB backup silently crashed with no log output and no failure email** — Two root causes:
+  1. `set -e` (from `common.sh`) killed the entire `timemachine.sh` script when SCP or SSH failed inside `tm_trigger_remote_dump`. The error handling code and email notification were never reached.
+  2. `tm_trigger_remote_dump` was called inside a `$()` subshell, which captured all `tm_log` stderr output into a variable instead of writing it to the log file.
+- **Fix**: `tm_trigger_remote_dump` now uses `set +e` internally and sets `_TM_DB_OUTPUT` directly (no subshell). Called with `|| db_rc=$?` pattern so failures are always caught and reported.
+- **Also fixed**: Same `|| { }` pattern bug in `tm_rsync_sql` and `tm_rsync_backup` — replaced with safe `|| rc=$?` pattern throughout.
+
 ## [3.3.5] - 2026-02-17
 
 ### Improved

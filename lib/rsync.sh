@@ -109,16 +109,15 @@ tm_rsync_backup() {
     local exit_code=0
     eval ${rsync_cmd} ${exclude_args} \
         "${remote_user}@${hostname}:${source_path}" \
-        "${target_dir}/files/" 2>&1 || {
-            local rc=$?
-            # rsync exit code 24 = "vanished source files" (non-fatal)
-            if [[ ${rc} -eq 24 ]]; then
-                tm_log "WARN" "Some files vanished during transfer from ${hostname}"
-            else
-                tm_log "ERROR" "rsync failed for ${hostname} (exit code ${rc})"
-                exit_code=${rc}
-            fi
-        }
+        "${target_dir}/files/" 2>&1 || exit_code=$?
+
+    # rsync exit code 24 = "vanished source files" (non-fatal)
+    if [[ ${exit_code} -eq 24 ]]; then
+        tm_log "WARN" "Some files vanished during transfer from ${hostname}"
+        exit_code=0
+    elif [[ ${exit_code} -ne 0 ]]; then
+        tm_log "ERROR" "rsync failed for ${hostname} (exit code ${exit_code})"
+    fi
 
     # Update the 'latest' symlink
     if [[ ${exit_code} -eq 0 ]]; then
@@ -181,13 +180,15 @@ tm_rsync_sql() {
     local remote_sql_path="/home/${TM_USER}/sql/"
     tm_log "INFO" "Rsync SQL: ${remote_user}@${hostname}:${remote_sql_path} -> ${target_dir}/"
 
+    local rsync_rc=0
     eval ${rsync_cmd} \
         "${remote_user}@${hostname}:${remote_sql_path}" \
-        "${target_dir}/" 2>&1 || {
-            local rc=$?
-            tm_log "ERROR" "rsync database sync failed for ${hostname} (exit code ${rc})"
-            return ${rc}
-        }
+        "${target_dir}/" 2>&1 || rsync_rc=$?
+
+    if [[ ${rsync_rc} -ne 0 ]]; then
+        tm_log "ERROR" "rsync database sync failed for ${hostname} (exit code ${rsync_rc})"
+        return ${rsync_rc}
+    fi
 
     # Log what was synced for diagnostics
     local file_count=0
