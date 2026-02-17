@@ -1405,10 +1405,9 @@ function _renderServerDetail() {
 
     var rows = pageData.map(function(s) {
         var dbCell = '';
-        if (s.has_db && s.db_versions > 1) {
-            dbCell = '<a href="#" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\');return false" style="color:var(--green);text-decoration:underline;cursor:pointer">' + s.db_versions + ' versions</a>';
-        } else if (s.has_db) {
-            dbCell = '<span style="color:var(--green)">Yes</span>';
+        if (s.has_db) {
+            var dbLabel = s.db_versions > 1 ? s.db_versions + ' versions' : 'Yes';
+            dbCell = '<a href="#" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\');return false" style="color:var(--green);text-decoration:underline;cursor:pointer">' + dbLabel + '</a>';
         } else {
             dbCell = '<span style="color:var(--text-muted)">No</span>';
         }
@@ -1465,10 +1464,9 @@ async function viewSnapshots(hostname, page) {
 
     var rows = pageData.map(function(s) {
         var dbCell = '';
-        if (s.has_db && s.db_versions > 1) {
-            dbCell = '<a href="#" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\');return false" style="color:var(--green);text-decoration:underline;cursor:pointer">' + s.db_versions + ' versions</a>';
-        } else if (s.has_db) {
-            dbCell = '<span style="color:var(--green)">Yes</span>';
+        if (s.has_db) {
+            var dbLabel = s.db_versions > 1 ? s.db_versions + ' versions' : 'Yes';
+            dbCell = '<a href="#" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\');return false" style="color:var(--green);text-decoration:underline;cursor:pointer">' + dbLabel + '</a>';
         } else {
             dbCell = '<span style="color:var(--text-muted)">No</span>';
         }
@@ -1630,29 +1628,40 @@ function _buildItemTable(hostname, snapshot, items, currentPath, section) {
 }
 
 function _buildDbVersionsTable(hostname, snapshot, versions) {
-    var rows = versions.map(function(v) {
+    var sections = versions.map(function(v) {
         var label = v.version === 'base' ? '&#x1F5C3; Daily backup' : '&#x23F0; Interval ' + esc(v.label);
-        var fileList = '';
+        var sqlRestorePath = '__sql__/' + (v.version === 'base' ? '' : v.version);
+
+        // Version header row
+        var html = '<div style="margin-top:1rem;margin-bottom:0.35rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' +
+            '<strong style="font-size:0.9rem">' + label + '</strong>' +
+            '<span class="text-muted" style="font-size:0.8rem">' + esc(v.time) + ' &mdash; ' + esc(v.size) + ' total</span>' +
+            '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download All</button> ' +
+            '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(sqlRestorePath) + '\')">Restore All</button>' +
+        '</div>';
+
+        // Individual database files table
         if (v.files && v.files.length > 0) {
-            fileList = '<div style="margin-top:0.35rem">' + v.files.map(function(f) {
-                return '<span class="text-muted" style="font-size:0.78rem;margin-right:0.75rem">' + esc(f.name) + ' (' + esc(f.size) + ')</span>';
-            }).join('') + '</div>';
+            var fileRows = v.files.map(function(f) {
+                var fileDlPath = v.download_path + '/' + f.name;
+                var fileRestorePath = '__sql__/' + (v.version === 'base' ? '' : v.version + '/') + f.name;
+                return '<tr>' +
+                    '<td style="padding:0.25rem 0.75rem">&#x1F4C4; ' + esc(f.name) + '</td>' +
+                    '<td class="text-muted" style="padding:0.25rem 0.5rem;white-space:nowrap">' + esc(f.size) + '</td>' +
+                    '<td style="padding:0.25rem 0.5rem;white-space:nowrap">' +
+                        '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileDlPath) + '\')">Download</button> ' +
+                        '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileRestorePath) + '\')">Restore</button>' +
+                    '</td>' +
+                '</tr>';
+            }).join('');
+            html += '<table class="browse-table" style="margin-bottom:0.5rem">' +
+                '<thead><tr><th>Database</th><th>Size</th><th>Actions</th></tr></thead>' +
+                '<tbody>' + fileRows + '</tbody></table>';
         }
-        return '<tr>' +
-            '<td style="white-space:nowrap">' + label + '</td>' +
-            '<td class="text-muted" style="white-space:nowrap">' + esc(v.time) + '</td>' +
-            '<td class="text-muted" style="white-space:nowrap">' + esc(v.size) + '</td>' +
-            '<td>' +
-                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download</button> ' +
-                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__/' + esc(v.version === 'base' ? '' : v.version) + '\')">Restore</button>' +
-            '</td>' +
-            '</tr>' +
-            '<tr><td colspan="4" style="padding:0 0.75rem 0.5rem">' + fileList + '</td></tr>';
+        return html;
     }).join('');
 
-    return '<table class="browse-table">' +
-        '<thead><tr><th>Version</th><th>Timestamp</th><th>Size</th><th>Actions</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody></table>';
+    return sections;
 }
 
 async function browseDbVersions(hostname, snapshot) {
@@ -1707,6 +1716,13 @@ function downloadSnapshot(hostname, snapshot, subPath, format) {
 function downloadChoice(hostname, snapshot, subPath) {
     var dlPath = subPath || 'files';
     var displayPath = subPath ? subPath.replace(/^files\/?/, '') || '/' : '/';
+
+    // Single file (e.g. sql/mydb.sql.gz): download directly, no format dialog
+    if (/\.[a-z0-9]+$/i.test(dlPath) && dlPath.indexOf('/') > 0) {
+        downloadSnapshot(hostname, snapshot, dlPath, 'raw');
+        return;
+    }
+
     var html = '<div class="edit-server-form">' +
         '<p>Download <strong>' + esc(displayPath) + '</strong> from snapshot <strong>' + esc(snapshot) + '</strong></p>' +
         '<div class="form-group">' +

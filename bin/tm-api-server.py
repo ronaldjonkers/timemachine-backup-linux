@@ -1028,26 +1028,35 @@ class APIHandler(BaseHTTPRequestHandler):
 
         dl_format = query.get('format', ['tar.gz'])[0]
         base_dir = os.path.join(backup_root(), hostname, snap_date)
-        target_dir = os.path.join(base_dir, sub_path)
+        target = os.path.join(base_dir, sub_path)
 
-        if not os.path.exists(target_dir):
+        if not os.path.exists(target):
             self._send_json({'error': 'Path not found'}, 404)
             return
 
+        # Single file: serve directly (no archive needed)
+        if os.path.isfile(target):
+            filename = os.path.basename(target)
+            ct, _ = mimetypes.guess_type(filename)
+            ct = ct or 'application/octet-stream'
+            self._send_download(target, filename, ct)
+            return
+
+        # Directory: create archive
         base_name = f'{hostname}-{snap_date}-{os.path.basename(sub_path)}'
         tmp_archive = None
         try:
             if dl_format == 'zip':
                 tmp_archive = f'/tmp/tm-download-{os.getpid()}.zip'
                 subprocess.run(
-                    ['zip', '-r', tmp_archive, os.path.basename(target_dir)],
-                    cwd=os.path.dirname(target_dir), capture_output=True, timeout=300
+                    ['zip', '-r', tmp_archive, os.path.basename(target)],
+                    cwd=os.path.dirname(target), capture_output=True, timeout=300
                 )
                 self._send_download(tmp_archive, f'{base_name}.zip', 'application/zip')
             else:
                 tmp_archive = f'/tmp/tm-download-{os.getpid()}.tar.gz'
                 subprocess.run(
-                    ['tar', '-czf', tmp_archive, '-C', os.path.dirname(target_dir), os.path.basename(target_dir)],
+                    ['tar', '-czf', tmp_archive, '-C', os.path.dirname(target), os.path.basename(target)],
                     capture_output=True, timeout=300
                 )
                 self._send_download(tmp_archive, f'{base_name}.tar.gz', 'application/gzip')
