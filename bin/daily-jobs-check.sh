@@ -26,6 +26,7 @@ tm_require_user
 # ============================================================
 
 STILL_RUNNING=0
+STATE_DIR="${TM_HOME:-/home/timemachine}/state"
 
 tm_ensure_dir "${TM_RUN_DIR}"
 
@@ -40,6 +41,19 @@ for pidfile in "${TM_RUN_DIR}"/*.pid; do
     pid=$(cat "${pidfile}")
 
     if kill -0 "${pid}" 2>/dev/null; then
+        # Check the backup mode from the state file. DB-only backups are
+        # short-lived and should NOT block the daily run — they finish
+        # quickly and do not compete for rsync bandwidth.
+        local_mode=""
+        sf="${STATE_DIR}/proc-${lock_name}.state"
+        if [[ -f "${sf}" ]]; then
+            local_mode=$(cut -d'|' -f3 "${sf}" 2>/dev/null)
+        fi
+        if [[ "${local_mode}" == "db-only" ]]; then
+            tm_log "INFO" "DB-only backup running for ${lock_name} (PID ${pid}) — not blocking daily run"
+            continue
+        fi
+
         tm_log "WARN" "Previous backup still running: ${lock_name} (PID ${pid})"
         STILL_RUNNING=1
     else

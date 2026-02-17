@@ -352,13 +352,17 @@ _get_sorted_servers() {
         done | sort -t'|' -k1,1n | cut -d'|' -f2-
 }
 
-# Wait until running jobs drop below parallel limit
+# Wait until running jobs drop below parallel limit.
+# DB-only backups are excluded — they are short-lived and should not
+# occupy a slot that blocks full/file backups from starting.
 _wait_for_slot() {
     local running
-    running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | wc -l | tr -d ' ')
+    running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | \
+        xargs grep -L "|db-only|" 2>/dev/null | wc -l | tr -d ' ')
     while [[ ${running} -ge ${TM_PARALLEL_JOBS} ]]; do
         sleep 10
-        running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | wc -l | tr -d ' ')
+        running=$(find "${STATE_DIR}" -name "proc-*.state" -exec grep -l "|running$" {} \; 2>/dev/null | \
+            xargs grep -L "|db-only|" 2>/dev/null | wc -l | tr -d ' ')
     done
 }
 

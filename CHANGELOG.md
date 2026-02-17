@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.2] - 2026-02-17
+
+### Fixed
+- **DB-only backups no longer block the daily run** — The pre-backup check (`daily-jobs-check.sh`) now reads the backup mode from the state file and skips `db-only` processes. Short-lived DB interval backups no longer prevent the daily full backup from starting.
+- **DB-only backups no longer occupy parallel slots** — The `_wait_for_slot` function in the scheduler now excludes `db-only` backups from the running count, so they don't block full/file backups from launching.
+
 ## [3.2.1] - 2026-02-16
 
 ### Fixed
