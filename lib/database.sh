@@ -14,14 +14,23 @@
 #   - SQLite
 # ============================================================
 
+# Common SSH options used by all remote commands
+_tm_ssh_opts() {
+    echo "-p ${TM_SSH_PORT} -i ${TM_SSH_KEY} -o ConnectTimeout=${TM_SSH_TIMEOUT} -o StrictHostKeyChecking=no"
+}
+
 # Trigger remote database dump via SSH
-# The dump_dbs.sh script on the client auto-detects installed
-# database engines and dumps all databases.
+# Deploys the latest dump_dbs.sh to the remote server, then runs it.
+# This ensures the remote always has the latest version of the script
+# and performs a fresh database dump before rsync pulls the files back.
 tm_trigger_remote_dump() {
     local hostname="$1"
     local remote_user="${TM_USER}"
     local script_dir="${TM_INSTALL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
     local dump_script="${script_dir}/bin/dump_dbs.sh"
+    local remote_home="/home/${remote_user}"
+    local ssh_opts
+    ssh_opts=$(_tm_ssh_opts)
 
     tm_log "INFO" "Triggering remote database dump on ${hostname}"
 
@@ -30,32 +39,36 @@ tm_trigger_remote_dump() {
         return 1
     fi
 
-    # Pipe the dump script via SSH stdin so the server always controls
-    # what runs on the client. This avoids version mismatch and
-    # self-restart permission issues on the client side.
-    # Extract the script body (skip the self-restart block, lines 1-31)
-    # and prepend the env vars so they override defaults.
-    {
-        echo "#!/usr/bin/env bash"
-        echo "# Piped from server — no self-restart needed"
-        echo "export TM_DB_TYPES='${TM_DB_TYPES}'"
-        echo "export TM_MYSQL_PW_FILE='${TM_MYSQL_PW_FILE}'"
-        echo "export TM_MYSQL_HOST='${TM_MYSQL_HOST}'"
-        echo "export TM_PG_USER='${TM_PG_USER}'"
-        echo "export TM_PG_HOST='${TM_PG_HOST}'"
-        echo "export TM_MONGO_HOST='${TM_MONGO_HOST}'"
-        echo "export TM_MONGO_AUTH_DB='${TM_MONGO_AUTH_DB}'"
-        echo "export TM_REDIS_HOST='${TM_REDIS_HOST}'"
-        echo "export TM_REDIS_PORT='${TM_REDIS_PORT}'"
-        echo "export TM_SQLITE_PATHS='${TM_SQLITE_PATHS}'"
-        echo "export TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}'"
-        # Output the script body after the self-restart block (from "# CONFIGURATION" onward)
-        sed -n '/^# CONFIGURATION/,$p' "${dump_script}"
-    } | ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
-        -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
-        -o StrictHostKeyChecking=no \
+    # Step 1: Deploy latest dump_dbs.sh to the remote server via SCP.
+    # This ensures the remote always runs the current version, avoiding
+    # version mismatch issues between server and client.
+    tm_log "INFO" "Deploying dump_dbs.sh to ${hostname}:${remote_home}/"
+    eval scp ${ssh_opts} \
+        "${dump_script}" \
+        "${remote_user}@${hostname}:${remote_home}/dump_dbs.sh" 2>&1 || {
+            local rc=$?
+            tm_log "ERROR" "Failed to deploy dump_dbs.sh to ${hostname} (exit code ${rc})"
+            return ${rc}
+        }
+
+    # Step 2: Run dump_dbs.sh on the remote server via SSH.
+    # Pass DB configuration as environment variables so the remote script
+    # uses the server's settings (not whatever the client has locally).
+    tm_log "INFO" "Running dump_dbs.sh on ${hostname}"
+    eval ssh ${ssh_opts} \
         "${remote_user}@${hostname}" \
-        "bash -s" 2>&1
+        "TM_DB_TYPES='${TM_DB_TYPES}' \
+         TM_MYSQL_PW_FILE='${TM_MYSQL_PW_FILE}' \
+         TM_MYSQL_HOST='${TM_MYSQL_HOST}' \
+         TM_PG_USER='${TM_PG_USER}' \
+         TM_PG_HOST='${TM_PG_HOST}' \
+         TM_MONGO_HOST='${TM_MONGO_HOST}' \
+         TM_MONGO_AUTH_DB='${TM_MONGO_AUTH_DB}' \
+         TM_REDIS_HOST='${TM_REDIS_HOST}' \
+         TM_REDIS_PORT='${TM_REDIS_PORT}' \
+         TM_SQLITE_PATHS='${TM_SQLITE_PATHS}' \
+         TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}' \
+         bash ${remote_home}/dump_dbs.sh" 2>&1
 
     return $?
 }
