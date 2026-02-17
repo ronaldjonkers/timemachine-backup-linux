@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.9] - 2026-02-17
+
+### Fixed
+- **Only 1 DB version visible instead of all** — The API only looked for flat files directly in `sql/HHMMSS/`, but the dump script creates engine subdirectories (`mysql/`, `postgresql/`, etc.) inside each version. Now scans recursively to find all database files regardless of nesting depth. Also fixes `has_db` / `db_versions` count in the snapshots list.
+
 ## [3.6.8] - 2026-02-17
 
 ### Changed

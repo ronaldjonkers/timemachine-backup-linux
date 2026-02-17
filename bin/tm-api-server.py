@@ -878,14 +878,23 @@ class APIHandler(BaseHTTPRequestHandler):
                 db_versions = 0
                 sql_dir = os.path.join(full, 'sql')
                 if os.path.isdir(sql_dir):
-                    db_files = [f for f in os.listdir(sql_dir) if os.path.isfile(os.path.join(sql_dir, f))]
-                    has_db = len(db_files) > 0
-                    if has_db:
+                    # Check for base-level files (flat or inside engine subdirs like mysql/)
+                    has_base_files = False
+                    for _r, _ds, _fs in os.walk(sql_dir):
+                        # Skip HHMMSS timestamp dirs (separate versions)
+                        if _r == sql_dir:
+                            _ds[:] = [d for d in _ds if not re.match(r'^\d{6}$', d)]
+                        if _fs:
+                            has_base_files = True
+                            break
+                    if has_base_files:
+                        has_db = True
                         db_versions = 1
                     # Count timestamped subdirs (HHMMSS) as additional versions
-                    db_versions += len([d for d in os.listdir(sql_dir)
-                                        if os.path.isdir(os.path.join(sql_dir, d))
-                                        and re.match(r'^\d{6}$', d)])
+                    ts_dirs = [d for d in os.listdir(sql_dir)
+                               if os.path.isdir(os.path.join(sql_dir, d))
+                               and re.match(r'^\d{6}$', d)]
+                    db_versions += len(ts_dirs)
                     if db_versions > 0:
                         has_db = True
                 snaps.append({
@@ -907,6 +916,8 @@ class APIHandler(BaseHTTPRequestHandler):
         """List all DB dump versions for a given hostname/snapshot.
         Returns the base sql/ dump plus any timestamped subdirs (HHMMSS/).
         Structure: /api/db-versions/<hostname>/<snapshot>
+
+        Handles both flat files (sql/*.sql) and engine subdirs (sql/mysql/*.sql).
         """
         parts = path_info.split('/', 1)
         if len(parts) < 2:
@@ -918,37 +929,55 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json([])
             return
 
+        def _collect_files(base_dir):
+            """Recursively collect all files under base_dir, returning
+            relative paths. Handles flat files and engine subdirs (mysql/, etc)."""
+            files = []
+            for root, dirs, filenames in os.walk(base_dir):
+                # Skip HHMMSS timestamp dirs at the top level (they're separate versions)
+                if root == base_dir:
+                    dirs[:] = [d for d in dirs if not re.match(r'^\d{6}$', d)]
+                for fn in filenames:
+                    full_path = os.path.join(root, fn)
+                    rel = os.path.relpath(full_path, base_dir)
+                    try:
+                        mt = os.path.getmtime(full_path)
+                        sz = os.path.getsize(full_path)
+                    except Exception:
+                        mt, sz = 0, 0
+                    files.append({
+                        'name': rel,
+                        'size': _fmt_size(sz),
+                        'mtime': datetime.fromtimestamp(mt).strftime('%Y-%m-%d %H:%M:%S') if mt else '--',
+                        '_mtime': mt,
+                        '_bytes': sz,
+                    })
+            return sorted(files, key=lambda x: x['name'])
+
+        def _fmt_size(b):
+            if b >= 1024**3:
+                return f'{b / 1024**3:.1f}G'
+            if b >= 1024**2:
+                return f'{b / 1024**2:.1f}M'
+            if b >= 1024:
+                return f'{b / 1024:.1f}K'
+            return f'{b}B'
+
         versions = []
 
-        # Check for base-level dump files (from full/daily backup)
-        base_files = [f for f in os.listdir(sql_dir)
-                      if os.path.isfile(os.path.join(sql_dir, f))]
+        # Check for base-level files (daily/full backup) — flat OR in engine subdirs
+        base_files = _collect_files(sql_dir)
         if base_files:
-            total_size = '--'
-            try:
-                total_bytes = sum(os.path.getsize(os.path.join(sql_dir, f)) for f in base_files)
-                if total_bytes < 1024:
-                    total_size = f'{total_bytes}B'
-                elif total_bytes < 1024 * 1024:
-                    total_size = f'{total_bytes / 1024:.1f}K'
-                elif total_bytes < 1024 * 1024 * 1024:
-                    total_size = f'{total_bytes / (1024 * 1024):.1f}M'
-                else:
-                    total_size = f'{total_bytes / (1024 * 1024 * 1024):.1f}G'
-            except Exception:
-                pass
-            # Get modification time of newest file as version timestamp
-            newest = max(os.path.getmtime(os.path.join(sql_dir, f)) for f in base_files)
+            total_bytes = sum(f['_bytes'] for f in base_files)
+            newest = max(f['_mtime'] for f in base_files) if base_files else 0
+            # Strip internal fields
+            clean_files = [{'name': f['name'], 'size': f['size'], 'mtime': f['mtime']} for f in base_files]
             versions.append({
                 'version': 'base',
-                'label': datetime.fromtimestamp(newest).strftime('%H:%M:%S'),
-                'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S'),
-                'size': total_size,
-                'files': sorted([{
-                    'name': f,
-                    'size': du_sh(os.path.join(sql_dir, f)),
-                    'mtime': datetime.fromtimestamp(os.path.getmtime(os.path.join(sql_dir, f))).strftime('%Y-%m-%d %H:%M:%S'),
-                } for f in base_files], key=lambda x: x['name']),
+                'label': datetime.fromtimestamp(newest).strftime('%H:%M:%S') if newest else '--',
+                'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S') if newest else '--',
+                'size': _fmt_size(total_bytes),
+                'files': clean_files,
                 'download_path': 'sql',
             })
 
@@ -957,24 +986,20 @@ class APIHandler(BaseHTTPRequestHandler):
             full = os.path.join(sql_dir, entry)
             if not os.path.isdir(full) or not re.match(r'^\d{6}$', entry):
                 continue
-            sub_files = [f for f in os.listdir(full)
-                         if os.path.isfile(os.path.join(full, f))]
+            sub_files = _collect_files(full)
             if not sub_files:
                 continue
-            sub_size = du_sh(full)
+            total_bytes = sum(f['_bytes'] for f in sub_files)
+            newest = max(f['_mtime'] for f in sub_files) if sub_files else 0
             # Parse HHMMSS into readable time
             t_label = entry[:2] + ':' + entry[2:4] + ':' + entry[4:6]
-            newest = max(os.path.getmtime(os.path.join(full, f)) for f in sub_files)
+            clean_files = [{'name': f['name'], 'size': f['size'], 'mtime': f['mtime']} for f in sub_files]
             versions.append({
                 'version': entry,
                 'label': t_label,
-                'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S'),
-                'size': sub_size,
-                'files': sorted([{
-                    'name': f,
-                    'size': du_sh(os.path.join(full, f)),
-                    'mtime': datetime.fromtimestamp(os.path.getmtime(os.path.join(full, f))).strftime('%Y-%m-%d %H:%M:%S'),
-                } for f in sub_files], key=lambda x: x['name']),
+                'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S') if newest else '--',
+                'size': _fmt_size(total_bytes),
+                'files': clean_files,
                 'download_path': 'sql/' + entry,
             })
 
