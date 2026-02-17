@@ -178,17 +178,25 @@ tm_rsync_sql() {
     local rsync_cmd
     rsync_cmd=$(_tm_rsync_base_cmd)
 
-    tm_log "INFO" "Starting database backup sync: ${hostname} -> ${target_dir}"
+    local remote_sql_path="/home/${TM_USER}/sql/"
+    tm_log "INFO" "Rsync SQL: ${remote_user}@${hostname}:${remote_sql_path} -> ${target_dir}/"
 
     eval ${rsync_cmd} \
-        "${remote_user}@${hostname}:/home/${TM_USER}/sql/" \
+        "${remote_user}@${hostname}:${remote_sql_path}" \
         "${target_dir}/" 2>&1 || {
             local rc=$?
             tm_log "ERROR" "rsync database sync failed for ${hostname} (exit code ${rc})"
             return ${rc}
         }
 
-    tm_log "INFO" "Database backup sync complete for ${hostname}"
+    # Log what was synced for diagnostics
+    local file_count=0
+    local total_size="unknown"
+    if [[ -d "${target_dir}" ]]; then
+        file_count=$(find "${target_dir}" -type f 2>/dev/null | wc -l | tr -d ' ')
+        total_size=$(du -sh "${target_dir}" 2>/dev/null | cut -f1) || total_size="unknown"
+    fi
+    tm_log "INFO" "Database backup sync complete for ${hostname} (${file_count} files, ${total_size})"
     return 0
 }
 

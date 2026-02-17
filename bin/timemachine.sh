@@ -147,9 +147,10 @@ main() {
 
     # --- Database Backup ---
     if [[ ${FILES_ONLY} -eq 0 ]]; then
-        tm_log "INFO" "Phase 2: Database backup"
+        tm_log "INFO" "Phase 2: Database backup (trigger remote dump + rsync back)"
 
         # Trigger remote database dump via SSH
+        tm_log "INFO" "Phase 2a: Triggering remote database dump on ${HOSTNAME}"
         local db_output
         db_output=$(tm_trigger_remote_dump "${HOSTNAME}" 2>&1)
         local db_rc=$?
@@ -162,8 +163,10 @@ main() {
             done <<< "${db_output}"
         fi
 
+        tm_log "INFO" "Remote dump finished with exit code ${db_rc}"
+
         if [[ ${db_rc} -ne 0 ]]; then
-            tm_log "ERROR" "Remote database dump failed on ${HOSTNAME}"
+            tm_log "ERROR" "Remote database dump failed on ${HOSTNAME} (exit code ${db_rc})"
             exit_code=1
 
             # Check for credential/auth issues and send targeted alert
@@ -192,8 +195,9 @@ main() {
             tm_log "INFO" "If this server has databases, configure TM_DB_TYPES and credentials in .env"
         else
             # Sync the SQL dumps back
+            tm_log "INFO" "Phase 2b: Syncing SQL dumps from ${HOSTNAME} to local backup"
             if ! tm_rsync_sql "${HOSTNAME}" "${BACKUP_BASE}"; then
-                tm_log "ERROR" "Database sync failed for ${HOSTNAME}"
+                tm_log "ERROR" "Database sync (rsync) failed for ${HOSTNAME}"
                 exit_code=1
             fi
         fi

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.5] - 2026-02-17
+
+### Improved
+- **Comprehensive logging for DB backup flow** — Every step of the database backup process is now logged with clear phase markers so you can trace exactly what happened and where it failed:
+  - `Phase 2a`: SCP deploy of `dump_dbs.sh` to remote (success/fail + output)
+  - `Phase 2a`: SSH execution of `dump_dbs.sh` on remote (exit code + full remote output)
+  - `Phase 2b`: rsync sync of SQL dumps back (source path, target dir, file count, total size)
+  - All remote script output is logged line-by-line with `[remote]` prefix
+
 ## [3.3.4] - 2026-02-17
 
 ### Fixed

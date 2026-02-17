@@ -42,20 +42,24 @@ tm_trigger_remote_dump() {
     # Step 1: Deploy latest dump_dbs.sh to the remote server via SCP.
     # This ensures the remote always runs the current version, avoiding
     # version mismatch issues between server and client.
-    tm_log "INFO" "Deploying dump_dbs.sh to ${hostname}:${remote_home}/"
-    eval scp ${ssh_opts} \
+    tm_log "INFO" "Step 1/2: Deploying dump_dbs.sh to ${hostname}:${remote_home}/"
+    local scp_output
+    scp_output=$(eval scp ${ssh_opts} \
         "${dump_script}" \
-        "${remote_user}@${hostname}:${remote_home}/dump_dbs.sh" 2>&1 || {
+        "${remote_user}@${hostname}:${remote_home}/dump_dbs.sh" 2>&1) || {
             local rc=$?
             tm_log "ERROR" "Failed to deploy dump_dbs.sh to ${hostname} (exit code ${rc})"
+            [[ -n "${scp_output}" ]] && tm_log "ERROR" "SCP output: ${scp_output}"
             return ${rc}
         }
+    tm_log "INFO" "Step 1/2: dump_dbs.sh deployed successfully to ${hostname}"
 
     # Step 2: Run dump_dbs.sh on the remote server via SSH.
     # Pass DB configuration as environment variables so the remote script
     # uses the server's settings (not whatever the client has locally).
-    tm_log "INFO" "Running dump_dbs.sh on ${hostname}"
-    eval ssh ${ssh_opts} \
+    tm_log "INFO" "Step 2/2: Running dump_dbs.sh on ${hostname} (TM_DB_TYPES=${TM_DB_TYPES})"
+    local ssh_output
+    ssh_output=$(eval ssh ${ssh_opts} \
         "${remote_user}@${hostname}" \
         "TM_DB_TYPES='${TM_DB_TYPES}' \
          TM_MYSQL_PW_FILE='${TM_MYSQL_PW_FILE}' \
@@ -68,9 +72,19 @@ tm_trigger_remote_dump() {
          TM_REDIS_PORT='${TM_REDIS_PORT}' \
          TM_SQLITE_PATHS='${TM_SQLITE_PATHS}' \
          TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}' \
-         bash ${remote_home}/dump_dbs.sh" 2>&1
+         bash ${remote_home}/dump_dbs.sh" 2>&1)
+    local ssh_rc=$?
 
-    return $?
+    # Always output the remote script's output for the caller to log
+    [[ -n "${ssh_output}" ]] && echo "${ssh_output}"
+
+    if [[ ${ssh_rc} -eq 0 ]]; then
+        tm_log "INFO" "Step 2/2: dump_dbs.sh completed successfully on ${hostname}"
+    else
+        tm_log "ERROR" "Step 2/2: dump_dbs.sh failed on ${hostname} (exit code ${ssh_rc})"
+    fi
+
+    return ${ssh_rc}
 }
 
 # Wait for a remote database dump (triggered by cron) to complete
