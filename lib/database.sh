@@ -50,7 +50,7 @@ tm_trigger_remote_dump() {
         echo "export TM_SQLITE_PATHS='${TM_SQLITE_PATHS}'"
         echo "export TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}'"
         # Output the script body after the self-restart block (from "# CONFIGURATION" onward)
-        sed -n '/^# ===.*CONFIGURATION/,$p' "${dump_script}"
+        sed -n '/^# CONFIGURATION/,$p' "${dump_script}"
     } | ssh -p "${TM_SSH_PORT}" -i "${TM_SSH_KEY}" \
         -o ConnectTimeout="${TM_SSH_TIMEOUT}" \
         -o StrictHostKeyChecking=no \

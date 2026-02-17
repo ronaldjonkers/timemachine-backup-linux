@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.3] - 2026-02-17
+
+### Fixed
+- **CRITICAL: Remote database dumps were not executing** — The `sed` pattern in `tm_trigger_remote_dump` (`# ===.*CONFIGURATION`) never matched because the separator line (`# ====...`) and the `CONFIGURATION` title are on separate lines in `dump_dbs.sh`. This caused an **empty script** to be piped to the remote server via SSH, meaning no database dump was performed. The rsync then just synced stale/old dump files. Fixed pattern to `# CONFIGURATION` which correctly matches line 34 of `dump_dbs.sh` and sends the full 496-line script body.
+
 ## [3.3.2] - 2026-02-17
 
 ### Fixed
