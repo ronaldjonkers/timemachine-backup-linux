@@ -698,6 +698,8 @@ _handle_request() {
                     echo "${srv_line}" | grep -q '\-\-files-only' && [[ "${opts}" != *"--files-only"* ]] && opts+=" --files-only"
                     echo "${srv_line}" | grep -q '\-\-db-only' && [[ "${opts}" != *"--db-only"* ]] && opts+=" --db-only"
                     echo "${srv_line}" | grep -q '\-\-no-rotate' && opts+=" --no-rotate"
+                    echo "${srv_line}" | grep -q '\-\-db-compress' && [[ "${opts}" != *"--db-compress"* ]] && opts+=" --db-compress"
+                    echo "${srv_line}" | grep -q '\-\-no-db-compress' && [[ "${opts}" != *"--no-db-compress"* ]] && opts+=" --no-db-compress"
                 fi
             fi
             local pid

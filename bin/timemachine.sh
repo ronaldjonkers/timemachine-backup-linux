@@ -50,25 +50,30 @@ DB_ONLY=0
 NO_ROTATE=0
 DRY_RUN=0
 TRIGGER="manual"
+DB_COMPRESS=""
 
 usage() {
     echo "Usage: $(basename "$0") <hostname> [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --files-only   Only backup files (skip database dump)"
-    echo "  --db-only      Only backup databases (skip file sync)"
-    echo "  --no-rotate    Skip backup rotation"
-    echo "  --dry-run      Show what would be done"
-    echo "  --verbose      Enable debug logging"
-    echo "  --help         Show this help message"
+    echo "  --files-only     Only backup files (skip database dump)"
+    echo "  --db-only        Only backup databases (skip file sync)"
+    echo "  --no-rotate      Skip backup rotation"
+    echo "  --db-compress    Compress database dumps (gzip)"
+    echo "  --no-db-compress Skip database dump compression"
+    echo "  --dry-run        Show what would be done"
+    echo "  --verbose        Enable debug logging"
+    echo "  --help           Show this help message"
     exit 1
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --files-only)  FILES_ONLY=1; shift ;;
-        --db-only)     DB_ONLY=1; shift ;;
-        --no-rotate)   NO_ROTATE=1; shift ;;
+        --files-only)      FILES_ONLY=1; shift ;;
+        --db-only)         DB_ONLY=1; shift ;;
+        --no-rotate)       NO_ROTATE=1; shift ;;
+        --db-compress)     DB_COMPRESS="true"; shift ;;
+        --no-db-compress)  DB_COMPRESS="false"; shift ;;
         --trigger)     TRIGGER="$2"; shift; shift ;;
         --notify)           shift; shift ;;  # consumed by notify.sh
         --priority)         shift; shift ;;  # consumed by scheduler
@@ -148,6 +153,12 @@ main() {
     # --- Database Backup ---
     if [[ ${FILES_ONLY} -eq 0 ]]; then
         tm_log "INFO" "Phase 2: Database backup (trigger remote dump + rsync back)"
+
+        # Override global TM_DB_COMPRESS with per-server setting if specified
+        if [[ -n "${DB_COMPRESS}" ]]; then
+            export TM_DB_COMPRESS="${DB_COMPRESS}"
+            tm_log "INFO" "DB compression override: ${DB_COMPRESS}"
+        fi
 
         # Trigger remote database dump via SSH.
         # tm_trigger_remote_dump sets _TM_DB_OUTPUT and logs everything

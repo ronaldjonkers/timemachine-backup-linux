@@ -1319,6 +1319,14 @@ function editServer(hostname) {
                 '<input type="number" id="edit-backup-interval" value="' + (srv.backup_interval || 0) + '" min="0" max="24">' +
             '</div>' +
             '<div class="form-group">' +
+                '<label>DB Compression</label>' +
+                '<select id="edit-db-compress">' +
+                    '<option value=""' + (!srv.db_compress ? ' selected' : '') + '>Global default</option>' +
+                    '<option value="true"' + (srv.db_compress === 'true' ? ' selected' : '') + '>Enabled (gzip)</option>' +
+                    '<option value="false"' + (srv.db_compress === 'false' ? ' selected' : '') + '>Disabled</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
                 '<label><input type="checkbox" id="edit-no-rotate"' + (srv.no_rotate ? ' checked' : '') + '> Skip backup rotation</label>' +
             '</div>' +
             '<div class="form-group">' +
@@ -1341,6 +1349,7 @@ async function saveServerSettings(hostname) {
     var dbInterval = parseInt(document.getElementById('edit-db-interval').value) || 0;
     var backupInterval = parseInt(document.getElementById('edit-backup-interval').value) || 0;
     var noRotate = document.getElementById('edit-no-rotate').checked;
+    var dbCompress = document.getElementById('edit-db-compress').value;
     var notifyEmail = document.getElementById('edit-notify-email').value.trim();
 
     var result = await apiPut('/api/servers/' + hostname, {
@@ -1349,6 +1358,7 @@ async function saveServerSettings(hostname) {
         db_interval: dbInterval,
         backup_interval: backupInterval,
         no_rotate: noRotate,
+        db_compress: dbCompress,
         notify_email: notifyEmail
     });
 

@@ -277,6 +277,11 @@ def _parse_server_line(line):
     files_only = '--files-only' in opts
     db_only = '--db-only' in opts
     no_rotate = '--no-rotate' in opts
+    db_compress = ''  # empty = use global default
+    if '--no-db-compress' in opts:
+        db_compress = 'false'
+    elif '--db-compress' in opts:
+        db_compress = 'true'
     notify = ''
     nm = re.search(r'--notify\s+(\S+)', opts)
     if nm:
@@ -290,6 +295,7 @@ def _parse_server_line(line):
         'files_only': files_only,
         'db_only': db_only,
         'no_rotate': no_rotate,
+        'db_compress': db_compress,
         'notify_email': notify,
     }
 
@@ -1072,6 +1078,10 @@ class APIHandler(BaseHTTPRequestHandler):
                     opts += ' --db-only'
                 if srv['no_rotate']:
                     opts += ' --no-rotate'
+                if srv.get('db_compress') == 'true' and '--db-compress' not in opts:
+                    opts += ' --db-compress'
+                elif srv.get('db_compress') == 'false' and '--no-db-compress' not in opts:
+                    opts += ' --no-db-compress'
                 if srv.get('notify_email'):
                     opts += f" --notify {srv['notify_email']}"
                 break
@@ -1464,6 +1474,11 @@ class APIHandler(BaseHTTPRequestHandler):
             opts_parts.append('--db-only')
         if data.get('no_rotate') is True:
             opts_parts.append('--no-rotate')
+        db_compress = data.get('db_compress', '')
+        if db_compress == 'true':
+            opts_parts.append('--db-compress')
+        elif db_compress == 'false':
+            opts_parts.append('--no-db-compress')
         notify = data.get('notify_email', '')
         if notify:
             opts_parts.append(f'--notify {notify}')
@@ -2020,45 +2035,45 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _api_disk(self):
         br = backup_root()
-        debug = {'backup_root': br}
         try:
-            result = subprocess.run(['df', '-h', br], capture_output=True, text=True, timeout=10)
-            debug['df_rc'] = result.returncode
-            debug['df_stdout'] = result.stdout.strip()
-            debug['df_stderr'] = result.stderr.strip()
-            lines = result.stdout.strip().splitlines()
-            debug['line_count'] = len(lines)
-            if len(lines) >= 2:
-                # Handle wrapped output: long filesystem names cause df to
-                # split into 3+ lines. Join all non-header lines and re-split.
-                data_line = ' '.join(lines[1:])
-                parts = data_line.split()
-                debug['parts_count'] = len(parts)
-                debug['parts'] = parts
-                # Standard df columns: Filesystem Size Used Avail Use% Mounted
-                # With 6+ parts: index 0=fs, 1=size, 2=used, 3=avail, 4=pct, 5+=mount
-                # With 5 parts (no fs on wrapped line): 0=size, 1=used, 2=avail, 3=pct, 4=mount
-                if len(parts) >= 6:
-                    total, used, avail, pct_s, mount = parts[1], parts[2], parts[3], parts[4], parts[5]
-                elif len(parts) == 5:
-                    total, used, avail, pct_s, mount = parts[0], parts[1], parts[2], parts[3], parts[4]
-                else:
-                    raise ValueError(f'Unexpected df output ({len(parts)} parts): {data_line}')
-                pct = int(pct_s.rstrip('%')) if pct_s.rstrip('%').isdigit() else 0
-                self._send_json({
-                    'total': total,
-                    'used': used,
-                    'available': avail,
-                    'percent': pct,
-                    'mount': mount,
-                    'path': br,
-                    '_debug': debug,
-                })
-                return
+            # Use os.statvfs — direct kernel syscall, no subprocess needed
+            st = os.statvfs(br)
+            total_bytes = st.f_frsize * st.f_blocks
+            avail_bytes = st.f_frsize * st.f_bavail
+            used_bytes = total_bytes - (st.f_frsize * st.f_bfree)
+            pct = int(round(used_bytes / total_bytes * 100)) if total_bytes > 0 else 0
+
+            def fmt_size(b):
+                if b >= 1024**4:
+                    return f'{b / 1024**4:.1f}T'
+                if b >= 1024**3:
+                    return f'{b / 1024**3:.1f}G'
+                if b >= 1024**2:
+                    return f'{b / 1024**2:.1f}M'
+                return f'{b / 1024:.1f}K'
+
+            # Get mount point via df (just the mount column)
+            mount = br
+            try:
+                r = subprocess.run(['df', br], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    lines = r.stdout.strip().splitlines()
+                    if len(lines) >= 2:
+                        mount = ' '.join(lines[1:]).split()[-1]
+            except Exception:
+                pass
+
+            self._send_json({
+                'total': fmt_size(total_bytes),
+                'used': fmt_size(used_bytes),
+                'available': fmt_size(avail_bytes),
+                'percent': pct,
+                'mount': mount,
+                'path': br,
+            })
         except Exception as e:
-            debug['error'] = str(e)
-            logging.warning('Disk API error: %s (debug: %s)', e, debug)
-        self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br, '_debug': debug})
+            logging.warning('Disk API error: %s', e)
+            self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br})
 
 
 def _reconcile_state_files(sd):
