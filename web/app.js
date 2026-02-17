@@ -1386,11 +1386,19 @@ function _renderServerDetail() {
     var pageData = _snapData.slice(start, start + _snapPerPage);
 
     var rows = pageData.map(function(s) {
+        var dbCell = '';
+        if (s.has_db && s.db_versions > 1) {
+            dbCell = '<a href="#" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\');return false" style="color:var(--green);text-decoration:underline;cursor:pointer">' + s.db_versions + ' versions</a>';
+        } else if (s.has_db) {
+            dbCell = '<span style="color:var(--green)">Yes</span>';
+        } else {
+            dbCell = '<span style="color:var(--text-muted)">No</span>';
+        }
         return '<tr>' +
             '<td>' + formatSnapDate(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
-            '<td>' + (s.has_db ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' + dbCell + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button> ' +
@@ -1437,11 +1445,19 @@ async function viewSnapshots(hostname, page) {
     var pageData = _snapData.slice(start, start + _snapPerPage);
 
     var rows = pageData.map(function(s) {
+        var dbCell = '';
+        if (s.has_db && s.db_versions > 1) {
+            dbCell = '<a href="#" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\');return false" style="color:var(--green);text-decoration:underline;cursor:pointer">' + s.db_versions + ' versions</a>';
+        } else if (s.has_db) {
+            dbCell = '<span style="color:var(--green)">Yes</span>';
+        } else {
+            dbCell = '<span style="color:var(--text-muted)">No</span>';
+        }
         return '<tr>' +
             '<td>' + formatSnapDate(s.date) + '</td>' +
             '<td>' + esc(s.size) + '</td>' +
             '<td>' + (s.has_files ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
-            '<td>' + (s.has_db ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--text-muted)">No</span>') + '</td>' +
+            '<td>' + dbCell + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button>' +
@@ -1502,9 +1518,12 @@ async function browseSnapshot(hostname, snapshot, subPath) {
             html += '<p class="text-muted" style="font-size:0.82rem">No file backups in this snapshot</p>';
         }
 
-        // SQL section
+        // SQL section — fetch DB versions for a richer view
+        var dbVersions = await apiGet('/api/db-versions/' + hostname + '/' + snapshot);
         html += '<h3 style="margin:1.25rem 0 0.5rem;font-size:0.9rem">&#x1F5C3; Databases</h3>';
-        if (sqlData && sqlData.items && sqlData.items.length > 0) {
+        if (dbVersions && dbVersions.length > 0) {
+            html += _buildDbVersionsTable(hostname, snapshot, dbVersions);
+        } else if (sqlData && sqlData.items && sqlData.items.length > 0) {
             html += _buildItemTable(hostname, snapshot, sqlData.items, '', 'sql');
             html += '<div class="form-actions" style="margin-top:0.5rem">' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All Databases</button> ' +
@@ -1589,6 +1608,50 @@ function _buildItemTable(hostname, snapshot, items, currentPath, section) {
     return '<table class="browse-table">' +
         '<thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table>';
+}
+
+function _buildDbVersionsTable(hostname, snapshot, versions) {
+    var rows = versions.map(function(v) {
+        var label = v.version === 'base' ? '&#x1F5C3; Daily backup' : '&#x23F0; Interval ' + esc(v.label);
+        var fileList = '';
+        if (v.files && v.files.length > 0) {
+            fileList = '<div style="margin-top:0.35rem">' + v.files.map(function(f) {
+                return '<span class="text-muted" style="font-size:0.78rem;margin-right:0.75rem">' + esc(f.name) + ' (' + esc(f.size) + ')</span>';
+            }).join('') + '</div>';
+        }
+        return '<tr>' +
+            '<td style="white-space:nowrap">' + label + '</td>' +
+            '<td class="text-muted" style="white-space:nowrap">' + esc(v.time) + '</td>' +
+            '<td class="text-muted" style="white-space:nowrap">' + esc(v.size) + '</td>' +
+            '<td>' +
+                '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download</button> ' +
+                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__/' + esc(v.version === 'base' ? '' : v.version) + '\')">Restore</button>' +
+            '</td>' +
+            '</tr>' +
+            '<tr><td colspan="4" style="padding:0 0.75rem 0.5rem">' + fileList + '</td></tr>';
+    }).join('');
+
+    return '<table class="browse-table">' +
+        '<thead><tr><th>Version</th><th>Timestamp</th><th>Size</th><th>Actions</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+}
+
+async function browseDbVersions(hostname, snapshot) {
+    var data = await apiGet('/api/db-versions/' + hostname + '/' + snapshot);
+    if (!data || data.length === 0) {
+        toast('No database versions found', 'info');
+        return;
+    }
+
+    var html = '<div class="breadcrumb"><strong>' + esc(hostname) + ' / ' + formatSnapDate(snapshot) + ' / Databases</strong></div>';
+    html += _buildDbVersionsTable(hostname, snapshot, data);
+    html += '<div class="form-actions" style="margin-top:1rem">' +
+        '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All Databases</button> ' +
+        '<button class="btn" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\')">Back to Snapshot</button> ' +
+        '<button class="btn" onclick="openServerDetail(\'' + esc(hostname) + '\')">Back to Snapshots</button>' +
+    '</div>';
+
+    openModal('Database Versions: ' + hostname + ' / ' + formatSnapDate(snapshot), html);
 }
 
 function _buildBreadcrumb(hostname, snapshot, relPath, section) {

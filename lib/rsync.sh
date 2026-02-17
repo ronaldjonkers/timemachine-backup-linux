@@ -153,7 +153,21 @@ tm_rsync_sql() {
             tm_log "INFO" "DB-only: no existing snapshot today, creating ${snap_id}"
         fi
     fi
-    local target_dir="${backup_base}/${snap_id}/sql"
+    local snap_dir="${backup_base}/${snap_id}"
+    local base_sql_dir="${snap_dir}/sql"
+
+    # For DB-only interval runs, store each version in a timestamped subdir
+    # so multiple DB backups per day are individually browsable/downloadable.
+    # Full/daily backups go into sql/ directly (the "base" version).
+    local target_dir="${base_sql_dir}"
+    if [[ -z "${_TM_SNAP_ID:-}" && -d "${base_sql_dir}" ]]; then
+        # This is a DB-only interval run and sql/ already exists from an
+        # earlier backup today — store in a timestamped subdir.
+        local ts
+        ts=$(date +'%H%M%S')
+        target_dir="${base_sql_dir}/${ts}"
+        tm_log "INFO" "DB interval: storing version in ${snap_id}/sql/${ts}"
+    fi
 
     tm_ensure_dir "${target_dir}"
 

@@ -593,6 +593,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._api_status()
         elif path == '/api/processes':
             self._api_processes()
+        elif path.startswith('/api/db-versions/'):
+            self._api_db_versions(path[len('/api/db-versions/'):])
         elif path.startswith('/api/snapshots/'):
             self._api_snapshots(path[len('/api/snapshots/'):])
         elif path.startswith('/api/browse/'):
@@ -859,17 +861,98 @@ class APIHandler(BaseHTTPRequestHandler):
                 sz = du_sh(full)
                 has_files = os.path.isdir(os.path.join(full, 'files'))
                 has_db = False
+                db_versions = 0
                 sql_dir = os.path.join(full, 'sql')
                 if os.path.isdir(sql_dir):
                     db_files = [f for f in os.listdir(sql_dir) if os.path.isfile(os.path.join(sql_dir, f))]
                     has_db = len(db_files) > 0
+                    if has_db:
+                        db_versions = 1
+                    # Count timestamped subdirs (HHMMSS) as additional versions
+                    db_versions += len([d for d in os.listdir(sql_dir)
+                                        if os.path.isdir(os.path.join(sql_dir, d))
+                                        and re.match(r'^\d{6}$', d)])
+                    if db_versions > 0:
+                        has_db = True
                 snaps.append({
                     'date': entry,
                     'size': sz,
                     'has_files': has_files,
                     'has_db': has_db,
+                    'db_versions': db_versions,
                 })
         self._send_json(snaps)
+
+    def _api_db_versions(self, path_info):
+        """List all DB dump versions for a given hostname/snapshot.
+        Returns the base sql/ dump plus any timestamped subdirs (HHMMSS/).
+        Structure: /api/db-versions/<hostname>/<snapshot>
+        """
+        parts = path_info.split('/', 1)
+        if len(parts) < 2:
+            self._send_json({'error': 'Usage: /api/db-versions/<hostname>/<snapshot>'}, 400)
+            return
+        hostname, snap_date = parts[0], parts[1]
+        sql_dir = os.path.join(backup_root(), hostname, snap_date, 'sql')
+        if not os.path.isdir(sql_dir):
+            self._send_json([])
+            return
+
+        versions = []
+
+        # Check for base-level dump files (from full/daily backup)
+        base_files = [f for f in os.listdir(sql_dir)
+                      if os.path.isfile(os.path.join(sql_dir, f))]
+        if base_files:
+            total_size = '--'
+            try:
+                total_bytes = sum(os.path.getsize(os.path.join(sql_dir, f)) for f in base_files)
+                if total_bytes < 1024:
+                    total_size = f'{total_bytes}B'
+                elif total_bytes < 1024 * 1024:
+                    total_size = f'{total_bytes / 1024:.1f}K'
+                elif total_bytes < 1024 * 1024 * 1024:
+                    total_size = f'{total_bytes / (1024 * 1024):.1f}M'
+                else:
+                    total_size = f'{total_bytes / (1024 * 1024 * 1024):.1f}G'
+            except Exception:
+                pass
+            # Get modification time of newest file as version timestamp
+            newest = max(os.path.getmtime(os.path.join(sql_dir, f)) for f in base_files)
+            versions.append({
+                'version': 'base',
+                'label': datetime.fromtimestamp(newest).strftime('%H:%M:%S'),
+                'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S'),
+                'size': total_size,
+                'files': sorted([{'name': f, 'size': du_sh(os.path.join(sql_dir, f))}
+                                 for f in base_files], key=lambda x: x['name']),
+                'download_path': 'sql',
+            })
+
+        # Check for timestamped subdirs (HHMMSS from interval runs)
+        for entry in sorted(os.listdir(sql_dir)):
+            full = os.path.join(sql_dir, entry)
+            if not os.path.isdir(full) or not re.match(r'^\d{6}$', entry):
+                continue
+            sub_files = [f for f in os.listdir(full)
+                         if os.path.isfile(os.path.join(full, f))]
+            if not sub_files:
+                continue
+            sub_size = du_sh(full)
+            # Parse HHMMSS into readable time
+            t_label = entry[:2] + ':' + entry[2:4] + ':' + entry[4:6]
+            newest = max(os.path.getmtime(os.path.join(full, f)) for f in sub_files)
+            versions.append({
+                'version': entry,
+                'label': t_label,
+                'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S'),
+                'size': sub_size,
+                'files': sorted([{'name': f, 'size': du_sh(os.path.join(full, f))}
+                                 for f in sub_files], key=lambda x: x['name']),
+                'download_path': 'sql/' + entry,
+            })
+
+        self._send_json(versions)
 
     def _api_browse(self, browse_path):
         parts = browse_path.split('/', 2)

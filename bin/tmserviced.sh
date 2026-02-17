@@ -710,6 +710,88 @@ _handle_request() {
             fi
             ;;
 
+        "GET /api/db-versions/"*)
+            # List all DB dump versions for a snapshot: /api/db-versions/<hostname>/<snapshot>
+            local dbv_path="${path#/api/db-versions/}"
+            local dbv_host="${dbv_path%%/*}"
+            local dbv_snap="${dbv_path#*/}"
+            local sql_dir="${TM_BACKUP_ROOT}/${dbv_host}/${dbv_snap}/sql"
+            local dbv_resp='['
+            local dbv_first=1
+
+            if [[ -d "${sql_dir}" ]]; then
+                # Base-level dump files (from full/daily backup)
+                local base_files
+                base_files=$(find "${sql_dir}" -maxdepth 1 -type f 2>/dev/null)
+                if [[ -n "${base_files}" ]]; then
+                    local base_size
+                    base_size=$(echo "${base_files}" | xargs du -ch 2>/dev/null | tail -1 | cut -f1)
+                    local base_newest
+                    base_newest=$(echo "${base_files}" | xargs stat -c '%Y' 2>/dev/null | sort -rn | head -1 || \
+                                  echo "${base_files}" | xargs stat -f '%m' 2>/dev/null | sort -rn | head -1)
+                    local base_label=""
+                    if [[ -n "${base_newest}" ]]; then
+                        base_label=$(date -d "@${base_newest}" +'%H:%M:%S' 2>/dev/null || date -r "${base_newest}" +'%H:%M:%S' 2>/dev/null)
+                        local base_time
+                        base_time=$(date -d "@${base_newest}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "${base_newest}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null)
+                    fi
+                    # Build file list
+                    local base_flist='['
+                    local bf_first=1
+                    while IFS= read -r bf; do
+                        [[ -z "${bf}" ]] && continue
+                        local bfn
+                        bfn=$(basename "${bf}")
+                        local bfs
+                        bfs=$(du -sh "${bf}" 2>/dev/null | cut -f1)
+                        [[ ${bf_first} -eq 1 ]] && bf_first=0 || base_flist+=','
+                        base_flist+=$(printf '{"name":"%s","size":"%s"}' "${bfn}" "${bfs}")
+                    done <<< "${base_files}"
+                    base_flist+=']'
+                    [[ ${dbv_first} -eq 1 ]] && dbv_first=0 || dbv_resp+=','
+                    dbv_resp+=$(printf '{"version":"base","label":"%s","time":"%s","size":"%s","files":%s,"download_path":"sql"}' \
+                        "${base_label}" "${base_time:-}" "${base_size}" "${base_flist}")
+                fi
+
+                # Timestamped subdirs (HHMMSS from interval runs)
+                for tsdir in "${sql_dir}"/[0-9][0-9][0-9][0-9][0-9][0-9]; do
+                    [[ -d "${tsdir}" ]] || continue
+                    local tsname
+                    tsname=$(basename "${tsdir}")
+                    local ts_files
+                    ts_files=$(find "${tsdir}" -maxdepth 1 -type f 2>/dev/null)
+                    [[ -z "${ts_files}" ]] && continue
+                    local ts_size
+                    ts_size=$(du -sh "${tsdir}" 2>/dev/null | cut -f1)
+                    local ts_label="${tsname:0:2}:${tsname:2:2}:${tsname:4:2}"
+                    local ts_newest
+                    ts_newest=$(echo "${ts_files}" | xargs stat -c '%Y' 2>/dev/null | sort -rn | head -1 || \
+                                echo "${ts_files}" | xargs stat -f '%m' 2>/dev/null | sort -rn | head -1)
+                    local ts_time=""
+                    if [[ -n "${ts_newest}" ]]; then
+                        ts_time=$(date -d "@${ts_newest}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "${ts_newest}" +'%Y-%m-%d %H:%M:%S' 2>/dev/null)
+                    fi
+                    local ts_flist='['
+                    local tf_first=1
+                    while IFS= read -r tf; do
+                        [[ -z "${tf}" ]] && continue
+                        local tfn
+                        tfn=$(basename "${tf}")
+                        local tfs
+                        tfs=$(du -sh "${tf}" 2>/dev/null | cut -f1)
+                        [[ ${tf_first} -eq 1 ]] && tf_first=0 || ts_flist+=','
+                        ts_flist+=$(printf '{"name":"%s","size":"%s"}' "${tfn}" "${tfs}")
+                    done <<< "${ts_files}"
+                    ts_flist+=']'
+                    [[ ${dbv_first} -eq 1 ]] && dbv_first=0 || dbv_resp+=','
+                    dbv_resp+=$(printf '{"version":"%s","label":"%s","time":"%s","size":"%s","files":%s,"download_path":"sql/%s"}' \
+                        "${tsname}" "${ts_label}" "${ts_time}" "${ts_size}" "${ts_flist}" "${tsname}")
+                done
+            fi
+            dbv_resp+=']'
+            _http_response "200 OK" "application/json" "${dbv_resp}"
+            ;;
+
         "GET /api/snapshots/"*)
             local target_host="${path#/api/snapshots/}"
             local snap_dir="${TM_BACKUP_ROOT}/${target_host}"
@@ -729,16 +811,24 @@ _handle_request() {
                     [[ "${dn:0:10}" < "${cutoff_date}" ]] && continue
                     local sz
                     sz=$(du -sh "${d}" 2>/dev/null | cut -f1)
-                    local hf="false" hd="false"
+                    local hf="false" hd="false" dbv=0
                     [[ -d "${d}/files" ]] && hf="true"
                     if [[ -d "${d}/sql" ]]; then
                         local db_file_count
-                        db_file_count=$(find "${d}/sql" -type f 2>/dev/null | wc -l | tr -d ' ')
-                        [[ ${db_file_count} -gt 0 ]] && hd="true"
+                        db_file_count=$(find "${d}/sql" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+                        if [[ ${db_file_count} -gt 0 ]]; then
+                            hd="true"
+                            dbv=1
+                        fi
+                        # Count timestamped subdirs (HHMMSS)
+                        local ts_count
+                        ts_count=$(find "${d}/sql" -maxdepth 1 -type d -regex '.*/[0-9][0-9][0-9][0-9][0-9][0-9]' 2>/dev/null | wc -l | tr -d ' ')
+                        dbv=$((dbv + ts_count))
+                        [[ ${dbv} -gt 0 ]] && hd="true"
                     fi
                     [[ ${first} -eq 1 ]] && first=0 || snaps+=','
-                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_db":%s}' \
-                        "${dn}" "${sz}" "${hf}" "${hd}")
+                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_db":%s,"db_versions":%d}' \
+                        "${dn}" "${sz}" "${hf}" "${hd}" "${dbv}")
                 done
                 # Legacy format: daily.YYYY-MM-DD
                 for d in "${snap_dir}"/daily.????-??-??; do
@@ -749,16 +839,23 @@ _handle_request() {
                     [[ "${dn_date}" < "${cutoff_date}" ]] && continue
                     local sz
                     sz=$(du -sh "${d}" 2>/dev/null | cut -f1)
-                    local hf="false" hd="false"
+                    local hf="false" hd="false" dbv=0
                     [[ -d "${d}/files" ]] && hf="true"
                     if [[ -d "${d}/sql" ]]; then
                         local db_file_count
-                        db_file_count=$(find "${d}/sql" -type f 2>/dev/null | wc -l | tr -d ' ')
-                        [[ ${db_file_count} -gt 0 ]] && hd="true"
+                        db_file_count=$(find "${d}/sql" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+                        if [[ ${db_file_count} -gt 0 ]]; then
+                            hd="true"
+                            dbv=1
+                        fi
+                        local ts_count
+                        ts_count=$(find "${d}/sql" -maxdepth 1 -type d -regex '.*/[0-9][0-9][0-9][0-9][0-9][0-9]' 2>/dev/null | wc -l | tr -d ' ')
+                        dbv=$((dbv + ts_count))
+                        [[ ${dbv} -gt 0 ]] && hd="true"
                     fi
                     [[ ${first} -eq 1 ]] && first=0 || snaps+=','
-                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_db":%s}' \
-                        "${dn}" "${sz}" "${hf}" "${hd}")
+                    snaps+=$(printf '{"date":"%s","size":"%s","has_files":%s,"has_db":%s,"db_versions":%d}' \
+                        "${dn}" "${sz}" "${hf}" "${hd}" "${dbv}")
                 done
             fi
             snaps+=']'

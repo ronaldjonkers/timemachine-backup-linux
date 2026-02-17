@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-02-17
+
+### Added
+- **Database version browser** — Servers with `--db-interval` now store each interval DB backup in a timestamped subdirectory (`sql/HHMMSS/`), preserving every version throughout the day. The daily full backup remains in `sql/` directly.
+- **New API endpoint `/api/db-versions/<hostname>/<snapshot>`** — Returns all DB dump versions for a snapshot, including file lists, sizes, and timestamps. Available in both Python and bash API servers.
+- **Dashboard: clickable DB version count** — Snapshot listings now show the number of DB versions (e.g. "3 versions") as a clickable link that opens a dedicated DB versions browser with per-version download and restore buttons.
+- **DB versions modal** — New modal view showing all database backup versions for a snapshot in a clear table with version type (Daily/Interval), timestamp, size, individual file details, and Download/Restore actions per version.
+
 ## [3.2.3] - 2026-02-17
 
 ### Fixed
