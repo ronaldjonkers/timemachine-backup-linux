@@ -656,6 +656,7 @@ All settings are in `.env`. See `.env.example` for the full list.
 | `TM_MYSQL_PW_FILE` | `~/.credentials/mysql.pw` | MySQL password file on client |
 | `TM_PG_USER` | `postgres` | PostgreSQL system user |
 | `TM_SQLITE_PATHS` | *(empty)* | Comma-separated SQLite file paths |
+| `TM_DB_COMPRESS` | `true` | Compress dumps with gzip before rsync |
 | `TM_API_PORT` | `7600` | HTTP API / dashboard port |
 | `TM_API_BIND` | `0.0.0.0` | API bind address |
 | `TM_SCHEDULE_HOUR` | `11` | Hour to trigger daily backups |

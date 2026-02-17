@@ -666,6 +666,12 @@ sudo chown timemachine:timemachine /home/timemachine/.credentials/redis.pw</pre>
                         </tbody>
                     </table>
                     <p class="help-note">All credential files must be owned by <code>timemachine</code> with permissions <code>600</code>. If a credential file is missing or contains a wrong password, TimeMachine will send an email alert to the configured notification address.</p>
+
+                    <h3>Dump Compression</h3>
+                    <p>Database dumps are <strong>gzip-compressed</strong> by default before rsync transfer, significantly reducing bandwidth usage (SQL files typically compress 5-10x). To disable:</p>
+                    <pre class="code-block"># In .env on the backup server:
+TM_DB_COMPRESS="false"</pre>
+                    <p class="help-note">Compression is enabled by default (<code>TM_DB_COMPRESS="true"</code>). It adds a few seconds of CPU time but saves minutes of network transfer for large databases.</p>
                 </div>
             </section>
 

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-02-17
+
+### Added
+- **Database dump compression** — SQL and BSON dumps are now gzip-compressed before rsync transfer (default: on). SQL files typically compress 5-10x, saving significant bandwidth. Configurable per-server via `TM_DB_COMPRESS="true|false"` in `.env`.
+
+### Fixed
+- **Rsync log viewer showed wrong log** — Clicking "Rsync" in the process table always showed the latest rsync log by modification time, which could be from an old backup. Now passes the backup's logfile to the API, which matches the rsync log by timestamp. For db-only backups (no rsync transfer), a clear "no rsync log" message is shown instead of an old log.
+
 ## [3.5.0] - 2026-02-17
 
 ### Added

@@ -358,7 +358,7 @@ async function refreshProcesses() {
                 (canKill ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +
                 (canDelete ? '<button class="btn btn-sm btn-danger" onclick="deleteProcess(\'' + esc(proc.hostname) + '\')">Delete</button> ' : '') +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(proc.hostname) + '\')">Logs</button> ' +
-                '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\')">Rsync</button>' +
+                '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\', \'' + esc(proc.logfile || '') + '\')">Rsync</button>' +
             '</td></tr>';
     }).join('');
 }
@@ -1041,11 +1041,13 @@ function _stopLogStream() {
     }
 }
 
-async function viewRsyncLog(hostname) {
+async function viewRsyncLog(hostname, backupLogfile) {
     _logHost = '__rsync__' + hostname;
     _stopLogStream();
 
-    var data = await apiGet('/api/rsync-log/' + hostname);
+    var endpoint = '/api/rsync-log/' + hostname;
+    if (backupLogfile) endpoint += '?backup=' + encodeURIComponent(backupLogfile);
+    var data = await apiGet(endpoint);
     if (!data || data.error) {
         openModal('Rsync Log: ' + hostname, '<p>No rsync log available for ' + esc(hostname) + '</p>');
         return;

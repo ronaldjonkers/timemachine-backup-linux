@@ -614,7 +614,7 @@ class APIHandler(BaseHTTPRequestHandler):
         elif path == '/api/ssh-key/raw':
             self._api_ssh_key_raw()
         elif path.startswith('/api/rsync-log/'):
-            self._api_rsync_log(path[len('/api/rsync-log/'):])
+            self._api_rsync_log(path[len('/api/rsync-log/'):], query)
         elif path.startswith('/api/logs/'):
             self._api_logs(path[len('/api/logs/'):])
         elif path == '/api/system':
@@ -1723,8 +1723,9 @@ class APIHandler(BaseHTTPRequestHandler):
             'available': available,
         })
 
-    def _api_rsync_log(self, target_host):
-        """Return the latest rsync transfer log for a host."""
+    def _api_rsync_log(self, target_host, query=None):
+        """Return the rsync transfer log for a host.
+        If ?backup=<logfile> is given, find the rsync log matching that backup's timestamp."""
         ld = log_dir()
         logs = sorted(glob.glob(os.path.join(ld, f'rsync-{target_host}-*.log')),
                        key=os.path.getmtime, reverse=True)
@@ -1733,6 +1734,21 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         logfile = logs[0]
+
+        # If a backup logfile is specified, find the matching rsync log
+        # backup-hostname-2026-02-17_163000.log -> extract timestamp -> find rsync-hostname-2026-02-17_163*.log
+        if query and 'backup' in query:
+            backup_name = query['backup'][0]  # e.g. "backup-host-2026-02-17_163000.log"
+            m = re.search(r'(\d{4}-\d{2}-\d{2}_\d{4})', backup_name)
+            if m:
+                ts_prefix = m.group(1)  # e.g. "2026-02-17_1630"
+                matched = [l for l in logs if ts_prefix in os.path.basename(l)]
+                if matched:
+                    logfile = matched[0]
+                else:
+                    # No rsync log for this backup (e.g. db-only)
+                    self._send_json({'error': f'No rsync log for this backup ({backup_name})'}, 404)
+                    return
         content = tail_file(logfile, 1000)
         log_name = os.path.basename(logfile)
 

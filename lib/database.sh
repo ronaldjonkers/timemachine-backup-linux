@@ -70,6 +70,7 @@ tm_trigger_remote_dump() {
         echo "export TM_REDIS_PORT='${TM_REDIS_PORT}'"
         echo "export TM_SQLITE_PATHS='${TM_SQLITE_PATHS}'"
         echo "export TM_DB_DUMP_RETRIES='${TM_DB_DUMP_RETRIES}'"
+        echo "export TM_DB_COMPRESS='${TM_DB_COMPRESS:-true}'"
         sed -n '/^# CONFIGURATION/,$p' "${dump_script}"
     } | eval ssh ${ssh_opts} "${remote_user}@${hostname}" "bash -s" 2>&1)
     ssh_rc=$?

@@ -48,6 +48,7 @@ TM_REDIS_HOST="${TM_REDIS_HOST:-}"
 TM_REDIS_PORT="${TM_REDIS_PORT:-6379}"
 TM_SQLITE_PATHS="${TM_SQLITE_PATHS:-}"
 TM_DB_DUMP_RETRIES="${TM_DB_DUMP_RETRIES:-3}"
+TM_DB_COMPRESS="${TM_DB_COMPRESS:-true}"
 TM_RUN_DIR="${TM_RUN_DIR:-/var/run/timemachine}"
 
 # Minimal logging function (standalone; no lib dependency on client)
@@ -537,6 +538,24 @@ for db_type in "${DB_TYPE_ARRAY[@]}"; do
             ;;
     esac
 done
+
+# Compress dumps if enabled
+if [[ "${TM_DB_COMPRESS}" == "true" ]] && command -v gzip &>/dev/null; then
+    local_count=0
+    local_saved=0
+    while IFS= read -r -d '' sqlfile; do
+        orig_size=$(stat -c%s "${sqlfile}" 2>/dev/null || stat -f%z "${sqlfile}" 2>/dev/null || echo 0)
+        if gzip -f "${sqlfile}" 2>/dev/null; then
+            gz_size=$(stat -c%s "${sqlfile}.gz" 2>/dev/null || stat -f%z "${sqlfile}.gz" 2>/dev/null || echo 0)
+            local_saved=$(( local_saved + orig_size - gz_size ))
+            local_count=$(( local_count + 1 ))
+        fi
+    done < <(find "${SQL_DIR}" -type f \( -name '*.sql' -o -name '*.bson' \) -print0 2>/dev/null)
+    if [[ ${local_count} -gt 0 ]]; then
+        local_saved_mb=$(( local_saved / 1024 / 1024 ))
+        log "INFO" "Compressed ${local_count} dump files (saved ~${local_saved_mb}MB)"
+    fi
+fi
 
 # Summary
 if [[ ${FAILED} -eq 1 ]]; then
