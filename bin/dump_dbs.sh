@@ -370,6 +370,14 @@ dump_mongodb() {
 dump_redis() {
     log "INFO" "=== Redis dumps ==="
 
+    # Require opt-in via credential file — skip if not present
+    local redis_conf="${TM_CREDENTIALS_DIR}/redis.conf"
+    if [[ ! -f "${redis_conf}" && ! -f "${TM_CREDENTIALS_DIR}/redis.pw" ]]; then
+        log "INFO" "  Skipping Redis: no credential file found in ${TM_CREDENTIALS_DIR}/"
+        log "INFO" "  To enable Redis backup, create: touch ${TM_CREDENTIALS_DIR}/redis.conf"
+        return 0
+    fi
+
     if ! command -v redis-cli &>/dev/null; then
         log "ERROR" "redis-cli not found"
         return 1
