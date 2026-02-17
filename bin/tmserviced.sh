@@ -1831,15 +1831,28 @@ _handle_request() {
             ;;
 
         "GET /api/disk")
-            local disk_line
-            disk_line=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | tail -1)
-            if [[ -n "${disk_line}" ]]; then
-                local d_total d_used d_avail d_pct d_mount
-                d_total=$(echo "${disk_line}" | awk '{print $2}')
-                d_used=$(echo "${disk_line}" | awk '{print $3}')
-                d_avail=$(echo "${disk_line}" | awk '{print $4}')
-                d_pct=$(echo "${disk_line}" | awk '{print $5}' | tr -d '%')
-                d_mount=$(echo "${disk_line}" | awk '{print $6}')
+            # Handle wrapped df output: join all non-header lines
+            local disk_data
+            disk_data=$(df -h "${TM_BACKUP_ROOT}" 2>/dev/null | tail -n +2 | tr '\n' ' ')
+            local d_total d_used d_avail d_pct d_mount
+            local num_fields
+            num_fields=$(echo "${disk_data}" | awk '{print NF}')
+            if [[ ${num_fields:-0} -ge 6 ]]; then
+                # Normal: fs size used avail pct mount
+                d_total=$(echo "${disk_data}" | awk '{print $2}')
+                d_used=$(echo "${disk_data}" | awk '{print $3}')
+                d_avail=$(echo "${disk_data}" | awk '{print $4}')
+                d_pct=$(echo "${disk_data}" | awk '{print $5}' | tr -d '%')
+                d_mount=$(echo "${disk_data}" | awk '{print $6}')
+            elif [[ ${num_fields:-0} -eq 5 ]]; then
+                # Wrapped: size used avail pct mount (no fs name on this line)
+                d_total=$(echo "${disk_data}" | awk '{print $1}')
+                d_used=$(echo "${disk_data}" | awk '{print $2}')
+                d_avail=$(echo "${disk_data}" | awk '{print $3}')
+                d_pct=$(echo "${disk_data}" | awk '{print $4}' | tr -d '%')
+                d_mount=$(echo "${disk_data}" | awk '{print $5}')
+            fi
+            if [[ -n "${d_total:-}" ]]; then
                 _http_response "200 OK" "application/json" \
                     "{\"total\":\"${d_total}\",\"used\":\"${d_used}\",\"available\":\"${d_avail}\",\"percent\":${d_pct:-0},\"mount\":\"${d_mount:-${TM_BACKUP_ROOT}}\",\"path\":\"${TM_BACKUP_ROOT}\"}"
             else

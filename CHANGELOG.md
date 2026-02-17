@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.5] - 2026-02-17
+
+### Fixed
+- **Disk usage showing `--` values in dashboard** — `df -h` output wraps to multiple lines when the filesystem name is long (e.g. `/dev/mapper/vg-backup`). The parser assumed all data was on one line, causing `int('/backup'.rstrip('%'))` → `ValueError` → silent fallback to `--`. Fixed both Python and bash API servers to join all non-header lines before parsing, handling both 6-column (normal) and 5-column (wrapped) formats.
+
 ## [3.4.4] - 2026-02-17
 
 ### Improved

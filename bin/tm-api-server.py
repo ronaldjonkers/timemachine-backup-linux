@@ -1979,20 +1979,32 @@ class APIHandler(BaseHTTPRequestHandler):
             result = subprocess.run(['df', '-h', br], capture_output=True, text=True, timeout=10)
             lines = result.stdout.strip().splitlines()
             if len(lines) >= 2:
-                parts = lines[-1].split()
-                # Get mount point (last column of df output)
-                mount = parts[5] if len(parts) > 5 else br
+                # Handle wrapped output: long filesystem names cause df to
+                # split into 3+ lines. Join all non-header lines and re-split.
+                data_line = ' '.join(lines[1:])
+                parts = data_line.split()
+                # Standard df columns: Filesystem Size Used Avail Use% Mounted
+                # With 6 parts: index 0=fs, 1=size, 2=used, 3=avail, 4=pct, 5=mount
+                # With 5 parts (no fs on wrapped line): 0=size, 1=used, 2=avail, 3=pct, 4=mount
+                if len(parts) >= 6:
+                    total, used, avail, pct_s, mount = parts[1], parts[2], parts[3], parts[4], parts[5]
+                elif len(parts) == 5:
+                    total, used, avail, pct_s, mount = parts[0], parts[1], parts[2], parts[3], parts[4]
+                else:
+                    raise ValueError(f'Unexpected df output: {data_line}')
+                pct = int(pct_s.rstrip('%')) if pct_s.rstrip('%').isdigit() else 0
                 self._send_json({
-                    'total': parts[1] if len(parts) > 1 else '--',
-                    'used': parts[2] if len(parts) > 2 else '--',
-                    'available': parts[3] if len(parts) > 3 else '--',
-                    'percent': int(parts[4].rstrip('%')) if len(parts) > 4 else 0,
+                    'total': total,
+                    'used': used,
+                    'available': avail,
+                    'percent': pct,
                     'mount': mount,
                     'path': br,
                 })
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.warning('Disk API error: %s', e)
         self._send_json({'total': '--', 'used': '--', 'available': '--', 'percent': 0, 'mount': br, 'path': br})
 
 
