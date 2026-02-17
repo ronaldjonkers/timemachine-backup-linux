@@ -240,12 +240,15 @@ async function refreshDisk() {
     var mountEl = document.getElementById('disk-mount');
 
     if (data) {
-        usedEl.textContent = data.used || '--';
-        detailEl.textContent = '/ ' + (data.total || '--') + ' (' + (data.available || '--') + ' free)';
         var pct = data.percent || 0;
+        usedEl.textContent = (data.used || '--') + ' / ' + (data.total || '--');
+        detailEl.textContent = '(' + pct + '%)';
         barEl.style.width = pct + '%';
         barEl.className = 'progress-fill' + (pct >= 90 ? ' danger' : pct >= 75 ? ' warn' : '');
-        if (mountEl && data.mount) mountEl.textContent = '(' + data.mount + ')';
+        if (mountEl) {
+            var label = data.path || data.mount || '';
+            if (label) mountEl.textContent = '(' + label + ')';
+        }
     }
 }
 
@@ -1365,21 +1368,12 @@ var _snapData = [];
 var _snapHost = '';
 
 async function openServerDetail(hostname) {
-    // Switch to servers page if not already there (e.g. called from Archive)
-    showPage('servers');
-
-    var panel = document.getElementById('server-detail-panel');
-    var title = document.getElementById('server-detail-title');
-    var body = document.getElementById('server-detail-body');
-
-    title.innerHTML = '&#x1F5A5; ' + esc(hostname);
-    body.innerHTML = '<div style="padding:1.25rem" class="text-muted">Loading snapshots...</div>';
-    panel.style.display = '';
-    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Show loading in modal immediately
+    openModal('Snapshots: ' + hostname, '<div style="padding:1.25rem" class="text-muted">Loading snapshots...</div>');
 
     var data = await apiGet('/api/snapshots/' + hostname);
     if (!data || data.length === 0) {
-        body.innerHTML = '<div style="padding:1.25rem" class="text-muted">No snapshots found for this server</div>';
+        openModal('Snapshots: ' + hostname, '<div style="padding:1.25rem" class="text-muted">No snapshots found for this server</div>');
         return;
     }
 
@@ -1390,11 +1384,10 @@ async function openServerDetail(hostname) {
 }
 
 function closeServerDetail() {
-    document.getElementById('server-detail-panel').style.display = 'none';
+    closeModal();
 }
 
 function _renderServerDetail() {
-    var body = document.getElementById('server-detail-body');
     var hostname = _snapHost;
     var totalPages = Math.ceil(_snapData.length / _snapPerPage);
     var start = _snapPage * _snapPerPage;
@@ -1435,10 +1428,12 @@ function _renderServerDetail() {
         pagination += '</div>';
     }
 
-    body.innerHTML = '<table>' +
+    var html = '<table>' +
         '<thead><tr><th>Date</th><th>Size</th><th>Files</th><th>Database</th><th>Actions</th></tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table>' + pagination;
+
+    openModal('Snapshots: ' + hostname + ' (' + _snapData.length + ' total, newest first)', html);
 }
 
 async function viewSnapshots(hostname, page) {

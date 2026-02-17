@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.2] - 2026-02-17
+
+### Changed
+- **Server detail snapshots open in modal** — Clicking "Details" on a server now opens snapshots in a popup modal instead of scrolling to an inline panel at the bottom. Much better UX with 100+ servers.
+- **Disk usage display improved** — Now shows format `821G / 8T (90%)` with backup path label, instead of the old `821G / 8T (7.2T free)` format.
+
+### Removed
+- Inline `server-detail-panel` section (replaced by modal)
+
 ## [3.6.1] - 2026-02-17
 
 ### Fixed
