@@ -197,10 +197,12 @@ main() {
         fi
     fi
 
-    # --- Rotation ---
-    if [[ ${NO_ROTATE} -eq 0 && ${exit_code} -eq 0 ]]; then
+    # --- Rotation (only after full or files-only backups, not db-only) ---
+    if [[ ${NO_ROTATE} -eq 0 && ${DB_ONLY} -eq 0 && ${exit_code} -eq 0 ]]; then
         tm_log "INFO" "Phase 3: Rotating old backups"
         tm_rotate_backups "${BACKUP_BASE}"
+    elif [[ ${DB_ONLY} -eq 1 ]]; then
+        tm_log "INFO" "Skipping rotation (db-only backup)"
     fi
 
     # --- Summary & Notification ---

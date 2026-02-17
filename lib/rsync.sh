@@ -234,7 +234,7 @@ tm_rotate_backups() {
 
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing old backup: ${dir}"
-            rm -rf "${dir}"
+            sudo rm -rf "${dir}"
             ((count++))
         fi
     done
@@ -249,7 +249,7 @@ tm_rotate_backups() {
 
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing legacy backup: ${dir}"
-            rm -rf "${dir}"
+            sudo rm -rf "${dir}"
             ((count++))
         fi
     done
@@ -261,7 +261,7 @@ tm_rotate_backups() {
         link_target=$(readlink "${legacy_link}" 2>/dev/null)
         if [[ ! -d "${link_target}" ]]; then
             tm_log "INFO" "Removing stale legacy symlink: ${legacy_link}"
-            rm -f "${legacy_link}"
+            sudo rm -f "${legacy_link}"
         fi
     fi
 
