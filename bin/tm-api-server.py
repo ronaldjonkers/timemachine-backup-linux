@@ -845,16 +845,23 @@ class APIHandler(BaseHTTPRequestHandler):
         # Cutoff: 3 months ago
         cutoff = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
         if os.path.isdir(snap_dir):
-            for entry in sorted(os.listdir(snap_dir)):
+            for entry in os.listdir(snap_dir):
                 full = os.path.join(snap_dir, entry)
                 if not os.path.isdir(full):
                     continue
                 # Match current (YYYY-MM-DD, YYYY-MM-DD_HHMMSS) and legacy (daily.YYYY-MM-DD)
+                # Normalize to a sort key: YYYY-MM-DD_HHMMSS (pad legacy with _000000)
+                sort_key = None
                 date_str = None
-                if re.match(r'^\d{4}-\d{2}-\d{2}(_\d{6})?$', entry):
+                if re.match(r'^\d{4}-\d{2}-\d{2}_\d{6}$', entry):
                     date_str = entry[:10]
+                    sort_key = entry  # already YYYY-MM-DD_HHMMSS
+                elif re.match(r'^\d{4}-\d{2}-\d{2}$', entry):
+                    date_str = entry
+                    sort_key = entry + '_000000'
                 elif re.match(r'^daily\.\d{4}-\d{2}-\d{2}$', entry):
                     date_str = entry[6:]  # strip "daily." prefix
+                    sort_key = date_str + '_000000'
                 else:
                     continue
                 if date_str < cutoff:
@@ -881,7 +888,13 @@ class APIHandler(BaseHTTPRequestHandler):
                     'has_files': has_files,
                     'has_db': has_db,
                     'db_versions': db_versions,
+                    '_sort': sort_key,
                 })
+        # Sort newest first (descending by normalized date)
+        snaps.sort(key=lambda s: s['_sort'], reverse=True)
+        # Remove internal sort key before sending
+        for s in snaps:
+            del s['_sort']
         self._send_json(snaps)
 
     def _api_db_versions(self, path_info):
@@ -1047,6 +1060,21 @@ class APIHandler(BaseHTTPRequestHandler):
             opts += ' --files-only'
         if 'db-only' in query or 'db-only' in self.path:
             opts += ' --db-only'
+
+        # Always respect server's configured options from servers.conf
+        # (e.g. --files-only, --db-only, --no-rotate, --notify)
+        servers = read_servers_conf()
+        for srv in servers:
+            if srv['hostname'] == target_host:
+                if srv['files_only'] and '--files-only' not in opts:
+                    opts += ' --files-only'
+                if srv['db_only'] and '--db-only' not in opts:
+                    opts += ' --db-only'
+                if srv['no_rotate']:
+                    opts += ' --no-rotate'
+                if srv.get('notify_email'):
+                    opts += f" --notify {srv['notify_email']}"
+                break
 
         ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         logfile = os.path.join(log_dir(), f'backup-{target_host}-{ts}.log')

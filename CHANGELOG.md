@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.5] - 2026-02-17
+
+### Fixed
+- **Files-only servers still ran database dump** — API backup trigger now reads `--files-only` / `--db-only` / `--no-rotate` / `--notify` from `servers.conf` and merges with request options. Previously, clicking "Backup" from the dashboard could start a full backup even for files-only servers.
+- **Snapshot sorting broken** — Legacy `daily.*` snapshot directories sorted after modern `YYYY-MM-DD_HHMMSS` entries due to ASCII ordering, causing today's backups to appear on page 2. API now normalizes dates and sorts newest-first server-side.
+
+### Changed
+- **"Details" button renamed to "Snapshots"** — Clearer label in the servers table.
+
 ## [3.6.4] - 2026-02-17
 
 ### Fixed

@@ -689,6 +689,17 @@ _handle_request() {
                 [[ "${query}" == *"files-only"* ]] && opts+=" --files-only"
                 [[ "${query}" == *"db-only"* ]] && opts+=" --db-only"
             fi
+            # Merge with server's configured options from servers.conf
+            local servers_conf="${TM_PROJECT_ROOT}/config/servers.conf"
+            if [[ -f "${servers_conf}" ]]; then
+                local srv_line
+                srv_line=$(grep -E "^\s*${target_host}(\s|$)" "${servers_conf}" 2>/dev/null | head -1)
+                if [[ -n "${srv_line}" ]]; then
+                    echo "${srv_line}" | grep -q '\-\-files-only' && [[ "${opts}" != *"--files-only"* ]] && opts+=" --files-only"
+                    echo "${srv_line}" | grep -q '\-\-db-only' && [[ "${opts}" != *"--db-only"* ]] && opts+=" --db-only"
+                    echo "${srv_line}" | grep -q '\-\-no-rotate' && opts+=" --no-rotate"
+                fi
+            fi
             local pid
             pid=$(run_backup "${target_host}" ${opts})
             _http_response "200 OK" "application/json" \

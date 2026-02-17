@@ -631,7 +631,7 @@ function _renderServersTable() {
             '<td>' + esc(totalSize) + '</td>' +
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + statusLabel + '</span></td>' +
             '<td>' +
-                '<button class="btn btn-sm btn-primary" onclick="openServerDetail(\'' + esc(srv.hostname) + '\')">Details</button> ' +
+                '<button class="btn btn-sm btn-primary" onclick="openServerDetail(\'' + esc(srv.hostname) + '\')">Snapshots</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(srv.hostname) + '\')">Backup</button> ' +
                 '<button class="btn btn-sm" onclick="editServer(\'' + esc(srv.hostname) + '\')">Edit</button> ' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(srv.hostname) + '\')">Logs</button> ' +
@@ -1377,7 +1377,7 @@ async function openServerDetail(hostname) {
         return;
     }
 
-    _snapData = data.reverse();
+    _snapData = data;
     _snapHost = hostname;
     _snapPage = 0;
     _renderServerDetail();
@@ -1443,8 +1443,7 @@ async function viewSnapshots(hostname, page) {
             toast('No snapshots found for ' + hostname, 'info');
             return;
         }
-        // Sort newest first
-        _snapData = data.reverse();
+        _snapData = data;
         _snapHost = hostname;
         _snapPage = 0;
     }
