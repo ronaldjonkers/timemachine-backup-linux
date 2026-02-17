@@ -411,28 +411,12 @@ _check_db_intervals() {
             if [[ ${elapsed} -ge ${interval_secs} ]]; then
                 tm_log "INFO" "Scheduler: DB interval backup for ${srv_host} (every ${interval_hours}h)"
                 _wait_for_slot
-                local db_start
-                db_start=$(date +%s)
                 local db_pid
                 db_pid=$(run_backup "${srv_host}" --db-only)
                 echo "${now}" > "${last_db_file}"
-
-                # Wait for DB backup to finish and report
-                if [[ -n "${db_pid}" ]]; then
-                    wait "${db_pid}" 2>/dev/null || true
-                    local db_rc=$?
-                    local db_end
-                    db_end=$(date +%s)
-                    local db_dur
-                    db_dur=$(_tm_format_duration $(( db_end - db_start )))
-                    if [[ ${db_rc} -eq 0 ]]; then
-                        tm_notify "DB Interval OK: ${srv_host}" \
-                            "Scheduled DB backup for ${srv_host} completed successfully (${db_dur})" "info"
-                    else
-                        tm_notify "DB Interval FAILED: ${srv_host}" \
-                            "Scheduled DB backup for ${srv_host} failed (exit code ${db_rc}, ${db_dur})" "error"
-                    fi
-                fi
+                # timemachine.sh sends its own notification with full details,
+                # so we only log here — no duplicate tm_notify.
+                tm_log "INFO" "Scheduler: DB interval backup dispatched for ${srv_host} (PID ${db_pid})"
             fi
         done
 }

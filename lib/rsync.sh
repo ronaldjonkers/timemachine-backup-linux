@@ -139,8 +139,10 @@ tm_rsync_sql() {
     # Reuse snapshot ID from tm_rsync_backup if available.
     # For DB-only runs (no file backup), find today's latest snapshot to avoid
     # creating extra directories that inflate the version count during rotation.
+    local is_db_only=0
     local snap_id="${_TM_SNAP_ID:-}"
     if [[ -z "${snap_id}" ]]; then
+        is_db_only=1
         local today_prefix
         today_prefix=$(date +'%Y-%m-%d')
         local latest_today
@@ -153,6 +155,8 @@ tm_rsync_sql() {
             tm_log "INFO" "DB-only: no existing snapshot today, creating ${snap_id}"
         fi
     fi
+    # Export snap_id so timemachine.sh summary can find the snapshot dir
+    _TM_SNAP_ID="${snap_id}"
     local snap_dir="${backup_base}/${snap_id}"
     local base_sql_dir="${snap_dir}/sql"
 
@@ -160,7 +164,7 @@ tm_rsync_sql() {
     # so multiple DB backups per day are individually browsable/downloadable.
     # Full/daily backups go into sql/ directly (the "base" version).
     local target_dir="${base_sql_dir}"
-    if [[ -z "${_TM_SNAP_ID:-}" && -d "${base_sql_dir}" ]]; then
+    if [[ ${is_db_only} -eq 1 && -d "${base_sql_dir}" ]]; then
         # This is a DB-only interval run and sql/ already exists from an
         # earlier backup today — store in a timestamped subdir.
         local ts

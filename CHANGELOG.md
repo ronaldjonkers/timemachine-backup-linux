@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.2] - 2026-02-17
+
+### Fixed
+- **DB interval backups no longer send duplicate emails** — The scheduler previously sent its own "DB Interval OK/FAILED" notification in addition to the standard "Backup OK/FAILED" email from `timemachine.sh`. Now only the detailed email from `timemachine.sh` is sent (includes status, duration, mode, snap size, disk free).
+- **DB-only runs now report correct snap size** — `tm_rsync_sql` now exports `_TM_SNAP_ID` back to the caller so `timemachine.sh` can find the correct snapshot directory for size calculation. Previously showed "unknown" for DB-only interval runs.
+- **Fixed interval subdir detection regression** — Replaced `_TM_SNAP_ID` empty-check with `is_db_only` flag to correctly detect DB-only interval runs after the snap ID export fix.
+
 ## [3.3.1] - 2026-02-17
 
 ### Fixed
