@@ -173,11 +173,15 @@ dump_mysql() {
         fi
     fi
 
-    # Read password from file
+    # Read password from file (try configured path, then fallback to /root/mysql.pw)
     local dbpass
     dbpass=$(sudo cat "${TM_MYSQL_PW_FILE}" 2>/dev/null) || true
     if [[ -z "${dbpass}" ]]; then
-        log "ERROR" "No MySQL password found at ${TM_MYSQL_PW_FILE}"
+        log "INFO" "No password at ${TM_MYSQL_PW_FILE}, trying /root/mysql.pw"
+        dbpass=$(sudo cat /root/mysql.pw 2>/dev/null) || true
+    fi
+    if [[ -z "${dbpass}" ]]; then
+        log "ERROR" "No MySQL password found at ${TM_MYSQL_PW_FILE} or /root/mysql.pw"
         log "INFO" "Create the file: echo 'yourpassword' | sudo tee ${TM_MYSQL_PW_FILE} && sudo chmod 600 ${TM_MYSQL_PW_FILE}"
         return 1
     fi
