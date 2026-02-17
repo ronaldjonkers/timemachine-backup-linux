@@ -396,8 +396,14 @@ _check_db_intervals() {
             local now
             now=$(date +%s)
 
-            local last_db=0
-            [[ -f "${last_db_file}" ]] && last_db=$(cat "${last_db_file}")
+            # If no timestamp file exists (interval just configured),
+            # initialize to now so the first run waits the full interval.
+            if [[ ! -f "${last_db_file}" ]]; then
+                echo "${now}" > "${last_db_file}"
+                continue
+            fi
+            local last_db
+            last_db=$(cat "${last_db_file}")
 
             local interval_secs=$(( interval_hours * 3600 ))
             local elapsed=$(( now - last_db ))
@@ -461,8 +467,14 @@ _check_backup_intervals() {
             local now
             now=$(date +%s)
 
-            local last_bk=0
-            [[ -f "${last_bk_file}" ]] && last_bk=$(cat "${last_bk_file}")
+            # If no timestamp file exists (interval just configured),
+            # initialize to now so the first run waits the full interval.
+            if [[ ! -f "${last_bk_file}" ]]; then
+                echo "${now}" > "${last_bk_file}"
+                continue
+            fi
+            local last_bk
+            last_bk=$(cat "${last_bk_file}")
 
             local interval_secs=$(( interval_hours * 3600 ))
             local elapsed=$(( now - last_bk ))
@@ -1285,6 +1297,19 @@ _handle_request() {
                 sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]*$/c\\${new_line}" "${servers_conf}" 2>/dev/null
                 sed -i.bak "/^[[:space:]]*${target_host}[[:space:]]/c\\${new_line}" "${servers_conf}" 2>/dev/null
                 rm -f "${servers_conf}.bak"
+
+                # Reset interval timestamps to "now" so the scheduler waits
+                # the full interval before triggering (prevents immediate backup)
+                local _now
+                _now=$(date +%s)
+                if [[ -n "${new_db_int}" && "${new_db_int}" != "0" ]]; then
+                    echo "${_now}" > "${STATE_DIR}/last-db-${target_host}"
+                fi
+                local new_bk_int
+                new_bk_int=$(echo "${body}" | grep -o '"backup_interval":[0-9]*' | cut -d: -f2)
+                if [[ -n "${new_bk_int}" && "${new_bk_int}" != "0" ]]; then
+                    echo "${_now}" > "${STATE_DIR}/last-backup-${target_host}"
+                fi
 
                 tm_log "INFO" "API: updated server ${target_host}: ${opts}"
                 _http_response "200 OK" "application/json" \

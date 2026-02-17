@@ -1456,6 +1456,18 @@ class APIHandler(BaseHTTPRequestHandler):
         with open(conf, 'w') as f:
             f.writelines(new_lines)
 
+        # Reset interval timestamps to "now" so the scheduler waits the
+        # full interval before triggering. Without this, changing an interval
+        # setting would cause an immediate backup.
+        sd = state_dir()
+        now = str(int(datetime.now().timestamp()))
+        if db_int and int(db_int) > 0:
+            with open(os.path.join(sd, f'last-db-{target_host}'), 'w') as f:
+                f.write(now)
+        if bk_int and int(bk_int) > 0:
+            with open(os.path.join(sd, f'last-backup-{target_host}'), 'w') as f:
+                f.write(now)
+
         self._send_json({'status': 'updated', 'hostname': target_host, 'options': opts})
 
     def _api_servers_delete(self, target_host):
