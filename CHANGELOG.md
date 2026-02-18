@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.11] - 2026-02-18
+
+### Fixed
+- **Dashboard "Start Backups" button** — No longer hidden by interval/db-only backups; only counts the daily full backup run as "done" for the day (uses `last-daily-run` state file)
+- **Daily scheduler blocking** — Interval, manual, and API-triggered backups no longer prevent the daily full backup from starting; only previous daily backups block the next day's run
+- **State file trigger tracking** — Added 7th field (`trigger`) to process state files (`daily`, `interval`, `interval-db`, `manual`, `api`) for accurate source identification
+
 ## [3.6.10] - 2026-02-17
 
 ### Improved

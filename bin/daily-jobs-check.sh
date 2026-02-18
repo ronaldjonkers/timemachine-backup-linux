@@ -41,20 +41,30 @@ for pidfile in "${TM_RUN_DIR}"/*.pid; do
     pid=$(cat "${pidfile}")
 
     if kill -0 "${pid}" 2>/dev/null; then
-        # Check the backup mode from the state file. DB-only backups are
-        # short-lived and should NOT block the daily run — they finish
-        # quickly and do not compete for rsync bandwidth.
+        # Read mode (field 3) and trigger (field 7) from the state file.
         local_mode=""
+        local_trigger=""
         sf="${STATE_DIR}/proc-${lock_name}.state"
         if [[ -f "${sf}" ]]; then
             local_mode=$(cut -d'|' -f3 "${sf}" 2>/dev/null)
+            local_trigger=$(cut -d'|' -f7 "${sf}" 2>/dev/null)
         fi
+
+        # DB-only backups are short-lived and should NOT block the daily run
         if [[ "${local_mode}" == "db-only" ]]; then
             tm_log "INFO" "DB-only backup running for ${lock_name} (PID ${pid}) — not blocking daily run"
             continue
         fi
 
-        tm_log "WARN" "Previous backup still running: ${lock_name} (PID ${pid})"
+        # Interval and manual backups should NOT block the daily run.
+        # Only previous daily backups still running indicate the server is lagging.
+        # Per-server locking in timemachine.sh prevents duplicate runs for the same host.
+        if [[ "${local_trigger}" == "interval" || "${local_trigger}" == "interval-db" || "${local_trigger}" == "manual" || "${local_trigger}" == "api" ]]; then
+            tm_log "INFO" "${local_trigger} backup running for ${lock_name} (PID ${pid}) — not blocking daily run"
+            continue
+        fi
+
+        tm_log "WARN" "Previous daily backup still running: ${lock_name} (PID ${pid}, trigger=${local_trigger:-unknown})"
         STILL_RUNNING=1
     else
         tm_log "DEBUG" "Removing stale PID file: ${pidfile}"

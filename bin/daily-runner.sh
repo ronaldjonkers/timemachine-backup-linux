@@ -107,7 +107,7 @@ _register_proc() {
     local hostname="$1" pid="$2" mode="${3:-full}" logfile="${4:-}"
     local ts
     ts=$(date +'%Y-%m-%d %H:%M:%S')
-    echo "${pid}|${hostname}|${mode}|${ts}|running|${logfile}" > "${STATE_DIR}/proc-${hostname}.state"
+    echo "${pid}|${hostname}|${mode}|${ts}|running|${logfile}|daily" > "${STATE_DIR}/proc-${hostname}.state"
 }
 
 # Update process state in the state directory
@@ -117,13 +117,14 @@ _update_proc_state() {
     [[ -f "${state_file}" ]] || return 0
     local content
     content=$(cat "${state_file}")
-    local f1 f2 f3 f4 f6
+    local f1 f2 f3 f4 f6 f7
     f1=$(echo "${content}" | cut -d'|' -f1)
     f2=$(echo "${content}" | cut -d'|' -f2)
     f3=$(echo "${content}" | cut -d'|' -f3)
     f4=$(echo "${content}" | cut -d'|' -f4)
     f6=$(echo "${content}" | cut -d'|' -f6)
-    echo "${f1}|${f2}|${f3}|${f4}|${status}|${f6}" > "${state_file}"
+    f7=$(echo "${content}" | cut -d'|' -f7)
+    echo "${f1}|${f2}|${f3}|${f4}|${status}|${f6}|${f7}" > "${state_file}"
 }
 
 # Collect finished jobs and add to report

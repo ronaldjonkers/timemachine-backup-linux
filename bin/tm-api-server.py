@@ -209,6 +209,7 @@ def get_processes_json():
             if len(parts) < 6:
                 continue
             pid, hostname, mode, started, status, logfile = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
+            trigger = parts[6] if len(parts) > 6 else ''
             # Check if running process is still alive (skip PID 0 placeholder)
             if status == 'running' and pid != '0' and not is_process_alive(pid):
                 status = 'completed'
@@ -239,6 +240,7 @@ def get_processes_json():
                 'started': started,
                 'status': status,
                 'logfile': os.path.basename(logfile) if logfile else '',
+                'trigger': trigger,
             })
         except Exception:
             continue
@@ -752,18 +754,32 @@ class APIHandler(BaseHTTPRequestHandler):
     def _api_status(self):
         procs = get_processes_json()
         uptime_secs = int(time.time()) - SERVICE_START_TIME
-        # Check if any backups ran today (look for today's log files)
+        # Check if the daily backup run has been triggered today.
+        # Uses the scheduler's last-daily-run state file (written before
+        # daily-runner.sh starts). Interval and manual backups do NOT
+        # count — only the scheduled daily run matters for this flag.
         today = datetime.now().strftime('%Y-%m-%d')
-        ld = log_dir()
-        today_logs = glob.glob(os.path.join(ld, f'backup-*-{today}_*.log'))
-        has_running = any(p['status'] == 'running' for p in procs)
+        sd = state_dir()
+        daily_run_file = os.path.join(sd, 'last-daily-run')
+        daily_ran_today = False
+        if os.path.isfile(daily_run_file):
+            try:
+                last_run = open(daily_run_file).read().strip()
+                daily_ran_today = (last_run == today)
+            except Exception:
+                pass
+        # Also check if any daily-triggered backup is currently running
+        has_daily_running = any(
+            p['status'] == 'running' and p.get('trigger') == 'daily'
+            for p in procs
+        )
         self._send_json({
             'status': 'running',
             'uptime': uptime_secs,
             'hostname': get_hostname(),
             'version': get_version(),
             'processes': procs,
-            'backups_today': len(today_logs) > 0 or has_running,
+            'backups_today': daily_ran_today or has_daily_running,
         })
 
     def _api_processes(self):
@@ -1152,7 +1168,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     # Update state file with the real subprocess PID
                     try:
                         with open(sf_path, 'w') as sf:
-                            sf.write(f'{proc.pid}|{target_host}|{mode}|{started}|running|{logfile}')
+                            sf.write(f'{proc.pid}|{target_host}|{mode}|{started}|running|{logfile}|api')
                     except Exception:
                         pass
 
@@ -1165,7 +1181,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     try:
                         status = 'completed' if exit_code == 0 else 'failed'
                         with open(sf_path, 'w') as sf:
-                            sf.write(f'{proc.pid}|{target_host}|{mode}|{started}|{status}|{logfile}')
+                            sf.write(f'{proc.pid}|{target_host}|{mode}|{started}|{status}|{logfile}|api')
                     except Exception:
                         pass
             except Exception:
@@ -1173,7 +1189,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # Write initial state file (will be updated with real PID once subprocess starts)
         with open(sf_path, 'w') as f:
-            f.write(f'0|{target_host}|{mode}|{started}|running|{logfile}')
+            f.write(f'0|{target_host}|{mode}|{started}|running|{logfile}|api')
 
         # Start in background thread
         t = threading.Thread(target=run_backup, daemon=True)
@@ -1191,6 +1207,15 @@ class APIHandler(BaseHTTPRequestHandler):
         max_jobs = int(env_val('TM_PARALLEL_JOBS', '5'))
         ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         logfile = os.path.join(log_dir(), f'daily-manual-{ts}.log')
+
+        # Mark the daily run as triggered so the dashboard shows it
+        sd = state_dir()
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            with open(os.path.join(sd, 'last-daily-run'), 'w') as f:
+                f.write(today)
+        except Exception:
+            pass
 
         def _run():
             try:

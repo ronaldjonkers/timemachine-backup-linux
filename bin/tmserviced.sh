@@ -144,12 +144,12 @@ _reconcile_state_files() {
 }
 
 # Register a running backup process
-# State format: pid|hostname|mode|started|status|logfile
+# State format: pid|hostname|mode|started|status|logfile|trigger
 _register_process() {
-    local hostname="$1" pid="$2" mode="${3:-full}" logfile="${4:-}"
+    local hostname="$1" pid="$2" mode="${3:-full}" logfile="${4:-}" trigger="${5:-manual}"
     local ts
     ts=$(date +'%Y-%m-%d %H:%M:%S')
-    echo "${pid}|${hostname}|${mode}|${ts}|running|${logfile}" > "${STATE_DIR}/proc-${hostname}.state"
+    echo "${pid}|${hostname}|${mode}|${ts}|running|${logfile}|${trigger}" > "${STATE_DIR}/proc-${hostname}.state"
 }
 
 # Update process state
@@ -159,14 +159,15 @@ _update_process() {
     if [[ -f "${state_file}" ]]; then
         local content
         content=$(cat "${state_file}")
-        # Replace status field (5th field), keep logfile (6th)
-        local f1 f2 f3 f4 f6
+        # Replace status field (5th field), keep logfile (6th) and trigger (7th)
+        local f1 f2 f3 f4 f6 f7
         f1=$(echo "${content}" | cut -d'|' -f1)
         f2=$(echo "${content}" | cut -d'|' -f2)
         f3=$(echo "${content}" | cut -d'|' -f3)
         f4=$(echo "${content}" | cut -d'|' -f4)
         f6=$(echo "${content}" | cut -d'|' -f6)
-        echo "${f1}|${f2}|${f3}|${f4}|${status}|${f6}" > "${state_file}"
+        f7=$(echo "${content}" | cut -d'|' -f7)
+        echo "${f1}|${f2}|${f3}|${f4}|${status}|${f6}|${f7}" > "${state_file}"
     fi
 }
 
@@ -209,13 +210,14 @@ _get_processes_json() {
         [[ -f "${state_file}" ]] || continue
         local content
         content=$(cat "${state_file}")
-        local pid hostname mode started status logfile
+        local pid hostname mode started status logfile trigger
         pid=$(echo "${content}" | cut -d'|' -f1)
         hostname=$(echo "${content}" | cut -d'|' -f2)
         mode=$(echo "${content}" | cut -d'|' -f3)
         started=$(echo "${content}" | cut -d'|' -f4)
         status=$(echo "${content}" | cut -d'|' -f5)
         logfile=$(echo "${content}" | cut -d'|' -f6)
+        trigger=$(echo "${content}" | cut -d'|' -f7)
 
         # Check if process is actually still running
         if [[ "${status}" == "running" ]] && ! kill -0 "${pid}" 2>/dev/null; then
@@ -224,8 +226,8 @@ _get_processes_json() {
         fi
 
         [[ ${first} -eq 1 ]] && first=0 || echo ','
-        printf '{"pid":%s,"hostname":"%s","mode":"%s","started":"%s","status":"%s","logfile":"%s"}' \
-            "${pid}" "${hostname}" "${mode}" "${started}" "${status}" "$(basename "${logfile:-}" 2>/dev/null)"
+        printf '{"pid":%s,"hostname":"%s","mode":"%s","started":"%s","status":"%s","logfile":"%s","trigger":"%s"}' \
+            "${pid}" "${hostname}" "${mode}" "${started}" "${status}" "$(basename "${logfile:-}" 2>/dev/null)" "${trigger:-}"
     done
     echo ']'
 }
@@ -274,7 +276,13 @@ WRAPPER_EOF
     if [[ "${opts}" == *"--files-only"* ]]; then mode="files-only"; fi
     if [[ "${opts}" == *"--db-only"* ]]; then mode="db-only"; fi
 
-    _register_process "${hostname}" "${pid}" "${mode}" "${logfile}"
+    # Determine trigger source from opts (callers pass --trigger <type>)
+    local trigger="manual"
+    if [[ "${opts}" == *"--trigger "* ]]; then
+        trigger=$(echo "${opts}" | grep -o '\-\-trigger [^ ]*' | awk '{print $2}')
+    fi
+
+    _register_process "${hostname}" "${pid}" "${mode}" "${logfile}" "${trigger}"
     tm_log "INFO" "Service: backup started for ${hostname} (PID ${pid}, log: ${logfile})"
     echo "${pid}"
 }
@@ -412,7 +420,7 @@ _check_db_intervals() {
                 tm_log "INFO" "Scheduler: DB interval backup for ${srv_host} (every ${interval_hours}h)"
                 _wait_for_slot
                 local db_pid
-                db_pid=$(run_backup "${srv_host}" --db-only)
+                db_pid=$(run_backup "${srv_host}" --db-only --trigger interval-db)
                 echo "${now}" > "${last_db_file}"
                 # timemachine.sh sends its own notification with full details,
                 # so we only log here — no duplicate tm_notify.
@@ -467,7 +475,7 @@ _check_backup_intervals() {
                 tm_log "INFO" "Scheduler: backup interval for ${srv_host} (every ${interval_hours}h)"
                 _wait_for_slot
                 local bk_pid
-                bk_pid=$(run_backup "${srv_host}" --trigger scheduler)
+                bk_pid=$(run_backup "${srv_host}" --trigger interval)
                 echo "${now}" > "${last_bk_file}"
             fi
         done
