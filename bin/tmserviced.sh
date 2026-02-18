@@ -672,12 +672,22 @@ _handle_request() {
             procs=$(_get_processes_json)
             local uptime_secs
             uptime_secs=$(( $(date +%s) - SERVICE_START_TIME ))
-            local resp
             local ver
             ver=$(cat "${TM_PROJECT_ROOT}/VERSION" 2>/dev/null || echo "unknown")
             ver=$(echo "${ver}" | tr -d '[:space:]')
-            resp=$(printf '{"status":"running","uptime":%d,"hostname":"%s","version":"%s","processes":%s}' \
-                "${uptime_secs}" "$(hostname)" "${ver}" "${procs}")
+            # Check if the daily backup run has been triggered today
+            local _daily_today="false"
+            local _last_daily_run_file="${STATE_DIR}/last-daily-run"
+            if [[ -f "${_last_daily_run_file}" ]]; then
+                local _last_daily_val
+                _last_daily_val=$(cat "${_last_daily_run_file}" 2>/dev/null)
+                if [[ "${_last_daily_val}" == "$(tm_date_today)" ]]; then
+                    _daily_today="true"
+                fi
+            fi
+            local resp
+            resp=$(printf '{"status":"running","uptime":%d,"hostname":"%s","version":"%s","processes":%s,"backups_today":%s}' \
+                "${uptime_secs}" "$(hostname)" "${ver}" "${procs}" "${_daily_today}")
             _http_response "200 OK" "application/json" "${resp}"
             ;;
 

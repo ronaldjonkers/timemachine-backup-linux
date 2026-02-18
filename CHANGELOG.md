@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.12] - 2026-02-18
+
+### Fixed
+- **Bash API missing `backups_today`** — Added `backups_today` field to bash API `/api/status` response using `last-daily-run` state file, matching the Python API
+
 ## [3.6.11] - 2026-02-18
 
 ### Fixed
