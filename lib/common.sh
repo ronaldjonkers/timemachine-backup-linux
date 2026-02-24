@@ -39,6 +39,8 @@ tm_load_config() {
     : "${TM_SSH_TIMEOUT:=10}"
     : "${TM_RSYNC_EXTRA_OPTS:=}"
     : "${TM_RSYNC_BW_LIMIT:=0}"
+    : "${TM_RSYNC_RETRIES:=5}"
+    : "${TM_RSYNC_RETRY_DELAY:=30}"
     : "${TM_BACKUP_SOURCE:=/}"
     : "${TM_INSTALL_DIR:=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
     : "${TM_DB_TYPES:=auto}"

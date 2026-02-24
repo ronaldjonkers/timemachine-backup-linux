@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.1] - 2026-02-24
+
+### Added
+- **Rsync retry logic** — File and DB syncs now retry up to 5 times (configurable via `TM_RSYNC_RETRIES`) with a 30s delay between attempts (`TM_RSYNC_RETRY_DELAY`) before declaring failure
+- If rsync fails on attempt 1 but succeeds on a later attempt, the backup is reported as **success**
+- Applies to both `tm_rsync_backup()` (file sync) and `tm_rsync_sql()` (database sync)
+- Fixes broken pipe / exit code 137 (OOM/killed) errors causing unnecessary failures
+
 ## [3.7.0] - 2026-02-24
 
 ### Added

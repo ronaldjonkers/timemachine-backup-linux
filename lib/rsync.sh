@@ -107,17 +107,36 @@ tm_rsync_backup() {
     rsync_cmd+=" --log-file='${_TM_RSYNC_LOGFILE}'"
 
     local exit_code=0
-    eval ${rsync_cmd} ${exclude_args} \
-        "${remote_user}@${hostname}:${source_path}" \
-        "${target_dir}/files/" 2>&1 || exit_code=$?
+    local max_retries="${TM_RSYNC_RETRIES:-5}"
+    local retry_delay="${TM_RSYNC_RETRY_DELAY:-30}"
+    local attempt=1
 
-    # rsync exit code 24 = "vanished source files" (non-fatal)
-    if [[ ${exit_code} -eq 24 ]]; then
-        tm_log "WARN" "Some files vanished during transfer from ${hostname}"
+    while [[ ${attempt} -le ${max_retries} ]]; do
         exit_code=0
-    elif [[ ${exit_code} -ne 0 ]]; then
-        tm_log "ERROR" "rsync failed for ${hostname} (exit code ${exit_code})"
-    fi
+        eval ${rsync_cmd} ${exclude_args} \
+            "${remote_user}@${hostname}:${source_path}" \
+            "${target_dir}/files/" 2>&1 || exit_code=$?
+
+        # rsync exit code 24 = "vanished source files" (non-fatal)
+        if [[ ${exit_code} -eq 24 ]]; then
+            tm_log "WARN" "Some files vanished during transfer from ${hostname}"
+            exit_code=0
+        fi
+
+        if [[ ${exit_code} -eq 0 ]]; then
+            [[ ${attempt} -gt 1 ]] && tm_log "INFO" "rsync succeeded for ${hostname} on attempt ${attempt}/${max_retries}"
+            break
+        fi
+
+        if [[ ${attempt} -lt ${max_retries} ]]; then
+            tm_log "WARN" "rsync failed for ${hostname} (exit code ${exit_code}), attempt ${attempt}/${max_retries} — retrying in ${retry_delay}s"
+            sleep "${retry_delay}"
+        else
+            tm_log "ERROR" "rsync failed for ${hostname} (exit code ${exit_code}) after ${max_retries} attempts"
+        fi
+
+        attempt=$((attempt + 1))
+    done
 
     # Update the 'latest' symlink
     if [[ ${exit_code} -eq 0 ]]; then
@@ -181,12 +200,37 @@ tm_rsync_sql() {
     tm_log "INFO" "Rsync SQL: ${remote_user}@${hostname}:${remote_sql_path} -> ${target_dir}/"
 
     local rsync_rc=0
-    eval ${rsync_cmd} \
-        "${remote_user}@${hostname}:${remote_sql_path}" \
-        "${target_dir}/" 2>&1 || rsync_rc=$?
+    local max_retries="${TM_RSYNC_RETRIES:-5}"
+    local retry_delay="${TM_RSYNC_RETRY_DELAY:-30}"
+    local attempt=1
+
+    while [[ ${attempt} -le ${max_retries} ]]; do
+        rsync_rc=0
+        eval ${rsync_cmd} \
+            "${remote_user}@${hostname}:${remote_sql_path}" \
+            "${target_dir}/" 2>&1 || rsync_rc=$?
+
+        if [[ ${rsync_rc} -eq 24 ]]; then
+            tm_log "WARN" "Some files vanished during SQL sync from ${hostname}"
+            rsync_rc=0
+        fi
+
+        if [[ ${rsync_rc} -eq 0 ]]; then
+            [[ ${attempt} -gt 1 ]] && tm_log "INFO" "rsync SQL sync succeeded for ${hostname} on attempt ${attempt}/${max_retries}"
+            break
+        fi
+
+        if [[ ${attempt} -lt ${max_retries} ]]; then
+            tm_log "WARN" "rsync SQL sync failed for ${hostname} (exit code ${rsync_rc}), attempt ${attempt}/${max_retries} — retrying in ${retry_delay}s"
+            sleep "${retry_delay}"
+        else
+            tm_log "ERROR" "rsync database sync failed for ${hostname} (exit code ${rsync_rc}) after ${max_retries} attempts"
+        fi
+
+        attempt=$((attempt + 1))
+    done
 
     if [[ ${rsync_rc} -ne 0 ]]; then
-        tm_log "ERROR" "rsync database sync failed for ${hostname} (exit code ${rsync_rc})"
         return ${rsync_rc}
     fi
 
