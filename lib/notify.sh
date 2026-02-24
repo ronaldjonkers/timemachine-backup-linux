@@ -19,6 +19,7 @@
 #   Per-event enable/disable (all enabled by default when alerts are on):
 #   TM_NOTIFY_BACKUP_OK="true"
 #   TM_NOTIFY_BACKUP_FAIL="true"
+#   TM_NOTIFY_DAILY_REPORT="true"
 #   TM_NOTIFY_RESTORE_OK="true"
 #   TM_NOTIFY_RESTORE_FAIL="true"
 #
@@ -28,6 +29,7 @@
 #
 #   Per-server email (in servers.conf):
 #   web1.example.com --notify admin@example.com
+#   web1.example.com --notify admin@example.com --notify-ok
 # ============================================================
 
 # Send notification through all configured channels
@@ -52,8 +54,15 @@ tm_notify() {
         event_upper=$(echo "${event_type}" | tr '[:lower:]' '[:upper:]')
         local enable_var="TM_NOTIFY_${event_upper}"
         if [[ "${!enable_var:-true}" == "false" ]]; then
-            tm_log "DEBUG" "Notification disabled for event ${event_type}; skipping: ${subject}"
-            return 0
+            # Per-server override: if the server has --notify-ok in servers.conf,
+            # send success emails for that server even when globally disabled.
+            if [[ "${event_type}" == "backup_ok" && -n "${server_host}" ]] && \
+               _tm_server_has_notify_ok "${server_host}"; then
+                tm_log "DEBUG" "Global ${event_type} disabled but ${server_host} has --notify-ok override"
+            else
+                tm_log "DEBUG" "Notification disabled for event ${event_type}; skipping: ${subject}"
+                return 0
+            fi
         fi
     fi
 
@@ -107,6 +116,19 @@ _tm_resolve_email() {
     fi
 
     echo "${recipients}"
+}
+
+# Check if a server has --notify-ok flag in servers.conf
+_tm_server_has_notify_ok() {
+    local hostname="$1"
+    local servers_conf="${TM_PROJECT_ROOT:-}/config/servers.conf"
+    [[ ! -f "${servers_conf}" ]] && return 1
+
+    local line
+    line=$(grep -E "^\s*${hostname}(\s|$)" "${servers_conf}" 2>/dev/null | head -1)
+    [[ -z "${line}" ]] && return 1
+
+    echo "${line}" | grep -q '\-\-notify-ok' 2>/dev/null
 }
 
 # Get the --notify email for a specific server from servers.conf

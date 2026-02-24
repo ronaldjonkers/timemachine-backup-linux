@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - 2026-02-24
+
+### Added
+- **Daily report email toggle** — New `TM_NOTIFY_DAILY_REPORT` setting to enable/disable the daily backup summary email
+- **Per-server success email override** — New `--notify-ok` flag in servers.conf allows sending success emails for specific servers even when globally disabled
+- **Reorganized notification settings** — Settings page now shows 5 clear notification types (Backup success, Backup failure, Daily report, Restore success, Restore failure) with descriptions
+- **Per-server edit dialog** — Added "Send success emails" checkbox and clarified that notification email field supports comma-separated addresses
+
+### Changed
+- Email override fields in Settings now use `type="text"` to properly support comma-separated addresses
+
 ## [3.6.12] - 2026-02-18
 
 ### Fixed

@@ -713,6 +713,7 @@ async function refreshSettings() {
     if (el('setting-alert-email')) el('setting-alert-email').value = data.alert_email || '';
     if (el('setting-notify-backup-ok')) el('setting-notify-backup-ok').checked = (data.notify_backup_ok !== 'false');
     if (el('setting-notify-backup-fail')) el('setting-notify-backup-fail').checked = (data.notify_backup_fail !== 'false');
+    if (el('setting-notify-daily-report')) el('setting-notify-daily-report').checked = (data.notify_daily_report !== 'false');
     if (el('setting-notify-restore-ok')) el('setting-notify-restore-ok').checked = (data.notify_restore_ok !== 'false');
     if (el('setting-notify-restore-fail')) el('setting-notify-restore-fail').checked = (data.notify_restore_fail !== 'false');
     if (el('setting-email-backup-ok')) el('setting-email-backup-ok').value = data.alert_email_backup_ok || '';
@@ -758,6 +759,7 @@ async function saveSettings() {
         alert_email: document.getElementById('setting-alert-email').value.trim(),
         notify_backup_ok: document.getElementById('setting-notify-backup-ok').checked ? 'true' : 'false',
         notify_backup_fail: document.getElementById('setting-notify-backup-fail').checked ? 'true' : 'false',
+        notify_daily_report: document.getElementById('setting-notify-daily-report').checked ? 'true' : 'false',
         notify_restore_ok: document.getElementById('setting-notify-restore-ok').checked ? 'true' : 'false',
         notify_restore_fail: document.getElementById('setting-notify-restore-fail').checked ? 'true' : 'false',
         alert_email_backup_ok: document.getElementById('setting-email-backup-ok').value.trim(),
@@ -1330,8 +1332,11 @@ function editServer(hostname) {
                 '<label><input type="checkbox" id="edit-no-rotate"' + (srv.no_rotate ? ' checked' : '') + '> Skip backup rotation</label>' +
             '</div>' +
             '<div class="form-group">' +
-                '<label>Notification email <span class="text-muted">(extra recipient for this server)</span></label>' +
-                '<input type="email" id="edit-notify-email" value="' + esc(srv.notify_email || '') + '" placeholder="admin@example.com">' +
+                '<label><input type="checkbox" id="edit-notify-ok"' + (srv.notify_ok ? ' checked' : '') + '> Send success emails for this server <span class="text-muted">(even if globally disabled)</span></label>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label>Extra notification emails <span class="text-muted">(comma-separated, added to global address)</span></label>' +
+                '<input type="text" id="edit-notify-email" value="' + esc(srv.notify_email || '') + '" placeholder="admin@example.com, ops@example.com">' +
             '</div>' +
             '<div class="form-actions">' +
                 '<button class="btn btn-primary" onclick="saveServerSettings(\'' + esc(hostname) + '\')">Save</button>' +
@@ -1350,6 +1355,7 @@ async function saveServerSettings(hostname) {
     var backupInterval = parseInt(document.getElementById('edit-backup-interval').value) || 0;
     var noRotate = document.getElementById('edit-no-rotate').checked;
     var dbCompress = document.getElementById('edit-db-compress').value;
+    var notifyOk = document.getElementById('edit-notify-ok').checked;
     var notifyEmail = document.getElementById('edit-notify-email').value.trim();
 
     var result = await apiPut('/api/servers/' + hostname, {
@@ -1359,7 +1365,8 @@ async function saveServerSettings(hostname) {
         backup_interval: backupInterval,
         no_rotate: noRotate,
         db_compress: dbCompress,
-        notify_email: notifyEmail
+        notify_email: notifyEmail,
+        notify_ok: notifyOk
     });
 
     if (result && result.status === 'updated') {

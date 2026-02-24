@@ -457,38 +457,64 @@
                         </div>
                     </div>
 
-                    <div class="settings-section-title">Per-event notifications</div>
+                    <div class="settings-section-title">Email notification types</div>
+                    <p class="text-muted" style="margin:0 0 0.75rem;font-size:0.85rem">
+                        Choose which emails you want to receive. Per-server overrides can be configured in the server edit dialog.
+                    </p>
                     <table class="settings-table">
                         <thead>
                             <tr>
-                                <th>Event</th>
+                                <th>Type</th>
                                 <th>Enabled</th>
-                                <th>Email override <span class="text-muted">(leave empty for default)</span></th>
+                                <th>Send to <span class="text-muted">(leave empty for default address above)</span></th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
-                                <td>Backup success</td>
+                                <td>
+                                    <strong>Backup success</strong>
+                                    <div class="text-muted" style="font-size:0.8rem">Per-server backup completion</div>
+                                </td>
                                 <td><input type="checkbox" id="setting-notify-backup-ok" checked></td>
-                                <td><input type="email" id="setting-email-backup-ok" placeholder="ops@example.com" class="settings-text-input"></td>
+                                <td><input type="text" id="setting-email-backup-ok" placeholder="ops@example.com" class="settings-text-input"></td>
                             </tr>
                             <tr>
-                                <td>Backup failure</td>
+                                <td>
+                                    <strong>Backup failure</strong>
+                                    <div class="text-muted" style="font-size:0.8rem">Per-server backup errors with diagnostics</div>
+                                </td>
                                 <td><input type="checkbox" id="setting-notify-backup-fail" checked></td>
-                                <td><input type="email" id="setting-email-backup-fail" placeholder="oncall@example.com" class="settings-text-input"></td>
+                                <td><input type="text" id="setting-email-backup-fail" placeholder="oncall@example.com" class="settings-text-input"></td>
                             </tr>
                             <tr>
-                                <td>Restore success</td>
+                                <td>
+                                    <strong>Daily report</strong>
+                                    <div class="text-muted" style="font-size:0.8rem">Summary of all daily backups with logs</div>
+                                </td>
+                                <td><input type="checkbox" id="setting-notify-daily-report" checked></td>
+                                <td><span class="text-muted" style="font-size:0.85rem">Uses default address</span></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <strong>Restore success</strong>
+                                    <div class="text-muted" style="font-size:0.8rem">File restore completed</div>
+                                </td>
                                 <td><input type="checkbox" id="setting-notify-restore-ok" checked></td>
-                                <td><input type="email" id="setting-email-restore-ok" placeholder="" class="settings-text-input"></td>
+                                <td><input type="text" id="setting-email-restore-ok" placeholder="" class="settings-text-input"></td>
                             </tr>
                             <tr>
-                                <td>Restore failure</td>
+                                <td>
+                                    <strong>Restore failure</strong>
+                                    <div class="text-muted" style="font-size:0.8rem">File restore errors</div>
+                                </td>
                                 <td><input type="checkbox" id="setting-notify-restore-fail" checked></td>
-                                <td><input type="email" id="setting-email-restore-fail" placeholder="" class="settings-text-input"></td>
+                                <td><input type="text" id="setting-email-restore-fail" placeholder="" class="settings-text-input"></td>
                             </tr>
                         </tbody>
                     </table>
+                    <p class="text-muted" style="margin:0.5rem 0 0;font-size:0.8rem">
+                        Tip: Email override fields accept comma-separated addresses. If success emails are globally disabled, you can still enable them per server via the server edit dialog.
+                    </p>
 
                     <div class="settings-section-title">SMTP Relay <span class="text-muted">(required for email — no local MTA needed)</span></div>
                     <div class="settings-row">
@@ -722,7 +748,8 @@ sudo tmctl restore hostname.example.com --db-only</pre>
                             <tr><td><code>--db-interval Xh</code></td><td>Extra DB-only backups every X hours</td><td><code>--db-interval 4h</code></td></tr>
                             <tr><td><code>--db-compress</code></td><td>Force gzip compression for DB dumps</td><td></td></tr>
                             <tr><td><code>--no-db-compress</code></td><td>Disable gzip compression for DB dumps</td><td></td></tr>
-                            <tr><td><code>--notify EMAIL</code></td><td>Extra notification recipient</td><td><code>--notify admin@example.com</code></td></tr>
+                            <tr><td><code>--notify EMAIL</code></td><td>Extra notification recipient (comma-separated)</td><td><code>--notify admin@example.com</code></td></tr>
+                            <tr><td><code>--notify-ok</code></td><td>Send success emails even if globally disabled</td><td></td></tr>
                         </tbody>
                     </table>
 

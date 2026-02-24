@@ -63,6 +63,14 @@ tm_report_send() {
 
     [[ -z "${_TM_REPORT_FILE}" || ! -f "${_TM_REPORT_FILE}" ]] && return
 
+    # Check if daily report notifications are enabled
+    if [[ "${TM_NOTIFY_DAILY_REPORT:-true}" == "false" ]]; then
+        tm_log "INFO" "Daily report notifications disabled (TM_NOTIFY_DAILY_REPORT=false); skipping email"
+        rm -f "${_TM_REPORT_FILE}"
+        _TM_REPORT_FILE=""
+        return
+    fi
+
     local total=0 succeeded=0 failed=0 skipped=0
     local success_lines="" fail_lines="" skip_lines=""
     local -a server_logfiles=()

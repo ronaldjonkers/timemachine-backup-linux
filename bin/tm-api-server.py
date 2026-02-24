@@ -288,6 +288,7 @@ def _parse_server_line(line):
     nm = re.search(r'--notify\s+(\S+)', opts)
     if nm:
         notify = nm.group(1)
+    notify_ok = '--notify-ok' in opts
     return {
         'hostname': hostname,
         'options': opts,
@@ -299,6 +300,7 @@ def _parse_server_line(line):
         'no_rotate': no_rotate,
         'db_compress': db_compress,
         'notify_email': notify,
+        'notify_ok': notify_ok,
     }
 
 
@@ -1547,6 +1549,8 @@ class APIHandler(BaseHTTPRequestHandler):
         notify = data.get('notify_email', '')
         if notify:
             opts_parts.append(f'--notify {notify}')
+        if data.get('notify_ok') is True:
+            opts_parts.append('--notify-ok')
         opts = ' '.join(opts_parts)
         new_entry = f'{target_host} {opts}'.strip() if opts else target_host
 
@@ -1674,6 +1678,7 @@ class APIHandler(BaseHTTPRequestHandler):
             'alert_email': env_val('TM_ALERT_EMAIL', ''),
             'notify_backup_ok': env_val('TM_NOTIFY_BACKUP_OK', 'true'),
             'notify_backup_fail': env_val('TM_NOTIFY_BACKUP_FAIL', 'true'),
+            'notify_daily_report': env_val('TM_NOTIFY_DAILY_REPORT', 'true'),
             'notify_restore_ok': env_val('TM_NOTIFY_RESTORE_OK', 'true'),
             'notify_restore_fail': env_val('TM_NOTIFY_RESTORE_FAIL', 'true'),
             'alert_email_backup_ok': env_val('TM_ALERT_EMAIL_BACKUP_OK', ''),
@@ -1699,6 +1704,7 @@ class APIHandler(BaseHTTPRequestHandler):
             'alert_email': 'TM_ALERT_EMAIL',
             'notify_backup_ok': 'TM_NOTIFY_BACKUP_OK',
             'notify_backup_fail': 'TM_NOTIFY_BACKUP_FAIL',
+            'notify_daily_report': 'TM_NOTIFY_DAILY_REPORT',
             'notify_restore_ok': 'TM_NOTIFY_RESTORE_OK',
             'notify_restore_fail': 'TM_NOTIFY_RESTORE_FAIL',
             'alert_email_backup_ok': 'TM_ALERT_EMAIL_BACKUP_OK',

@@ -62,6 +62,7 @@ tm_load_config() {
     : "${TM_NOTIFY_BACKUP_FAIL:=true}"
     : "${TM_NOTIFY_RESTORE_OK:=true}"
     : "${TM_NOTIFY_RESTORE_FAIL:=true}"
+    : "${TM_NOTIFY_DAILY_REPORT:=true}"
     : "${TM_ALERT_EMAIL_BACKUP_OK:=}"
     : "${TM_ALERT_EMAIL_BACKUP_FAIL:=}"
     : "${TM_ALERT_EMAIL_RESTORE_OK:=}"
