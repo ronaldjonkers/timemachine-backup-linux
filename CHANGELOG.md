@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.2] - 2026-02-24
+
+### Fixed
+- **Bash API missing `TM_NOTIFY_DAILY_REPORT`** — The bash fallback API now correctly reads and saves the daily report notification toggle
+- **Bash API missing `--notify-ok`** — Server list and server update endpoints in the bash fallback API now support the `notify_ok` field for per-server success email overrides
+
 ## [3.7.1] - 2026-02-24
 
 ### Added

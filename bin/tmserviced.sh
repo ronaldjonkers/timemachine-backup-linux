@@ -1228,16 +1228,17 @@ _handle_request() {
                     local srv_db_int
                     srv_db_int=$(_parse_db_interval "${line}")
                     [[ -z "${srv_db_int}" ]] && srv_db_int="0"
-                    local srv_files_only="false" srv_db_only="false" srv_no_rotate="false"
+                    local srv_files_only="false" srv_db_only="false" srv_no_rotate="false" srv_notify_ok="false"
                     echo "${srv_opts}" | grep -q '\-\-files-only' && srv_files_only="true"
                     echo "${srv_opts}" | grep -q '\-\-db-only' && srv_db_only="true"
                     echo "${srv_opts}" | grep -q '\-\-no-rotate' && srv_no_rotate="true"
+                    echo "${srv_opts}" | grep -q '\-\-notify-ok' && srv_notify_ok="true"
                     local srv_notify=""
                     srv_notify=$(echo "${srv_opts}" | grep -oP '(?<=--notify\s)\S+' 2>/dev/null || \
                         echo "${srv_opts}" | sed -n 's/.*--notify[[:space:]]\+\([^[:space:]]*\).*/\1/p')
                     [[ ${first} -eq 1 ]] && first=0 || servers+=','
-                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s,"files_only":%s,"db_only":%s,"no_rotate":%s,"notify_email":"%s"}' \
-                        "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}" "${srv_files_only}" "${srv_db_only}" "${srv_no_rotate}" "${srv_notify}")
+                    servers+=$(printf '{"hostname":"%s","options":"%s","priority":%s,"db_interval":%s,"files_only":%s,"db_only":%s,"no_rotate":%s,"notify_email":"%s","notify_ok":%s}' \
+                        "${srv_host}" "${srv_opts}" "${srv_prio}" "${srv_db_int}" "${srv_files_only}" "${srv_db_only}" "${srv_no_rotate}" "${srv_notify}" "${srv_notify_ok}")
                 done < "${servers_conf}"
             fi
             servers+=']'
@@ -1285,12 +1286,13 @@ _handle_request() {
                     "{\"error\":\"Server '${target_host}' not found\"}"
             else
                 # Parse settings from JSON body
-                local new_prio new_db_int new_mode new_no_rotate new_notify
+                local new_prio new_db_int new_mode new_no_rotate new_notify new_notify_ok
                 new_prio=$(echo "${body}" | grep -o '"priority":[0-9]*' | cut -d: -f2)
                 new_db_int=$(echo "${body}" | grep -o '"db_interval":[0-9]*' | cut -d: -f2)
                 new_mode=$(echo "${body}" | grep -o '"mode":"[^"]*"' | cut -d'"' -f4)
                 new_no_rotate=$(echo "${body}" | grep -o '"no_rotate":[a-z]*' | cut -d: -f2)
                 new_notify=$(echo "${body}" | grep -o '"notify_email":"[^"]*"' | cut -d'"' -f4)
+                new_notify_ok=$(echo "${body}" | grep -o '"notify_ok":[a-z]*' | cut -d: -f2)
 
                 # Build new options string
                 local opts=""
@@ -1302,6 +1304,7 @@ _handle_request() {
                 esac
                 [[ "${new_no_rotate}" == "true" ]] && opts+="--no-rotate "
                 [[ -n "${new_notify}" ]] && opts+="--notify ${new_notify} "
+                [[ "${new_notify_ok}" == "true" ]] && opts+="--notify-ok "
                 opts=$(echo "${opts}" | sed 's/ *$//')
 
                 # Build new line
@@ -1498,6 +1501,7 @@ _handle_request() {
                 "alert_email":"%s",
                 "notify_backup_ok":"%s",
                 "notify_backup_fail":"%s",
+                "notify_daily_report":"%s",
                 "notify_restore_ok":"%s",
                 "notify_restore_fail":"%s",
                 "alert_email_backup_ok":"%s",
@@ -1519,6 +1523,7 @@ _handle_request() {
                 "$(_env_val TM_ALERT_EMAIL "${TM_ALERT_EMAIL:-}")" \
                 "$(_env_val TM_NOTIFY_BACKUP_OK "${TM_NOTIFY_BACKUP_OK:-true}")" \
                 "$(_env_val TM_NOTIFY_BACKUP_FAIL "${TM_NOTIFY_BACKUP_FAIL:-true}")" \
+                "$(_env_val TM_NOTIFY_DAILY_REPORT "${TM_NOTIFY_DAILY_REPORT:-true}")" \
                 "$(_env_val TM_NOTIFY_RESTORE_OK "${TM_NOTIFY_RESTORE_OK:-true}")" \
                 "$(_env_val TM_NOTIFY_RESTORE_FAIL "${TM_NOTIFY_RESTORE_FAIL:-true}")" \
                 "$(_env_val TM_ALERT_EMAIL_BACKUP_OK "${TM_ALERT_EMAIL_BACKUP_OK:-}")" \
@@ -1577,6 +1582,8 @@ _handle_request() {
             [[ -n "${jv}" ]] && _env_set TM_NOTIFY_BACKUP_OK "${jv}"
             jv=$(echo "${body}" | grep -o '"notify_backup_fail":"[^"]*"' | cut -d'"' -f4)
             [[ -n "${jv}" ]] && _env_set TM_NOTIFY_BACKUP_FAIL "${jv}"
+            jv=$(echo "${body}" | grep -o '"notify_daily_report":"[^"]*"' | cut -d'"' -f4)
+            [[ -n "${jv}" ]] && _env_set TM_NOTIFY_DAILY_REPORT "${jv}"
             jv=$(echo "${body}" | grep -o '"notify_restore_ok":"[^"]*"' | cut -d'"' -f4)
             [[ -n "${jv}" ]] && _env_set TM_NOTIFY_RESTORE_OK "${jv}"
             jv=$(echo "${body}" | grep -o '"notify_restore_fail":"[^"]*"' | cut -d'"' -f4)
