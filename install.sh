@@ -592,6 +592,13 @@ server_setup_service() {
         return
     fi
 
+    # Remove legacy cron job if systemd is available — prevents duplicate
+    # daily backup triggers (cron + scheduler both calling daily-runner.sh)
+    if [[ -f "/etc/cron.d/timemachine" ]]; then
+        rm -f "/etc/cron.d/timemachine"
+        info "Removed legacy cron job /etc/cron.d/timemachine (systemd scheduler handles scheduling)"
+    fi
+
     local service_file="/etc/systemd/system/timemachine.service"
     local source_file="${INSTALL_DIR}/config/timemachine.service"
 

@@ -556,33 +556,28 @@ _scheduler_loop() {
             # Mark today BEFORE starting so a restart mid-run won't re-trigger
             echo "${today}" > "${last_run_file}"
 
-            if "${SCRIPT_DIR}/daily-jobs-check.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1; then
-                # Use daily-runner.sh which handles priority sorting,
-                # parallel execution, per-server tracking, and report generation
-                "${SCRIPT_DIR}/daily-runner.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1 || true
-                tm_log "INFO" "Scheduler: daily run completed"
+            # daily-runner.sh includes its own pre-backup check (daily-jobs-check.sh)
+            # so we don't call it separately here — avoids duplicate alerts.
+            "${SCRIPT_DIR}/daily-runner.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1 || true
+            tm_log "INFO" "Scheduler: daily run completed"
 
-                # Reset interval timestamps after daily run
-                # (daily run already includes full + DB backup)
-                local now
-                now=$(date +%s)
-                grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
-                    sed 's/^[[:space:]]*//' | while IFS= read -r line; do
-                        local srv_host
-                        srv_host=$(echo "${line}" | awk '{print $1}')
-                        # Reset DB interval
-                        local db_int
-                        db_int=$(_parse_db_interval "${line}")
-                        [[ -n "${db_int}" ]] && echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
-                        # Reset backup interval
-                        local bk_int
-                        bk_int=$(_parse_backup_interval "${line}")
-                        [[ -n "${bk_int}" ]] && echo "${now}" > "${STATE_DIR}/last-backup-${srv_host}"
-                    done
-            else
-                tm_log "ERROR" "Scheduler: pre-backup check failed (previous backups still running?)"
-                # last_run_file already written above — no retry today
-            fi
+            # Reset interval timestamps after daily run
+            # (daily run already includes full + DB backup)
+            local now
+            now=$(date +%s)
+            grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
+                sed 's/^[[:space:]]*//' | while IFS= read -r line; do
+                    local srv_host
+                    srv_host=$(echo "${line}" | awk '{print $1}')
+                    # Reset DB interval
+                    local db_int
+                    db_int=$(_parse_db_interval "${line}")
+                    [[ -n "${db_int}" ]] && echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
+                    # Reset backup interval
+                    local bk_int
+                    bk_int=$(_parse_backup_interval "${line}")
+                    [[ -n "${bk_int}" ]] && echo "${now}" > "${STATE_DIR}/last-backup-${srv_host}"
+                done
         fi
 
         # Check interval backups only after startup delay (prevents re-triggering

@@ -38,6 +38,16 @@ tm_ensure_dir "${LOG_DIR}"
 tm_ensure_dir "${STATE_DIR}"
 
 # ============================================================
+# DUPLICATE INSTANCE GUARD
+# ============================================================
+
+if ! tm_acquire_lock "daily-runner"; then
+    tm_log "WARN" "Another daily-runner.sh is already running — skipping"
+    exit 0
+fi
+trap 'tm_release_lock "daily-runner"' EXIT
+
+# ============================================================
 # PRE-FLIGHT CHECK
 # ============================================================
 

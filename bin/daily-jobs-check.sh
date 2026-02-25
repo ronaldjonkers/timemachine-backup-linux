@@ -26,47 +26,68 @@ tm_require_user
 # ============================================================
 
 STILL_RUNNING=0
-STATE_DIR="${TM_HOME:-/home/timemachine}/state"
+STATE_DIR="${TM_STATE_DIR:-${TM_HOME:-/home/timemachine}/state}"
 
 tm_ensure_dir "${TM_RUN_DIR}"
 
+# Check process STATE files (the authoritative source for backup tracking).
+# State files are created by daily-runner.sh and tmserviced.sh run_backup().
+# Format: pid|hostname|mode|started|status|logfile|trigger
+for state_file in "${STATE_DIR}"/proc-*.state; do
+    [[ -f "${state_file}" ]] || continue
+
+    srv_host=$(basename "${state_file}" .state)
+    srv_host="${srv_host#proc-}"
+
+    local_status=$(cut -d'|' -f5 "${state_file}" 2>/dev/null)
+    [[ "${local_status}" != "running" ]] && continue
+
+    pid=$(cut -d'|' -f1 "${state_file}" 2>/dev/null)
+
+    # Verify the process is actually still alive
+    if ! kill -0 "${pid}" 2>/dev/null; then
+        tm_log "DEBUG" "Cleaning up stale state file for ${srv_host} (PID ${pid} no longer running)"
+        # Update status to completed (process exited but state wasn't cleaned up)
+        local content
+        content=$(cat "${state_file}")
+        local f1 f2 f3 f4 f6 f7
+        f1=$(echo "${content}" | cut -d'|' -f1)
+        f2=$(echo "${content}" | cut -d'|' -f2)
+        f3=$(echo "${content}" | cut -d'|' -f3)
+        f4=$(echo "${content}" | cut -d'|' -f4)
+        f6=$(echo "${content}" | cut -d'|' -f6)
+        f7=$(echo "${content}" | cut -d'|' -f7)
+        echo "${f1}|${f2}|${f3}|${f4}|completed|${f6}|${f7}" > "${state_file}"
+        continue
+    fi
+
+    local_mode=$(cut -d'|' -f3 "${state_file}" 2>/dev/null)
+    local_trigger=$(cut -d'|' -f7 "${state_file}" 2>/dev/null)
+
+    # DB-only backups are short-lived and should NOT block the daily run
+    if [[ "${local_mode}" == "db-only" ]]; then
+        tm_log "INFO" "DB-only backup running for ${srv_host} (PID ${pid}) — not blocking daily run"
+        continue
+    fi
+
+    # Interval and manual backups should NOT block the daily run.
+    # Only previous daily/scheduler backups still running indicate the server is lagging.
+    if [[ "${local_trigger}" == "interval" || "${local_trigger}" == "interval-db" || "${local_trigger}" == "manual" || "${local_trigger}" == "api" ]]; then
+        tm_log "INFO" "${local_trigger} backup running for ${srv_host} (PID ${pid}) — not blocking daily run"
+        continue
+    fi
+
+    tm_log "WARN" "Previous daily backup still running: ${srv_host} (PID ${pid}, trigger=${local_trigger:-unknown})"
+    STILL_RUNNING=1
+done
+
+# Also clean up stale PID files (legacy — no longer used for backup tracking)
 for pidfile in "${TM_RUN_DIR}"/*.pid; do
     [[ -f "${pidfile}" ]] || continue
-
     lock_name=$(basename "${pidfile}" .pid)
-
-    # Skip the service daemon's own PID file — it's always running
     [[ "${lock_name}" == "tmserviced" ]] && continue
-
-    pid=$(cat "${pidfile}")
-
-    if kill -0 "${pid}" 2>/dev/null; then
-        # Read mode (field 3) and trigger (field 7) from the state file.
-        local_mode=""
-        local_trigger=""
-        sf="${STATE_DIR}/proc-${lock_name}.state"
-        if [[ -f "${sf}" ]]; then
-            local_mode=$(cut -d'|' -f3 "${sf}" 2>/dev/null)
-            local_trigger=$(cut -d'|' -f7 "${sf}" 2>/dev/null)
-        fi
-
-        # DB-only backups are short-lived and should NOT block the daily run
-        if [[ "${local_mode}" == "db-only" ]]; then
-            tm_log "INFO" "DB-only backup running for ${lock_name} (PID ${pid}) — not blocking daily run"
-            continue
-        fi
-
-        # Interval and manual backups should NOT block the daily run.
-        # Only previous daily backups still running indicate the server is lagging.
-        # Per-server locking in timemachine.sh prevents duplicate runs for the same host.
-        if [[ "${local_trigger}" == "interval" || "${local_trigger}" == "interval-db" || "${local_trigger}" == "manual" || "${local_trigger}" == "api" ]]; then
-            tm_log "INFO" "${local_trigger} backup running for ${lock_name} (PID ${pid}) — not blocking daily run"
-            continue
-        fi
-
-        tm_log "WARN" "Previous daily backup still running: ${lock_name} (PID ${pid}, trigger=${local_trigger:-unknown})"
-        STILL_RUNNING=1
-    else
+    pid=$(cat "${pidfile}" 2>/dev/null)
+    if ! kill -0 "${pid}" 2>/dev/null; then
         tm_log "DEBUG" "Removing stale PID file: ${pidfile}"
         rm -f "${pidfile}"
     fi

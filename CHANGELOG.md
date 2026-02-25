@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.4] - 2026-02-25
+
+### Fixed
+- **"Yesterday's backups are still running" false alert** — Root cause: `daily-jobs-check.sh` scanned PID files (`TM_RUN_DIR/*.pid`) but the codebase uses STATE files (`STATE_DIR/proc-*.state`) for backup process tracking. No backup process ever created `.pid` files, making the check ineffective or prone to false positives from stale/recycled PIDs. Rewritten to check STATE files (the authoritative source). Also cleans up stale state files where the process exited but status wasn't updated.
+- **Duplicate daily backup triggers** — If a legacy cron job (`/etc/cron.d/timemachine`) existed alongside the systemd scheduler, both would attempt to start daily backups. `server_setup_service()` now removes the legacy cron file when systemd is available.
+- **Duplicate pre-backup check alerts** — `daily-jobs-check.sh` was called twice: once by the scheduler in `tmserviced.sh` and again inside `daily-runner.sh`. Removed the scheduler's call (keeping only the one in `daily-runner.sh`) to prevent duplicate alert emails.
+- **`daily-runner.sh` duplicate instance guard** — Added `tm_acquire_lock("daily-runner")` to prevent two `daily-runner.sh` processes from running simultaneously (e.g. if both cron and scheduler trigger at the same time).
+
 ## [3.7.3] - 2026-02-25
 
 ### Fixed
