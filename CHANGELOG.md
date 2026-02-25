@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.3] - 2026-02-25
+
+### Fixed
+- **"DB Interval OK" emails persist after update** — Root cause: `tmctl update` did not forcefully kill old `tmserviced.sh` processes before restarting. The old daemon kept running in memory with pre-v3.3.2 code that sent "DB Interval OK" notifications. The reconfigure step now force-stops the service, kills any orphaned `tmserviced.sh` processes, and starts fresh. Also added non-systemd restart fallback.
+
 ## [3.7.2] - 2026-02-24
 
 ### Fixed

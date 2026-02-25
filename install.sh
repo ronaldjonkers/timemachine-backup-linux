@@ -1020,15 +1020,30 @@ reconfigure_server() {
     step 9 ${total} "Restarting service"
     if command -v systemctl &>/dev/null; then
         systemctl daemon-reload 2>/dev/null || true
-        systemctl restart timemachine 2>/dev/null || true
+
+        # Force-stop to ensure old code is completely gone from memory
+        systemctl stop timemachine 2>/dev/null || true
         sleep 1
+
+        # Kill any orphaned tmserviced.sh processes not managed by systemd
+        # (e.g. from watchdog restarts or manual starts)
+        pkill -f 'tmserviced\.sh' 2>/dev/null || true
+        sleep 1
+
+        systemctl start timemachine 2>/dev/null || true
+        sleep 2
+
         if systemctl is-active timemachine &>/dev/null; then
-            step_done "TimeMachine service restarted"
+            step_done "TimeMachine service restarted (old processes killed)"
         else
             warn "Service may not have started. Check: journalctl -u timemachine -n 20"
         fi
     else
-        step_done "No systemd — skipped"
+        # Non-systemd: kill old processes and restart
+        pkill -f 'tmserviced\.sh' 2>/dev/null || true
+        sleep 1
+        nohup "${INSTALL_DIR}/bin/tmserviced.sh" --foreground >> "${TM_LOG_DIR:-${TM_HOME}/logs}/service.log" 2>&1 &
+        step_done "Service restarted (PID $!)"
     fi
 
     echo ""
