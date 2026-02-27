@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.5] - 2026-02-27
+
+### Fixed
+- **DB interval backups stop after daily run** — Root cause: `daily-runner.sh` was called **synchronously** from the scheduler loop, blocking ALL interval checks for the entire duration of the daily backup run (often hours). After the daily run completed, intervals resumed, but if the daily run was still in progress, no DB interval backups could fire. Now `daily-runner.sh` runs in the **background** — the scheduler loop continues checking intervals every 60 seconds, independent of the daily run. Interval timestamps are reset when the background daily run completes.
+- **Stale "running" state files permanently block intervals** — If a backup process died without updating its state file (e.g., OOM kill, service restart), `_check_db_intervals` and `_check_backup_intervals` would skip that server forever. Added **self-healing**: if the state file says "running" but the PID is dead, the state is automatically corrected to "completed".
+
+### Added
+- **Overdue interval detection** — New `_check_overdue_intervals()` monitors all configured DB and backup intervals. If the last backup is more than **2× the configured interval** behind schedule, an alert email is sent (once per server per day). The alert includes the expected interval, how long ago the last backup ran, and diagnostic commands. The overdue flag auto-clears when backups resume.
+
 ## [3.7.4] - 2026-02-25
 
 ### Fixed

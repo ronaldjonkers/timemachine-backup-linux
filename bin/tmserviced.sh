@@ -394,10 +394,24 @@ _check_db_intervals() {
                 continue
             fi
 
-            # Skip if a backup is already running for this server
+            # Skip if a backup is already running for this server.
+            # Self-healing: if state says "running" but PID is dead, fix it.
             local _sf="${STATE_DIR}/proc-${srv_host}.state"
             if [[ -f "${_sf}" ]] && grep -q '|running|' "${_sf}" 2>/dev/null; then
-                continue
+                local _running_pid
+                _running_pid=$(cut -d'|' -f1 "${_sf}" 2>/dev/null)
+                if kill -0 "${_running_pid}" 2>/dev/null; then
+                    continue
+                else
+                    tm_log "WARN" "Scheduler: stale 'running' state for ${srv_host} (PID ${_running_pid} dead) — marking completed"
+                    _check_process_exit "${srv_host}"
+                    # If _check_process_exit didn't update (no exit code file), force it
+                    if grep -q '|running|' "${_sf}" 2>/dev/null; then
+                        local _old_content
+                        _old_content=$(cat "${_sf}")
+                        echo "${_old_content}" | sed 's/|running|/|completed|/' > "${_sf}"
+                    fi
+                fi
             fi
 
             local last_db_file="${STATE_DIR}/last-db-${srv_host}"
@@ -449,10 +463,23 @@ _check_backup_intervals() {
                 continue
             fi
 
-            # Skip if a backup is already running for this server
+            # Skip if a backup is already running for this server.
+            # Self-healing: if state says "running" but PID is dead, fix it.
             local _sf="${STATE_DIR}/proc-${srv_host}.state"
             if [[ -f "${_sf}" ]] && grep -q '|running|' "${_sf}" 2>/dev/null; then
-                continue
+                local _running_pid
+                _running_pid=$(cut -d'|' -f1 "${_sf}" 2>/dev/null)
+                if kill -0 "${_running_pid}" 2>/dev/null; then
+                    continue
+                else
+                    tm_log "WARN" "Scheduler: stale 'running' state for ${srv_host} (PID ${_running_pid} dead) — marking completed"
+                    _check_process_exit "${srv_host}"
+                    if grep -q '|running|' "${_sf}" 2>/dev/null; then
+                        local _old_content
+                        _old_content=$(cat "${_sf}")
+                        echo "${_old_content}" | sed 's/|running|/|completed|/' > "${_sf}"
+                    fi
+                fi
             fi
 
             local last_bk_file="${STATE_DIR}/last-backup-${srv_host}"
@@ -477,6 +504,94 @@ _check_backup_intervals() {
                 local bk_pid
                 bk_pid=$(run_backup "${srv_host}" --trigger interval)
                 echo "${now}" > "${last_bk_file}"
+            fi
+        done
+}
+
+# Detect overdue intervals — if last backup is > 2× the configured interval,
+# something is wrong. Send a one-time alert per server per day.
+_check_overdue_intervals() {
+    local servers_conf="$1"
+    [[ -f "${servers_conf}" ]] || return 0
+
+    local today
+    today=$(tm_date_today)
+
+    grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
+        sed 's/^[[:space:]]*//' | while IFS= read -r line; do
+            local srv_host
+            srv_host=$(echo "${line}" | awk '{print $1}')
+
+            # Check DB interval
+            local db_int
+            db_int=$(_parse_db_interval "${line}")
+            if [[ -n "${db_int}" ]]; then
+                local last_db_file="${STATE_DIR}/last-db-${srv_host}"
+                local overdue_flag="${STATE_DIR}/overdue-db-${srv_host}"
+                if [[ -f "${last_db_file}" ]]; then
+                    local last_db now elapsed threshold
+                    last_db=$(cat "${last_db_file}")
+                    now=$(date +%s)
+                    elapsed=$(( now - last_db ))
+                    threshold=$(( db_int * 3600 * 2 ))
+                    if [[ ${elapsed} -ge ${threshold} ]]; then
+                        # Only alert once per day
+                        if [[ ! -f "${overdue_flag}" || "$(cat "${overdue_flag}" 2>/dev/null)" != "${today}" ]]; then
+                            local hours_ago=$(( elapsed / 3600 ))
+                            local mins_ago=$(( (elapsed % 3600) / 60 ))
+                            tm_log "ERROR" "Scheduler: DB interval OVERDUE for ${srv_host} — last backup ${hours_ago}h ${mins_ago}m ago (expected every ${db_int}h)"
+                            tm_notify "DB interval overdue: ${srv_host}" \
+                                "The scheduled DB backup for ${srv_host} is overdue.
+
+Expected interval: every ${db_int}h
+Last DB backup:    ${hours_ago}h ${mins_ago}m ago
+Server:            $(hostname)
+
+This means the DB interval scheduler may be stuck or the backup is failing silently. Check the scheduler log:
+  journalctl -u timemachine -n 50
+  cat ${TM_LOG_DIR}/scheduler.log | tail -50" "error" "backup_fail" "${srv_host}"
+                            echo "${today}" > "${overdue_flag}"
+                        fi
+                    else
+                        # Clear overdue flag if we're back on track
+                        rm -f "${overdue_flag}" 2>/dev/null
+                    fi
+                fi
+            fi
+
+            # Check backup interval
+            local bk_int
+            bk_int=$(_parse_backup_interval "${line}")
+            if [[ -n "${bk_int}" ]]; then
+                local last_bk_file="${STATE_DIR}/last-backup-${srv_host}"
+                local overdue_flag="${STATE_DIR}/overdue-backup-${srv_host}"
+                if [[ -f "${last_bk_file}" ]]; then
+                    local last_bk now elapsed threshold
+                    last_bk=$(cat "${last_bk_file}")
+                    now=$(date +%s)
+                    elapsed=$(( now - last_bk ))
+                    threshold=$(( bk_int * 3600 * 2 ))
+                    if [[ ${elapsed} -ge ${threshold} ]]; then
+                        if [[ ! -f "${overdue_flag}" || "$(cat "${overdue_flag}" 2>/dev/null)" != "${today}" ]]; then
+                            local hours_ago=$(( elapsed / 3600 ))
+                            local mins_ago=$(( (elapsed % 3600) / 60 ))
+                            tm_log "ERROR" "Scheduler: Backup interval OVERDUE for ${srv_host} — last backup ${hours_ago}h ${mins_ago}m ago (expected every ${bk_int}h)"
+                            tm_notify "Backup interval overdue: ${srv_host}" \
+                                "The scheduled backup for ${srv_host} is overdue.
+
+Expected interval: every ${bk_int}h
+Last backup:       ${hours_ago}h ${mins_ago}m ago
+Server:            $(hostname)
+
+This means the backup interval scheduler may be stuck or the backup is failing silently. Check the scheduler log:
+  journalctl -u timemachine -n 50
+  cat ${TM_LOG_DIR}/scheduler.log | tail -50" "error" "backup_fail" "${srv_host}"
+                            echo "${today}" > "${overdue_flag}"
+                        fi
+                    else
+                        rm -f "${overdue_flag}" 2>/dev/null
+                    fi
+                fi
             fi
         done
 }
@@ -525,6 +640,26 @@ _scheduler_loop() {
     # trigger 5 minutes after the service comes back up.
     local _startup_time=${_init_now}
 
+    # Track background daily-runner PID (0 = not running)
+    local _daily_runner_pid=0
+
+    # Reset interval timestamps after a daily run completes
+    _reset_interval_timestamps() {
+        local now
+        now=$(date +%s)
+        grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
+            sed 's/^[[:space:]]*//' | while IFS= read -r line; do
+                local srv_host
+                srv_host=$(echo "${line}" | awk '{print $1}')
+                local db_int
+                db_int=$(_parse_db_interval "${line}")
+                [[ -n "${db_int}" ]] && echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
+                local bk_int
+                bk_int=$(_parse_backup_interval "${line}")
+                [[ -n "${bk_int}" ]] && echo "${now}" > "${STATE_DIR}/last-backup-${srv_host}"
+            done
+    }
+
     while true; do
         _loop_count=$(( _loop_count + 1 ))
 
@@ -533,7 +668,20 @@ _scheduler_loop() {
             tm_log "DEBUG" "Scheduler: heartbeat (loop #${_loop_count}, schedule=${TM_SCHEDULE_HOUR:-11}:$(printf '%02d' "${TM_SCHEDULE_MINUTE:-0}"))"
         fi
 
-        # Check if daily run is due
+        # ── Check if background daily run finished ──────────────
+        if [[ ${_daily_runner_pid} -ne 0 ]]; then
+            if ! kill -0 "${_daily_runner_pid}" 2>/dev/null; then
+                wait "${_daily_runner_pid}" 2>/dev/null || true
+                tm_log "INFO" "Scheduler: daily run completed (PID ${_daily_runner_pid})"
+                _daily_runner_pid=0
+
+                # Reset interval timestamps — daily run includes full + DB backup
+                _reset_interval_timestamps
+                tm_log "INFO" "Scheduler: interval timestamps reset after daily run"
+            fi
+        fi
+
+        # ── Check if daily run is due ───────────────────────────
         local today
         today=$(tm_date_today)
         local last_run=""
@@ -556,38 +704,25 @@ _scheduler_loop() {
             # Mark today BEFORE starting so a restart mid-run won't re-trigger
             echo "${today}" > "${last_run_file}"
 
-            # daily-runner.sh includes its own pre-backup check (daily-jobs-check.sh)
-            # so we don't call it separately here — avoids duplicate alerts.
-            "${SCRIPT_DIR}/daily-runner.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1 || true
-            tm_log "INFO" "Scheduler: daily run completed"
-
-            # Reset interval timestamps after daily run
-            # (daily run already includes full + DB backup)
-            local now
-            now=$(date +%s)
-            grep -E '^\s*[^#\s]' "${servers_conf}" 2>/dev/null | \
-                sed 's/^[[:space:]]*//' | while IFS= read -r line; do
-                    local srv_host
-                    srv_host=$(echo "${line}" | awk '{print $1}')
-                    # Reset DB interval
-                    local db_int
-                    db_int=$(_parse_db_interval "${line}")
-                    [[ -n "${db_int}" ]] && echo "${now}" > "${STATE_DIR}/last-db-${srv_host}"
-                    # Reset backup interval
-                    local bk_int
-                    bk_int=$(_parse_backup_interval "${line}")
-                    [[ -n "${bk_int}" ]] && echo "${now}" > "${STATE_DIR}/last-backup-${srv_host}"
-                done
+            # Run daily-runner.sh in the BACKGROUND so interval checks continue.
+            # daily-runner.sh has its own lock (tm_acquire_lock "daily-runner")
+            # and pre-backup check (daily-jobs-check.sh) built in.
+            "${SCRIPT_DIR}/daily-runner.sh" >> "${TM_LOG_DIR}/scheduler.log" 2>&1 &
+            _daily_runner_pid=$!
+            tm_log "INFO" "Scheduler: daily run started in background (PID ${_daily_runner_pid})"
         fi
 
-        # Check interval backups only after startup delay (prevents re-triggering
-        # all interval backups immediately after a service restart / tmctl update)
+        # ── Interval checks (run every minute, independent of daily run) ──
         if [[ ${_uptime} -ge 300 ]]; then
-            # Check DB interval backups (runs every minute)
+            # Check DB interval backups
             _check_db_intervals "${servers_conf}" || true
 
-            # Check backup interval full backups (runs every minute)
+            # Check backup interval full backups
             _check_backup_intervals "${servers_conf}" || true
+
+            # Overdue interval detection — alert if a configured interval
+            # has not produced a backup in > 2× the expected period
+            _check_overdue_intervals "${servers_conf}" || true
         fi
 
         # Check if config reload was requested (e.g. after settings save)
