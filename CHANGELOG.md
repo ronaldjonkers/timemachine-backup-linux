@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.6] - 2026-03-06
+
+### Fixed
+- **CRITICAL: Snapshot rotation never ran — old backups accumulated indefinitely** — Two root causes:
+  1. `((count++))` in `tm_rotate_backups` crashed under `set -e` because post-increment of 0 returns exit status 1, killing the script on the very first directory deletion. Replaced with `count=$((count + 1))` which always returns exit status 0.
+  2. Rotation was skipped when `exit_code != 0` (any backup error). A failed DB dump would prevent cleanup of old file snapshots. Rotation now runs regardless of backup success — disk space management should not depend on backup outcome.
+
 ## [3.7.5] - 2026-02-27
 
 ### Fixed

@@ -139,6 +139,53 @@ assert_eq "Old backup 2020-01-02 removed" "false" "$([[ -d "${ROTATION_DIR}/2020
 assert_eq "Old backup 2020-06-15 removed" "false" "$([[ -d "${ROTATION_DIR}/2020-06-15" ]] && echo true || echo false)"
 assert_eq "Today's backup kept" "true" "$([[ -d "${ROTATION_DIR}/${TODAY}" ]] && echo true || echo false)"
 
+echo ""
+echo "=== Testing: Rotation with timestamped snapshots ==="
+
+ROTATION_DIR2="${TEST_TMP}/rotation_test2"
+mkdir -p "${ROTATION_DIR2}"
+
+# Old timestamped snapshots (should be removed)
+mkdir -p "${ROTATION_DIR2}/2020-01-01_120000"
+mkdir -p "${ROTATION_DIR2}/2020-01-01_180000"
+mkdir -p "${ROTATION_DIR2}/2020-06-15_090000"
+
+# Recent timestamped snapshots (today — should be kept)
+mkdir -p "${ROTATION_DIR2}/${TODAY}_120000"
+mkdir -p "${ROTATION_DIR2}/${TODAY}_180000"
+
+TM_RETENTION_DAYS=3
+tm_rotate_backups "${ROTATION_DIR2}"
+
+assert_eq "Old timestamped 2020-01-01_120000 removed" "false" "$([[ -d "${ROTATION_DIR2}/2020-01-01_120000" ]] && echo true || echo false)"
+assert_eq "Old timestamped 2020-01-01_180000 removed" "false" "$([[ -d "${ROTATION_DIR2}/2020-01-01_180000" ]] && echo true || echo false)"
+assert_eq "Old timestamped 2020-06-15_090000 removed" "false" "$([[ -d "${ROTATION_DIR2}/2020-06-15_090000" ]] && echo true || echo false)"
+assert_eq "Today's timestamped 120000 kept" "true" "$([[ -d "${ROTATION_DIR2}/${TODAY}_120000" ]] && echo true || echo false)"
+assert_eq "Today's timestamped 180000 kept" "true" "$([[ -d "${ROTATION_DIR2}/${TODAY}_180000" ]] && echo true || echo false)"
+
+echo ""
+echo "=== Testing: Rotation does not crash under set -e (count increment regression) ==="
+
+ROTATION_DIR3="${TEST_TMP}/rotation_test3"
+mkdir -p "${ROTATION_DIR3}"
+
+# Create multiple old backups to ensure count increments past 0
+mkdir -p "${ROTATION_DIR3}/2019-01-01"
+mkdir -p "${ROTATION_DIR3}/2019-01-02"
+mkdir -p "${ROTATION_DIR3}/2019-01-03"
+mkdir -p "${ROTATION_DIR3}/${TODAY}"
+
+TM_RETENTION_DAYS=1
+# This would crash with ((count++)) under set -e because
+# ((0++)) returns exit status 1 — the post-increment evaluates
+# to 0 which bash arithmetic treats as false.
+tm_rotate_backups "${ROTATION_DIR3}"
+
+assert_eq "Multiple old backups removed (2019-01-01)" "false" "$([[ -d "${ROTATION_DIR3}/2019-01-01" ]] && echo true || echo false)"
+assert_eq "Multiple old backups removed (2019-01-02)" "false" "$([[ -d "${ROTATION_DIR3}/2019-01-02" ]] && echo true || echo false)"
+assert_eq "Multiple old backups removed (2019-01-03)" "false" "$([[ -d "${ROTATION_DIR3}/2019-01-03" ]] && echo true || echo false)"
+assert_eq "Today's backup kept after multi-delete" "true" "$([[ -d "${ROTATION_DIR3}/${TODAY}" ]] && echo true || echo false)"
+
 # ============================================================
 # SUMMARY
 # ============================================================

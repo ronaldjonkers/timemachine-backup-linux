@@ -279,7 +279,7 @@ tm_rotate_backups() {
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing old backup: ${dir}"
             sudo rm -rf "${dir}"
-            ((count++))
+            count=$((count + 1))
         fi
     done
 
@@ -294,7 +294,7 @@ tm_rotate_backups() {
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing legacy backup: ${dir}"
             sudo rm -rf "${dir}"
-            ((count++))
+            count=$((count + 1))
         fi
     done
 
