@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.7] - 2026-03-19
+
+### Fixed
+- **File download from backup fails with "Failed to send file"** — Root cause: backup files are owned by root (rsync preserves remote ownership), but the API server runs as the `timemachine` user and attempted to `open()` them directly, causing `PermissionError`. The generic `except Exception` hid the real error. Fixed in both API implementations:
+  - **Python API** (`tm-api-server.py`): `_send_download()` now falls back to `sudo cat` when direct file access fails. Archive commands (`tar`/`zip`) now use `sudo` for root-owned backup directories. Error messages now include the actual exception.
+  - **Bash API** (`tmserviced.sh`): Download handler now serves single files directly with `sudo cat` (previously always created an archive, even for `?format=raw`). Archive commands now use `sudo`.
+
 ## [3.7.6] - 2026-03-06
 
 ### Fixed

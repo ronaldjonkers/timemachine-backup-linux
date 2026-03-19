@@ -557,8 +557,22 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _send_download(self, filepath, filename, content_type):
         try:
-            with open(filepath, 'rb') as f:
-                data = f.read()
+            # Try direct read first; fall back to sudo cat for root-owned
+            # backup files (rsync preserves remote ownership)
+            data = None
+            try:
+                with open(filepath, 'rb') as f:
+                    data = f.read()
+            except PermissionError:
+                result = subprocess.run(
+                    ['sudo', 'cat', filepath],
+                    capture_output=True, timeout=300
+                )
+                if result.returncode != 0:
+                    raise PermissionError(
+                        f"Cannot read {filepath}: {result.stderr.decode().strip()}")
+                data = result.stdout
+
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
@@ -567,8 +581,9 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_header('Connection', 'close')
             self.end_headers()
             self.wfile.write(data)
-        except Exception:
-            self._send_json({'error': 'Failed to send file'}, 500)
+        except Exception as e:
+            logging.error("_send_download failed for %s: %s", filepath, e)
+            self._send_json({'error': f'Failed to send file: {e}'}, 500)
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
@@ -1091,21 +1106,21 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_download(target, filename, ct)
             return
 
-        # Directory: create archive
+        # Directory: create archive (use sudo because backup files are root-owned)
         base_name = f'{hostname}-{snap_date}-{os.path.basename(sub_path)}'
         tmp_archive = None
         try:
             if dl_format == 'zip':
                 tmp_archive = f'/tmp/tm-download-{os.getpid()}.zip'
                 subprocess.run(
-                    ['zip', '-r', tmp_archive, os.path.basename(target)],
+                    ['sudo', 'zip', '-r', tmp_archive, os.path.basename(target)],
                     cwd=os.path.dirname(target), capture_output=True, timeout=300
                 )
                 self._send_download(tmp_archive, f'{base_name}.zip', 'application/zip')
             else:
                 tmp_archive = f'/tmp/tm-download-{os.getpid()}.tar.gz'
                 subprocess.run(
-                    ['tar', '-czf', tmp_archive, '-C', os.path.dirname(target), os.path.basename(target)],
+                    ['sudo', 'tar', '-czf', tmp_archive, '-C', os.path.dirname(target), os.path.basename(target)],
                     capture_output=True, timeout=300
                 )
                 self._send_download(tmp_archive, f'{base_name}.tar.gz', 'application/gzip')

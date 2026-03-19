@@ -1103,7 +1103,30 @@ _handle_request() {
             if [[ ! -e "${target_dir}" ]]; then
                 _http_response "404 Not Found" "application/json" \
                     "{\"error\":\"Path not found\"}"
+            elif [[ -f "${target_dir}" ]]; then
+                # Single file: serve directly (use sudo for root-owned backup files)
+                local file_size
+                file_size=$(sudo wc -c < "${target_dir}" 2>/dev/null || wc -c < "${target_dir}")
+                file_size=$(echo "${file_size}" | tr -d ' ')
+                local ct
+                case "${target_dir}" in
+                    *.gz)   ct="application/gzip" ;;
+                    *.zip)  ct="application/zip" ;;
+                    *.tar)  ct="application/x-tar" ;;
+                    *.sql)  ct="application/sql" ;;
+                    *.log)  ct="text/plain" ;;
+                    *)      ct="application/octet-stream" ;;
+                esac
+                printf "HTTP/1.1 200 OK\r\n"
+                printf "Content-Type: %s\r\n" "${ct}"
+                printf "Content-Disposition: attachment; filename=\"%s\"\r\n" "$(basename "${target_dir}")"
+                printf "Content-Length: %d\r\n" "${file_size}"
+                printf "Access-Control-Allow-Origin: *\r\n"
+                printf "Connection: close\r\n"
+                printf "\r\n"
+                sudo cat "${target_dir}"
             else
+                # Directory: create archive (use sudo for root-owned backup files)
                 local base_name="${target_host}-${snap_date}-$(basename "${sub_path}")"
                 local tmp_archive=""
                 local content_type=""
@@ -1113,12 +1136,12 @@ _handle_request() {
                     tmp_archive="/tmp/tm-download-$$.zip"
                     archive_name="${base_name}.zip"
                     content_type="application/zip"
-                    (cd "$(dirname "${target_dir}")" && zip -r "${tmp_archive}" "$(basename "${target_dir}")") &>/dev/null
+                    (cd "$(dirname "${target_dir}")" && sudo zip -r "${tmp_archive}" "$(basename "${target_dir}")") &>/dev/null
                 elif command -v tar &>/dev/null; then
                     tmp_archive="/tmp/tm-download-$$.tar.gz"
                     archive_name="${base_name}.tar.gz"
                     content_type="application/gzip"
-                    tar -czf "${tmp_archive}" -C "$(dirname "${target_dir}")" "$(basename "${target_dir}")" 2>/dev/null
+                    sudo tar -czf "${tmp_archive}" -C "$(dirname "${target_dir}")" "$(basename "${target_dir}")" 2>/dev/null
                 else
                     _http_response "500 Internal Server Error" "application/json" \
                         '{"error":"Neither zip nor tar available on server"}'
