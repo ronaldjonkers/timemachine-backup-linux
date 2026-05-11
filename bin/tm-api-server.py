@@ -556,34 +556,82 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'Failed to read file'}, 500)
 
     def _send_download(self, filepath, filename, content_type):
+        # Stream file in 64KB chunks; never buffer the whole file in RAM
+        # (multi-GB SQL dumps would otherwise raise MemoryError, whose
+        # str() is empty — that's the "Failed to send file: " bug).
+        # Falls back to `sudo cat` for root-owned backup files (rsync
+        # preserves remote ownership).
+        CHUNK = 64 * 1024
+        f = None
+        proc = None
+        headers_sent = False
         try:
-            # Try direct read first; fall back to sudo cat for root-owned
-            # backup files (rsync preserves remote ownership)
-            data = None
             try:
-                with open(filepath, 'rb') as f:
-                    data = f.read()
+                file_size = os.path.getsize(filepath)
             except PermissionError:
-                result = subprocess.run(
-                    ['sudo', 'cat', filepath],
-                    capture_output=True, timeout=300
+                size_result = subprocess.run(
+                    ['sudo', 'stat', '-c', '%s', filepath],
+                    capture_output=True, timeout=10
                 )
-                if result.returncode != 0:
-                    raise PermissionError(
-                        f"Cannot read {filepath}: {result.stderr.decode().strip()}")
-                data = result.stdout
+                if size_result.returncode != 0:
+                    stderr = size_result.stderr.decode().strip() or 'permission denied'
+                    raise PermissionError(f"Cannot stat {filepath}: {stderr}")
+                file_size = int(size_result.stdout.decode().strip())
+
+            try:
+                f = open(filepath, 'rb')
+            except PermissionError:
+                proc = subprocess.Popen(
+                    ['sudo', 'cat', filepath],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
 
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
-            self.send_header('Content-Length', len(data))
+            self.send_header('Content-Length', file_size)
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Connection', 'close')
             self.end_headers()
-            self.wfile.write(data)
+            headers_sent = True
+
+            stream = f if f is not None else proc.stdout
+            while True:
+                chunk = stream.read(CHUNK)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
+            if proc is not None:
+                proc.wait(timeout=10)
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read().decode(errors='replace').strip()
+                    logging.warning(
+                        "sudo cat for %s exited %d: %s",
+                        filepath, proc.returncode, stderr)
+        except (BrokenPipeError, ConnectionResetError) as e:
+            logging.info("Client disconnected during download of %s: %s", filepath, e)
         except Exception as e:
-            logging.error("_send_download failed for %s: %s", filepath, e)
-            self._send_json({'error': f'Failed to send file: {e}'}, 500)
+            msg = str(e) or type(e).__name__
+            logging.error("_send_download failed for %s: %s", filepath, msg, exc_info=True)
+            if not headers_sent:
+                try:
+                    self._send_json({'error': f'Failed to send file: {msg}'}, 500)
+                except Exception:
+                    pass
+        finally:
+            if f is not None:
+                try:
+                    f.close()
+                except Exception:
+                    pass
+            if proc is not None:
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                except Exception:
+                    pass
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.8] - 2026-05-11
+
+### Fixed
+- **Large file downloads fail with empty error "Failed to send file: "** — Root cause: `_send_download()` (Python API) read the entire file into memory via `f.read()` or `subprocess.run(..., capture_output=True)`. For multi-hundred-MB / multi-GB SQL dumps this raised `MemoryError`, whose `str()` is empty — producing the confusing `"Failed to send file: "` response with nothing after the colon. The bash API was unaffected because `sudo cat` streams through the socket directly.
+- **Fix**: `_send_download()` now streams in 64 KB chunks. File size is determined via `os.path.getsize` (or `sudo stat -c %s` when the directory isn't accessible), so `Content-Length` is correct without buffering. The sudo fallback uses `subprocess.Popen` with a streaming pipe instead of `subprocess.run(capture_output=True)`. Memory usage is now constant regardless of file size.
+- Improved error logging: full traceback via `exc_info=True`; falls back to exception class name when `str(e)` is empty. Client disconnects (`BrokenPipeError`/`ConnectionResetError`) during streaming are now logged at INFO level instead of treated as errors, and no longer try to send a JSON error after headers were already committed.
+
 ## [3.7.7] - 2026-03-19
 
 ### Fixed
