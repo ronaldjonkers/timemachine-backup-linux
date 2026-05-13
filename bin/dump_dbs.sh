@@ -39,7 +39,12 @@ TM_HOME="${TM_HOME:-/home/timemachine}"
 TM_DB_TYPES="${TM_DB_TYPES:-auto}"
 TM_CREDENTIALS_DIR="${TM_CREDENTIALS_DIR:-${TM_HOME}/.credentials}"
 TM_MYSQL_PW_FILE="${TM_MYSQL_PW_FILE:-${TM_CREDENTIALS_DIR}/mysql.pw}"
+TM_MYSQL_CNF_FILE="${TM_MYSQL_CNF_FILE:-${TM_CREDENTIALS_DIR}/mysql.cnf}"
 TM_MYSQL_HOST="${TM_MYSQL_HOST:-}"
+TM_MYSQL_USER="${TM_MYSQL_USER:-root}"
+TM_MYSQL_ALLOW_SUDO_SOCKET="${TM_MYSQL_ALLOW_SUDO_SOCKET:-true}"
+TM_MYSQL_DEBUG="${TM_MYSQL_DEBUG:-false}"
+TM_MYSQL_EXCLUDE_DATABASES="${TM_MYSQL_EXCLUDE_DATABASES:-information_schema,performance_schema,sys,mysql}"
 TM_PG_USER="${TM_PG_USER:-postgres}"
 TM_PG_HOST="${TM_PG_HOST:-}"
 TM_MONGO_HOST="${TM_MONGO_HOST:-}"
@@ -163,89 +168,237 @@ fi
 dump_mysql() {
     log "INFO" "=== MySQL/MariaDB dumps ==="
 
-    local mysql_cmd="mysql"
-    if ! command -v mysql &>/dev/null; then
-        if command -v mariadb &>/dev/null; then
-            mysql_cmd="mariadb"
-        else
-            log "ERROR" "mysql/mariadb client not found"
-            return 1
-        fi
-    fi
-
-    local mysqldump_cmd="mysqldump"
-    if ! command -v mysqldump &>/dev/null; then
-        if command -v mariadb-dump &>/dev/null; then
-            mysqldump_cmd="mariadb-dump"
-        else
-            log "ERROR" "mysqldump/mariadb-dump not found"
-            return 1
-        fi
-    fi
-
-    # Read password from file (try configured path, then fallback to /root/mysql.pw)
-    local dbpass
-    dbpass=$(sudo cat "${TM_MYSQL_PW_FILE}" 2>/dev/null) || true
-    if [[ -z "${dbpass}" ]]; then
-        log "INFO" "No password at ${TM_MYSQL_PW_FILE}, trying /root/mysql.pw"
-        dbpass=$(sudo cat /root/mysql.pw 2>/dev/null) || true
-    fi
-    if [[ -z "${dbpass}" ]]; then
-        log "ERROR" "No MySQL password found at ${TM_MYSQL_PW_FILE} or /root/mysql.pw"
-        log "INFO" "Create the file: echo 'yourpassword' | sudo tee ${TM_MYSQL_PW_FILE} && sudo chmod 600 ${TM_MYSQL_PW_FILE}"
+    # ---- Detect client commands (prefer MariaDB on modern systems) ----
+    local mysql_cmd="" mysqldump_cmd=""
+    if command -v mariadb &>/dev/null; then
+        mysql_cmd="mariadb"
+    elif command -v mysql &>/dev/null; then
+        mysql_cmd="mysql"
+    else
+        log "ERROR" "mysql/mariadb client not found"
         return 1
     fi
+    if command -v mariadb-dump &>/dev/null; then
+        mysqldump_cmd="mariadb-dump"
+    elif command -v mysqldump &>/dev/null; then
+        mysqldump_cmd="mysqldump"
+    else
+        log "ERROR" "mysqldump/mariadb-dump client not found"
+        return 1
+    fi
+    log "INFO" "Using ${mysql_cmd} / ${mysqldump_cmd}"
 
-    local host_opt=""
+    # ---- Host args as safe array ----
+    local -a host_args=()
     if [[ -n "${TM_MYSQL_HOST}" ]]; then
-        host_opt="-h ${TM_MYSQL_HOST}"
+        host_args=(-h "${TM_MYSQL_HOST}")
     fi
 
-    # Get list of databases
-    local dblist
-    dblist=$(echo 'SHOW DATABASES;' | \
-        ${mysql_cmd} --defaults-extra-file=<(printf "[client]\nuser=root\npassword=%s" "${dbpass}") \
-        ${host_opt} 2>/dev/null | \
-        grep -Ev '^(Database|information_schema|performance_schema|sys|mysql)$') || {
-            log "ERROR" "Failed to retrieve MySQL database list"
-            return 1
-        }
+    # ---- Auth state (populated by the successful login method) ----
+    local auth_kind=""   # "cnf" or "sudo"
+    local auth_cnf=""    # path to defaults-extra-file when auth_kind=cnf
+    local auth_desc=""   # human-readable label for logs (no secrets)
+    local raw_dblist=""
+    local tmp_cnf=""     # tracked for explicit cleanup at function exit
+    local rc=0
 
-    local mysql_dir="${SQL_DIR}/mysql"
-    mkdir -p "${mysql_dir}"
+    # ---- Helper: write a temporary [client] section file (chmod 600) ----
+    _mysql_write_cnf() {
+        local out="$1" user="$2" password="$3"
+        ( umask 077; : > "${out}" ) || return 1
+        chmod 600 "${out}" 2>/dev/null || true
+        printf '[client]\nuser=%s\npassword=%s\n' "${user}" "${password}" > "${out}"
+    }
 
-    local failed=0
-    for db in ${dblist}; do
-        local dumpfile="${mysql_dir}/${db}.sql"
-        log "INFO" "  Dumping MySQL: ${db}"
-
-        local tries=0
-        local result=1
-        while [[ ${tries} -lt ${TM_DB_DUMP_RETRIES} ]]; do
-            if [[ ${tries} -gt 0 ]]; then
-                log "WARN" "  Retry ${tries}/${TM_DB_DUMP_RETRIES} for ${db}"
-            fi
-
-            ${mysqldump_cmd} \
-                --defaults-extra-file=<(printf "[client]\nuser=root\npassword=%s" "${dbpass}") \
-                ${host_opt} \
-                --force --opt --single-transaction \
-                --disable-keys --skip-add-locks \
-                --routines --triggers --events \
-                "${db}" > "${dumpfile}" 2>/dev/null
-
-            result=$?
-            if [[ ${result} -eq 0 ]]; then break; fi
-            tries=$((tries + 1))
-        done
-
-        if [[ ${result} -ne 0 ]]; then
-            log "ERROR" "  Failed to dump MySQL database: ${db}"
-            failed=1
+    # ---- Helper: run SHOW DATABASES with a given auth kind ----
+    # Args: $1=kind ("cnf"|"sudo"), $2=cnf path (when kind=cnf), $3=desc for logs
+    # Sets raw_dblist/auth_kind/auth_cnf/auth_desc on success; logs stderr on fail.
+    _mysql_try_login() {
+        local kind="$1" cnf="$2" desc="$3"
+        local tmp_out tmp_err err rc_local
+        tmp_out=$(mktemp 2>/dev/null) || return 1
+        tmp_err=$(mktemp 2>/dev/null) || { rm -f "${tmp_out}"; return 1; }
+        if [[ "${kind}" == "cnf" ]]; then
+            "${mysql_cmd}" --defaults-extra-file="${cnf}" "${host_args[@]}" \
+                -N -B -e "SHOW DATABASES;" >"${tmp_out}" 2>"${tmp_err}"
+            rc_local=$?
+        else
+            sudo -n "${mysql_cmd}" "${host_args[@]}" \
+                -N -B -e "SHOW DATABASES;" >"${tmp_out}" 2>"${tmp_err}"
+            rc_local=$?
         fi
-    done
+        err=$(<"${tmp_err}")
+        if [[ ${rc_local} -eq 0 ]]; then
+            raw_dblist=$(<"${tmp_out}")
+            auth_kind="${kind}"; auth_cnf="${cnf}"; auth_desc="${desc}"
+            rm -f "${tmp_out}" "${tmp_err}"
+            log "INFO" "MySQL/MariaDB login OK via ${desc}"
+            return 0
+        else
+            rm -f "${tmp_out}" "${tmp_err}"
+            local detail="${err}"
+            [[ -z "${detail}" ]] && detail="exit ${rc_local}"
+            log "WARN" "MySQL/MariaDB login failed via ${desc}: ${detail}"
+            return 1
+        fi
+    }
 
-    return ${failed}
+    # ---- METHOD 1: user-supplied cnf file ----
+    if [[ -r "${TM_MYSQL_CNF_FILE}" ]]; then
+        [[ "${TM_MYSQL_DEBUG}" == "true" ]] && log "DEBUG" "Trying ${TM_MYSQL_CNF_FILE}"
+        _mysql_try_login "cnf" "${TM_MYSQL_CNF_FILE}" "${TM_MYSQL_CNF_FILE}" || true
+    fi
+
+    # ---- METHOD 2: TM_MYSQL_PW_FILE with TM_MYSQL_USER ----
+    if [[ -z "${auth_kind}" && -f "${TM_MYSQL_PW_FILE}" ]]; then
+        local dbpass=""
+        if [[ -r "${TM_MYSQL_PW_FILE}" ]]; then
+            dbpass=$(cat "${TM_MYSQL_PW_FILE}" 2>/dev/null) || true
+        fi
+        if [[ -z "${dbpass}" ]] && sudo -n true 2>/dev/null; then
+            dbpass=$(sudo -n cat "${TM_MYSQL_PW_FILE}" 2>/dev/null) || true
+        fi
+        dbpass="${dbpass%$'\n'}"   # strip trailing newline if present
+        if [[ -n "${dbpass}" ]]; then
+            tmp_cnf=$(mktemp 2>/dev/null) || tmp_cnf=""
+            if [[ -n "${tmp_cnf}" ]] && _mysql_write_cnf "${tmp_cnf}" "${TM_MYSQL_USER}" "${dbpass}"; then
+                _mysql_try_login "cnf" "${tmp_cnf}" "${TM_MYSQL_PW_FILE} (user ${TM_MYSQL_USER})" || true
+            else
+                log "WARN" "Could not create temporary credentials file"
+            fi
+        else
+            log "WARN" "MySQL/MariaDB password file ${TM_MYSQL_PW_FILE} unreadable or empty"
+        fi
+    fi
+
+    # ---- METHOD 3: /root/mysql.pw via sudo -n ----
+    if [[ -z "${auth_kind}" ]]; then
+        if sudo -n true 2>/dev/null; then
+            local dbpass=""
+            dbpass=$(sudo -n cat /root/mysql.pw 2>/dev/null) || true
+            dbpass="${dbpass%$'\n'}"
+            if [[ -n "${dbpass}" ]]; then
+                if [[ -n "${tmp_cnf}" && -f "${tmp_cnf}" ]]; then rm -f "${tmp_cnf}"; fi
+                tmp_cnf=$(mktemp 2>/dev/null) || tmp_cnf=""
+                if [[ -n "${tmp_cnf}" ]] && _mysql_write_cnf "${tmp_cnf}" "${TM_MYSQL_USER}" "${dbpass}"; then
+                    _mysql_try_login "cnf" "${tmp_cnf}" "/root/mysql.pw (user ${TM_MYSQL_USER})" || true
+                fi
+            else
+                log "WARN" "Cannot read /root/mysql.pw using sudo -n"
+            fi
+        else
+            log "WARN" "sudo -n unavailable; skipping /root/mysql.pw fallback"
+        fi
+    fi
+
+    # ---- METHOD 4: sudo socket login (MariaDB unix_socket auth) ----
+    if [[ -z "${auth_kind}" && "${TM_MYSQL_ALLOW_SUDO_SOCKET}" == "true" ]]; then
+        if sudo -n true 2>/dev/null; then
+            _mysql_try_login "sudo" "" "sudo socket (${mysql_cmd})" || true
+        else
+            log "WARN" "sudo -n unavailable; cannot attempt socket login"
+        fi
+    fi
+
+    # ---- All methods exhausted ----
+    if [[ -z "${auth_kind}" ]]; then
+        log "ERROR" "Failed to retrieve MySQL/MariaDB database list using all supported login methods"
+        log "INFO"  "Tried:"
+        log "INFO"  "  - ${TM_MYSQL_CNF_FILE}"
+        log "INFO"  "  - ${TM_MYSQL_PW_FILE} with user ${TM_MYSQL_USER}"
+        log "INFO"  "  - /root/mysql.pw with user ${TM_MYSQL_USER}"
+        log "INFO"  "  - sudo socket login"
+        log "INFO"  "Suggested checks:"
+        log "INFO"  "  sudo ${mysql_cmd} -e \"SELECT User, Host, plugin FROM mysql.user;\""
+        log "INFO"  "  ${mysql_cmd} -u ${TM_MYSQL_USER} -p -e \"SHOW DATABASES;\""
+        log "INFO"  "  sudo -n ${mysql_cmd} -e \"SHOW DATABASES;\""
+        rc=1
+    else
+        # ---- Filter system databases ----
+        local exclude_pattern=""
+        if [[ -n "${TM_MYSQL_EXCLUDE_DATABASES}" ]]; then
+            exclude_pattern=$(echo "${TM_MYSQL_EXCLUDE_DATABASES}" | tr ',' '|' | tr -d '[:space:]')
+        fi
+        local -a db_array=()
+        local dbname
+        while IFS= read -r dbname; do
+            [[ -z "${dbname}" ]] && continue
+            [[ "${dbname}" == "Database" ]] && continue
+            if [[ -n "${exclude_pattern}" ]] && [[ "${dbname}" =~ ^(${exclude_pattern})$ ]]; then
+                [[ "${TM_MYSQL_DEBUG}" == "true" ]] && log "DEBUG" "Excluding system database: ${dbname}"
+                continue
+            fi
+            db_array+=("${dbname}")
+        done <<< "${raw_dblist}"
+
+        if [[ ${#db_array[@]} -eq 0 ]]; then
+            log "INFO" "No user MySQL/MariaDB databases found to dump after filtering system databases"
+            rc=0
+        else
+            local mysql_dir="${SQL_DIR}/mysql"
+            mkdir -p "${mysql_dir}"
+            local failed=0 db dumpfile tries result err_tmp err_msg
+            err_tmp=$(mktemp 2>/dev/null) || err_tmp="/tmp/.mysqldump_err.$$"
+            for db in "${db_array[@]}"; do
+                dumpfile="${mysql_dir}/${db}.sql"
+                log "INFO" "  Dumping MySQL/MariaDB: ${db}"
+                tries=0; result=1
+                while [[ ${tries} -lt ${TM_DB_DUMP_RETRIES} ]]; do
+                    [[ ${tries} -gt 0 ]] && log "WARN" "  Retry ${tries}/${TM_DB_DUMP_RETRIES} for ${db}"
+                    _mysql_dump_one "${mysqldump_cmd}" "${db}" "${dumpfile}" yes 2>"${err_tmp}"
+                    result=$?
+                    [[ ${result} -eq 0 ]] && break
+                    tries=$((tries + 1))
+                done
+                if [[ ${result} -ne 0 ]]; then
+                    err_msg=$(<"${err_tmp}")
+                    log "WARN" "  Full dump failed for database ${db}, retrying without routines/triggers/events"
+                    [[ "${TM_MYSQL_DEBUG}" == "true" && -n "${err_msg}" ]] && log "DEBUG" "  stderr: ${err_msg}"
+                    _mysql_dump_one "${mysqldump_cmd}" "${db}" "${dumpfile}" no 2>"${err_tmp}"
+                    result=$?
+                    if [[ ${result} -ne 0 ]]; then
+                        err_msg=$(<"${err_tmp}")
+                        log "ERROR" "  Failed to dump MySQL/MariaDB database: ${db}"
+                        [[ -n "${err_msg}" ]] && log "ERROR" "  stderr: ${err_msg}"
+                        failed=1
+                    fi
+                fi
+            done
+            rm -f "${err_tmp}"
+            rc=${failed}
+        fi
+    fi
+
+    # ---- Cleanup (single exit point) ----
+    if [[ -n "${tmp_cnf}" && -f "${tmp_cnf}" ]]; then
+        rm -f "${tmp_cnf}"
+    fi
+    return ${rc}
+}
+
+# Run a single mysqldump/mariadb-dump using the auth method discovered by
+# dump_mysql(). Accesses auth_kind/auth_cnf/host_args from caller via bash
+# dynamic scoping. with_routines="yes" includes --routines/--triggers/--events.
+_mysql_dump_one() {
+    local cmd="$1" db="$2" outfile="$3" with_routines="$4"
+    local -a extra=()
+    [[ "${with_routines}" == "yes" ]] && extra=(--routines --triggers --events)
+    if [[ "${auth_kind}" == "cnf" ]]; then
+        "${cmd}" \
+            --defaults-extra-file="${auth_cnf}" \
+            "${host_args[@]}" \
+            --force --opt --single-transaction \
+            --disable-keys --skip-add-locks \
+            "${extra[@]}" \
+            "${db}" > "${outfile}"
+    else
+        sudo -n "${cmd}" \
+            "${host_args[@]}" \
+            --force --opt --single-transaction \
+            --disable-keys --skip-add-locks \
+            "${extra[@]}" \
+            "${db}" > "${outfile}"
+    fi
 }
 
 # ============================================================

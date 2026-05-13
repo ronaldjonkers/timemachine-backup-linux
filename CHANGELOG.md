@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.9] - 2026-05-13
+
+### Fixed
+- **MySQL/MariaDB dump fails on modern MariaDB 11.x with cryptic "Failed to retrieve MySQL database list"** — The remote-side `dump_dbs.sh` defaulted to the deprecated `mysql` client, hardcoded `user=root`, and silenced every error with `2>/dev/null`, making MariaDB 11.4 socket-auth failures invisible.
+
+### Changed
+- `bin/dump_dbs.sh` MySQL/MariaDB section rewritten:
+  - **Prefers `mariadb` / `mariadb-dump` clients** when available, falls back to `mysql` / `mysqldump`.
+  - **Four login methods tried in order**: (1) `${TM_MYSQL_CNF_FILE}` via `--defaults-extra-file`, (2) `${TM_MYSQL_PW_FILE}` with configurable `${TM_MYSQL_USER}`, (3) `/root/mysql.pw` via `sudo -n`, (4) `sudo -n mariadb` socket login (toggle: `TM_MYSQL_ALLOW_SUDO_SOCKET`). The same method used for `SHOW DATABASES` is reused for the actual dumps.
+  - **Real error messages**: stderr from each failed login attempt is captured and logged (passwords are never on the command line — credentials always go through `chmod 600` temporary `[client]` cnf files, so stderr is safe to log).
+  - **Dump fallback**: if dumping a database fails with `--routines --triggers --events` (insufficient grants is the typical cause on MariaDB 11.x), the script retries the dump without those flags before declaring failure.
+  - **Configurable system-DB filter** via `TM_MYSQL_EXCLUDE_DATABASES` (default: `information_schema,performance_schema,sys,mysql`). An empty result set is no longer treated as failure.
+  - `TM_MYSQL_HOST` now passed as an array element (not interpolated as a word-split string).
+  - New environment knobs: `TM_MYSQL_USER`, `TM_MYSQL_CNF_FILE`, `TM_MYSQL_ALLOW_SUDO_SOCKET`, `TM_MYSQL_DEBUG`, `TM_MYSQL_EXCLUDE_DATABASES`.
+
 ## [3.7.8] - 2026-05-11
 
 ### Fixed
