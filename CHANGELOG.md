@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.11] - 2026-05-18
+
+### Fixed
+- **CRITICAL: silent partial database dumps** — `bin/dump_dbs.sh` produced dumps that were smaller than the source database. Tables came back via `CREATE TABLE`, but `INSERT` statements were truncated or missing, and the script reported success. Root cause: `mysqldump --force` was instructed to continue past errors, `2>/dev/null` hid every diagnostic, and the exit code was therefore always 0. Combined with missing flags (`--column-statistics=0`, `--hex-blob`, `--max-allowed-packet=1G`), a single unreadable table — or `mysqldump 8` querying `information_schema.COLUMN_STATISTICS` on a MariaDB server — silently produced a CREATE-TABLE-only dump.
+
+### Changed
+- `bin/dump_dbs.sh` MySQL/MariaDB section hardened:
+  - `--force` removed; stderr captured to `${db}.sql.err` and the last 20 lines logged on failure.
+  - Atomic write: dump goes to `${db}.sql.tmp`, verified against the trailing `-- Dump completed` marker, then renamed to `${db}.sql` on success or `${db}.sql.partial` on any failure. Partials are kept (best-effort) but unmistakably named so restore tooling/operators skip them.
+  - Per-retry fallback strategy: full flags → drop `--routines/--triggers/--events` → drop `--single-transaction` (use `--lock-tables=false`).
+  - Flags added: `--hex-blob`, `--max-allowed-packet=1G`, `--default-character-set=utf8mb4`, plus probed `--column-statistics=0` (mysqldump 8) and `--set-gtid-purged=OFF` (MySQL with GTID).
+  - Redundant `--disable-keys --skip-add-locks` removed.
+  - `SHOW DATABASES` now uses explicit `-N -B` batch mode; empty result set returns success instead of failing.
+  - Suspiciously small (<1 KB) dumps are flagged in the log.
+- `bin/dump_dbs.sh` PostgreSQL section hardened: stderr captured per DB, atomic `.tmp` + `-- PostgreSQL database dump complete` marker verification, `--clean --if-exists --encoding=UTF8` for idempotent restore, `.partial` markering on failure (same for `_globals.sql`).
+- `bin/dump_dbs.sh` MongoDB section hardened: writes to `mongodb.tmp/`, stderr captured, BSON-count sanity check, renamed to `mongodb/` on success or `mongodb.partial/` on failure.
+- `bin/dump_dbs.sh` SQLite section hardened: primary path is `.backup` (binary, online-safe) with `PRAGMA integrity_check` verification → `${name}.sqlite`. Falls back to `.dump` SQL with `COMMIT;` tail check. Any partial output is renamed to `*.partial`.
+- Compression loop verifies each `.gz` with `gunzip -t` and removes corrupt archives. Also gzips `*.sqlite`, `*.sqlite.partial`, and `*.sql.partial`.
+
 ## [3.7.10] - 2026-05-13
 
 ### Changed
