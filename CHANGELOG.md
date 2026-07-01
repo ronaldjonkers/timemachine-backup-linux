@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.12] - 2026-07-01
+
+### Fixed
+- **CRITICAL: daily file backups silently stopped** — `bin/daily-jobs-check.sh` used `local` at top level (outside any function) in the stale-state-file cleanup path added in v3.7.4. `local` outside a function is a bash error, and under `set -e` (inherited from `lib/common.sh`) it killed the pre-backup check with exit code 1. `daily-runner.sh` then aborted the entire daily run — no file backups, no email. Because the crash happened *before* the stale state file could be cleaned up, the same crash repeated every day: one orphaned `proc-*.state` file (status `running`, dead PID) was enough to permanently stop all daily file backups. Interval DB backups (dispatched directly by `tmserviced.sh`) were unaffected, which made the failure look like "DB backups fine, file backups gone". Fixed by removing the `local` keywords.
+- `bin/watchdog.sh` had the same `local`-outside-function bug in the non-systemd fallback branch. There it made `pidfile` empty, so the watchdog could start a duplicate service every 5 minutes on non-systemd hosts.
+- `bin/daily-runner.sh` `_collect_finished()`: exit code was captured as `rc=$?` *after* `wait ... || true`, so `rc` was always 0 — failed daily backups were reported as "success" in the daily report and the run's exit code stayed 0.
+
+### Added
+- `bin/daily-runner.sh` now sends an **error email when the daily run is aborted** by a failing pre-backup check. A skipped daily run means no file backups that day and the scheduler will not retry until tomorrow — this can never again happen silently.
+- `bin/daily-runner.sh` now sources `lib/notify.sh`, so daily-report and abort emails respect the configured notification methods (email/webhook/slack) and per-event type settings instead of the bare SMTP fallback.
+
 ## [3.7.11] - 2026-05-18
 
 ### Fixed

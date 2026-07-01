@@ -19,6 +19,7 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
 
 source "${SCRIPT_DIR}/../lib/common.sh"
+source "${SCRIPT_DIR}/../lib/notify.sh"
 source "${SCRIPT_DIR}/../lib/report.sh"
 
 tm_load_config
@@ -55,6 +56,20 @@ tm_log "INFO" "Running pre-backup check..."
 
 if ! "${SCRIPT_DIR}/daily-jobs-check.sh"; then
     tm_log "ERROR" "Pre-backup check failed. Aborting daily run."
+    # Alert loudly: an aborted daily run means NO file backups today.
+    # Without this email the failure is invisible (the scheduler already
+    # marked today as done and will not retry).
+    tm_notify "Daily backup run ABORTED: $(hostname)" \
+        "The daily backup run on $(hostname) was aborted because the pre-backup check (daily-jobs-check.sh) failed.
+
+NO file backups will be made today. Interval DB backups continue as normal.
+
+The scheduler will not retry until tomorrow. To run the backups manually:
+  sudo -u \${TM_SERVICE_USER:-timemachine} ${SCRIPT_DIR}/daily-runner.sh
+
+Check the logs:
+  tail -50 ${TM_LOG_DIR}/scheduler.log
+  journalctl -u timemachine -n 50" "error" "backup_fail" || true
     exit 1
 fi
 
@@ -150,8 +165,8 @@ _collect_finished() {
         if kill -0 "${pid}" 2>/dev/null; then
             new_entries+="${entry}"$'\n'
         else
-            wait "${pid}" 2>/dev/null || true
-            local rc=$?
+            local rc=0
+            wait "${pid}" 2>/dev/null || rc=$?
             local srv_end
             srv_end=$(date +%s)
             local srv_duration

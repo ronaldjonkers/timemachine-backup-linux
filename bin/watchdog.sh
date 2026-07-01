@@ -47,9 +47,9 @@ if command -v systemctl &>/dev/null; then
     fi
 else
     # Non-systemd fallback: check PID file
-    local pidfile="${TM_RUN_DIR}/tmserviced.pid"
+    # NOTE: no 'local' here — this is top-level code, not a function.
+    pidfile="${TM_RUN_DIR}/tmserviced.pid"
     if [[ -f "${pidfile}" ]]; then
-        local pid
         pid=$(cat "${pidfile}")
         if ! kill -0 "${pid}" 2>/dev/null; then
             log "PID ${pid} not running — restarting service"

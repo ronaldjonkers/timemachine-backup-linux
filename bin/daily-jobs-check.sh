@@ -48,9 +48,10 @@ for state_file in "${STATE_DIR}"/proc-*.state; do
     if ! kill -0 "${pid}" 2>/dev/null; then
         tm_log "DEBUG" "Cleaning up stale state file for ${srv_host} (PID ${pid} no longer running)"
         # Update status to completed (process exited but state wasn't cleaned up)
-        local content
+        # NOTE: no 'local' here — this runs at top level, not in a function.
+        # 'local' outside a function is a bash error that kills the script
+        # under set -e, silently aborting the entire daily run.
         content=$(cat "${state_file}")
-        local f1 f2 f3 f4 f6 f7
         f1=$(echo "${content}" | cut -d'|' -f1)
         f2=$(echo "${content}" | cut -d'|' -f2)
         f3=$(echo "${content}" | cut -d'|' -f3)
@@ -58,6 +59,7 @@ for state_file in "${STATE_DIR}"/proc-*.state; do
         f6=$(echo "${content}" | cut -d'|' -f6)
         f7=$(echo "${content}" | cut -d'|' -f7)
         echo "${f1}|${f2}|${f3}|${f4}|completed|${f6}|${f7}" > "${state_file}"
+        unset content f1 f2 f3 f4 f6 f7
         continue
     fi
 
