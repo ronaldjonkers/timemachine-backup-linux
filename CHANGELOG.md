@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.15] - 2026-07-02
+
+### Fixed
+- **Web portal: opening snapshots and browsing files was extremely slow** — three endpoints ran `du -sh` synchronously inside the request. A snapshot tree holds millions of hardlinked files, so a single `du` takes minutes; the snapshots modal ran one **per snapshot**, the file browser one **per row**, and the dashboard (`/api/history` + archived servers) one over the **entire host directory** per server. On top of that the 30s `du` timeout meant sizes often came back as `--` after the wait.
+
+### Changed
+- `bin/tm-api-server.py`: directory sizes are now served from a cache (memory + `state/size-cache.json`, survives restarts) and computed by background threads — API responses return instantly. Uncomputed sizes show as `…` and fill in automatically. Cache entries refresh when the directory mtime changes or after 1 hour (catches today's growing snapshot); completed snapshots are computed once, ever. At most 2 concurrent `du` walks so a cold cache can't starve running backups of IO.
+- File browser (`/api/browse`): file sizes now come from `lstat` (instant, exact) instead of one `du` process per entry; directories no longer show a size. Browsing any directory is now instant.
+- `web/app.js`: the snapshots modal polls every 5s while sizes are still being computed (`…`) and updates in place; the dashboard picks new sizes up via its normal refresh cycle.
+- DB versions endpoint: duplicated nested size formatter replaced by a shared module-level `fmt_size()`.
+
 ## [3.7.14] - 2026-07-02
 
 ### Fixed

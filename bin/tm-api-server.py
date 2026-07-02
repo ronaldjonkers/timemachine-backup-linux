@@ -355,13 +355,7 @@ def read_archived_conf():
                 legacy_snaps = sorted([d for d in os.listdir(snap_dir)
                                       if os.path.isdir(os.path.join(snap_dir, d))
                                       and re.match(r'daily\.\d{4}-\d{2}-\d{2}$', d)], reverse=True)
-            total_size = '--'
-            try:
-                result = run_cmd(['du', '-sh', snap_dir], text=True, timeout=30)
-                if result.returncode == 0:
-                    total_size = result.stdout.split()[0]
-            except Exception:
-                pass
+            total_size = du_sh_cached(snap_dir) if os.path.isdir(snap_dir) else '--'
             # Count unique dates (YYYY-MM-DD) across current and legacy formats
             all_dates = set(s[:10] for s in snaps)
             all_dates.update(s[6:] for s in legacy_snaps)  # strip "daily." prefix
@@ -491,12 +485,102 @@ def tail_file(filepath, lines=500):
 
 
 def du_sh(path):
-    """Get human-readable size of a path."""
+    """Get human-readable size of a path. BLOCKING — walks the whole tree,
+    which takes minutes on snapshot dirs with millions of hardlinked files.
+    Never call this inside a request handler; use du_sh_cached() there."""
     try:
-        result = run_cmd(['du', '-sh', path], text=True, timeout=30)
+        result = run_cmd(['du', '-sh', path], text=True, timeout=1800)
         return result.stdout.split('\t')[0].strip() if result.returncode == 0 else '--'
     except Exception:
         return '--'
+
+
+def fmt_size(b):
+    """Format a byte count as a human-readable size (du -h style)."""
+    if b >= 1024**3:
+        return f'{b / 1024**3:.1f}G'
+    if b >= 1024**2:
+        return f'{b / 1024**2:.1f}M'
+    if b >= 1024:
+        return f'{b / 1024:.1f}K'
+    return f'{b}B'
+
+
+# ------------------------------------------------------------
+# Directory-size cache: du sizes are computed in background
+# threads and cached (memory + disk), so API responses return
+# instantly. Completed snapshots never change, so a cached size
+# stays valid; entries are refreshed when the directory mtime
+# changes or after _SIZE_TTL (catches today's growing snapshot).
+# ------------------------------------------------------------
+_size_cache = {}
+_size_cache_lock = threading.Lock()
+_size_inflight = set()
+_SIZE_TTL = 3600  # seconds before a background refresh of a cached size
+# At most 2 concurrent du walks: opening a host with 90 uncached snapshots
+# must not fire 90 parallel du processes and starve running backups of IO.
+_size_sema = threading.Semaphore(2)
+
+
+def _size_cache_file():
+    return os.path.join(state_dir(), 'size-cache.json')
+
+
+def size_cache_load():
+    try:
+        with open(_size_cache_file()) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            with _size_cache_lock:
+                _size_cache.update(data)
+    except Exception:
+        pass
+
+
+def _size_cache_save():
+    try:
+        with _size_cache_lock:
+            data = dict(_size_cache)
+        tmp = _size_cache_file() + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(data, f)
+        os.replace(tmp, _size_cache_file())
+    except Exception:
+        pass
+
+
+def _compute_size_bg(path):
+    with _size_sema:
+        size = du_sh(path)
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        stamp = 0
+    with _size_cache_lock:
+        _size_cache[path] = {'size': size, 'stamp': stamp, 'ts': time.time()}
+        _size_inflight.discard(path)
+    _size_cache_save()
+
+
+def du_sh_cached(path):
+    """Non-blocking directory size: returns the cached value immediately
+    ('…' if never computed yet) and refreshes stale entries in a
+    background thread."""
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        return '--'
+    start = False
+    with _size_cache_lock:
+        entry = _size_cache.get(path)
+        fresh = (entry is not None and entry.get('stamp') == stamp
+                 and time.time() - entry.get('ts', 0) < _SIZE_TTL)
+        if not fresh and path not in _size_inflight:
+            _size_inflight.add(path)
+            start = True
+    if start:
+        threading.Thread(target=_compute_size_bg, args=(path,), daemon=True).start()
+    return entry['size'] if entry else '…'
 
 
 # ============================================================
@@ -962,7 +1046,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     continue
                 if date_str < cutoff:
                     continue
-                sz = du_sh(full)
+                sz = du_sh_cached(full)
                 has_files = os.path.isdir(os.path.join(full, 'files'))
                 has_db = False
                 db_versions = 0
@@ -1037,21 +1121,12 @@ class APIHandler(BaseHTTPRequestHandler):
                         mt, sz = 0, 0
                     files.append({
                         'name': rel,
-                        'size': _fmt_size(sz),
+                        'size': fmt_size(sz),
                         'mtime': datetime.fromtimestamp(mt).strftime('%Y-%m-%d %H:%M:%S') if mt else '--',
                         '_mtime': mt,
                         '_bytes': sz,
                     })
             return sorted(files, key=lambda x: x['name'])
-
-        def _fmt_size(b):
-            if b >= 1024**3:
-                return f'{b / 1024**3:.1f}G'
-            if b >= 1024**2:
-                return f'{b / 1024**2:.1f}M'
-            if b >= 1024:
-                return f'{b / 1024:.1f}K'
-            return f'{b}B'
 
         versions = []
 
@@ -1066,7 +1141,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 'version': 'base',
                 'label': datetime.fromtimestamp(newest).strftime('%H:%M:%S') if newest else '--',
                 'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S') if newest else '--',
-                'size': _fmt_size(total_bytes),
+                'size': fmt_size(total_bytes),
                 'files': clean_files,
                 'download_path': 'sql',
             })
@@ -1088,7 +1163,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 'version': entry,
                 'label': t_label,
                 'time': datetime.fromtimestamp(newest).strftime('%Y-%m-%d %H:%M:%S') if newest else '--',
-                'size': _fmt_size(total_bytes),
+                'size': fmt_size(total_bytes),
                 'files': clean_files,
                 'download_path': 'sql/' + entry,
             })
@@ -1124,9 +1199,17 @@ class APIHandler(BaseHTTPRequestHandler):
         try:
             for name in sorted(os.listdir(browse_dir)):
                 full = os.path.join(browse_dir, name)
-                ftype = 'dir' if os.path.isdir(full) else 'file'
-                sz = du_sh(full)
-                items.append({'name': name, 'type': ftype, 'size': sz})
+                # No du here: one du per row made browsing take minutes.
+                # Files get their exact size via lstat (instant); directories
+                # show no size — computing those means walking every subtree.
+                if os.path.isdir(full):
+                    items.append({'name': name, 'type': 'dir', 'size': ''})
+                else:
+                    try:
+                        sz = fmt_size(os.lstat(full).st_size)
+                    except OSError:
+                        sz = '--'
+                    items.append({'name': name, 'type': 'file', 'size': sz})
         except PermissionError:
             pass
 
@@ -2115,7 +2198,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 all_snaps = snapshots + legacy_snaps
                 if all_snaps:
                     last_backup = sorted(all_snaps)[-1]
-                total_size = du_sh(snap_dir)
+                total_size = du_sh_cached(snap_dir)
 
             # Check last backup status
             last_status = 'ok'
@@ -2345,6 +2428,9 @@ def main():
 
     # Reconcile stale state files: check if "running" PIDs are still alive
     _reconcile_state_files(sd)
+
+    # Load persisted directory-size cache so sizes survive restarts
+    size_cache_load()
 
     server = ThreadedHTTPServer((args.bind, args.port), APIHandler)
     print(f'TimeMachine API server listening on {args.bind}:{args.port}', flush=True)

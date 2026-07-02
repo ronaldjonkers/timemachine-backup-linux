@@ -1383,6 +1383,27 @@ var _snapPage = 0;
 var _snapPerPage = 15;
 var _snapData = [];
 var _snapHost = '';
+var _snapSizeTimer = null;
+
+// Snapshot sizes are computed in the background on the server; a size of
+// '…' means "still calculating". Poll until all sizes are known, as long
+// as the modal stays open on the same host.
+function _pollSnapSizes(hostname, rerender) {
+    if (_snapSizeTimer) { clearTimeout(_snapSizeTimer); _snapSizeTimer = null; }
+    var pending = _snapData.some(function(s) { return s.size === '…'; });
+    if (!pending) return;
+    _snapSizeTimer = setTimeout(async function() {
+        _snapSizeTimer = null;
+        if (document.getElementById('modal-overlay').classList.contains('hidden')) return;
+        if (_snapHost !== hostname) return;
+        var data = await apiGet('/api/snapshots/' + hostname);
+        if (data && data.length > 0 && _snapHost === hostname) {
+            _snapData = data;
+            rerender();
+            _pollSnapSizes(hostname, rerender);
+        }
+    }, 5000);
+}
 
 async function openServerDetail(hostname) {
     // Show loading in modal immediately
@@ -1398,6 +1419,7 @@ async function openServerDetail(hostname) {
     _snapHost = hostname;
     _snapPage = 0;
     _renderServerDetail();
+    _pollSnapSizes(hostname, _renderServerDetail);
 }
 
 function closeServerDetail() {
@@ -1508,6 +1530,7 @@ async function viewSnapshots(hostname, page) {
         '</table>' + pagination;
 
     openModal('Snapshots: ' + hostname + ' (last 3 months)', html);
+    _pollSnapSizes(hostname, function() { viewSnapshots(hostname, _snapPage); });
 }
 
 /* ============================================================
