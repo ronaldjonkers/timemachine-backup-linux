@@ -32,6 +32,20 @@ from pathlib import Path
 
 
 # ============================================================
+# COMPATIBILITY
+# ============================================================
+
+def run_cmd(cmd, timeout=None, cwd=None, text=False):
+    """subprocess.run(capture_output=True) replacement that also works on
+    Python 3.6 (CentOS 7 / RHEL 7), where the capture_output and text
+    keywords do not exist yet and raise
+    "__init__() got an unexpected keyword argument 'capture_output'"."""
+    return subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=text, timeout=timeout, cwd=cwd)
+
+
+# ============================================================
 # CONFIGURATION
 # ============================================================
 
@@ -343,7 +357,7 @@ def read_archived_conf():
                                       and re.match(r'daily\.\d{4}-\d{2}-\d{2}$', d)], reverse=True)
             total_size = '--'
             try:
-                result = subprocess.run(['du', '-sh', snap_dir], capture_output=True, text=True, timeout=30)
+                result = run_cmd(['du', '-sh', snap_dir], text=True, timeout=30)
                 if result.returncode == 0:
                     total_size = result.stdout.split()[0]
             except Exception:
@@ -423,9 +437,7 @@ def delete_server_data_bg(hostname):
         try:
             # Use sudo rm -rf because backup dirs may be owned by root
             # (rsync preserves ownership from remote servers)
-            result = subprocess.run(
-                ['sudo', 'rm', '-rf', snap_dir],
-                capture_output=True, text=True, timeout=3600)
+            result = run_cmd(['sudo', 'rm', '-rf', snap_dir], text=True, timeout=3600)
             if result.returncode == 0 or not os.path.exists(snap_dir):
                 with open(state_file, 'w') as f:
                     f.write(f'completed|{hostname}|{int(time.time())}')
@@ -481,7 +493,7 @@ def tail_file(filepath, lines=500):
 def du_sh(path):
     """Get human-readable size of a path."""
     try:
-        result = subprocess.run(['du', '-sh', path], capture_output=True, text=True, timeout=30)
+        result = run_cmd(['du', '-sh', path], text=True, timeout=30)
         return result.stdout.split('\t')[0].strip() if result.returncode == 0 else '--'
     except Exception:
         return '--'
@@ -569,10 +581,7 @@ class APIHandler(BaseHTTPRequestHandler):
             try:
                 file_size = os.path.getsize(filepath)
             except PermissionError:
-                size_result = subprocess.run(
-                    ['sudo', 'stat', '-c', '%s', filepath],
-                    capture_output=True, timeout=10
-                )
+                size_result = run_cmd(['sudo', 'stat', '-c', '%s', filepath], timeout=10)
                 if size_result.returncode != 0:
                     stderr = size_result.stderr.decode().strip() or 'permission denied'
                     raise PermissionError(f"Cannot stat {filepath}: {stderr}")
@@ -1160,23 +1169,38 @@ class APIHandler(BaseHTTPRequestHandler):
         try:
             if dl_format == 'zip':
                 tmp_archive = f'/tmp/tm-download-{os.getpid()}.zip'
-                subprocess.run(
+                result = run_cmd(
                     ['sudo', 'zip', '-r', tmp_archive, os.path.basename(target)],
-                    cwd=os.path.dirname(target), capture_output=True, timeout=300
-                )
+                    cwd=os.path.dirname(target), text=True, timeout=3600)
+                if result.returncode != 0 or not os.path.isfile(tmp_archive):
+                    err = (result.stderr or '').strip() or f'zip exited with code {result.returncode}'
+                    self._send_json({'error': f'Archive creation failed: {err}'}, 500)
+                    return
                 self._send_download(tmp_archive, f'{base_name}.zip', 'application/zip')
             else:
                 tmp_archive = f'/tmp/tm-download-{os.getpid()}.tar.gz'
-                subprocess.run(
+                result = run_cmd(
                     ['sudo', 'tar', '-czf', tmp_archive, '-C', os.path.dirname(target), os.path.basename(target)],
-                    capture_output=True, timeout=300
-                )
+                    text=True, timeout=3600)
+                # tar exit 1 = "some files differ/changed while reading" — archive is still usable
+                if result.returncode not in (0, 1) or not os.path.isfile(tmp_archive):
+                    err = (result.stderr or '').strip() or f'tar exited with code {result.returncode}'
+                    self._send_json({'error': f'Archive creation failed: {err}'}, 500)
+                    return
                 self._send_download(tmp_archive, f'{base_name}.tar.gz', 'application/gzip')
         except Exception as e:
             self._send_json({'error': str(e)}, 500)
         finally:
             if tmp_archive and os.path.exists(tmp_archive):
-                os.unlink(tmp_archive)
+                try:
+                    os.unlink(tmp_archive)
+                except OSError:
+                    # Archive was created by sudo (root-owned); the sticky bit
+                    # on /tmp blocks unlink by the service user — remove as root.
+                    try:
+                        run_cmd(['sudo', 'rm', '-f', tmp_archive], timeout=30)
+                    except Exception:
+                        pass
 
     def _api_backup_start(self, target_host, body_bytes):
         # Parse query params from the original URL
@@ -2000,7 +2024,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         kernel = ''
         try:
-            kernel = subprocess.check_output(['uname', '-r'], text=True, timeout=5).strip()
+            kernel = subprocess.check_output(['uname', '-r'], universal_newlines=True, timeout=5).strip()
         except Exception:
             pass
 
@@ -2189,7 +2213,7 @@ class APIHandler(BaseHTTPRequestHandler):
             # Get mount point via df (just the mount column)
             mount = br
             try:
-                r = subprocess.run(['df', br], capture_output=True, text=True, timeout=5)
+                r = run_cmd(['df', br], text=True, timeout=5)
                 if r.returncode == 0:
                     lines = r.stdout.strip().splitlines()
                     if len(lines) >= 2:
@@ -2247,8 +2271,7 @@ def _reconcile_state_files(sd):
 
     # 2. Detect orphaned backup processes (running timemachine.sh with no state file)
     try:
-        result = subprocess.run(['ps', '-eo', 'pid,args'],
-                                capture_output=True, text=True, timeout=5)
+        result = run_cmd(['ps', '-eo', 'pid,args'], text=True, timeout=5)
         for line in result.stdout.strip().splitlines():
             if 'timemachine.sh' not in line or '--trigger' not in line:
                 continue

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.14] - 2026-07-02
+
+### Fixed
+- **Directory downloads (tar.gz/zip) from the web interface failed** with `{"error": "__init__() got an unexpected keyword argument 'capture_output'"}` — `bin/tm-api-server.py` used `subprocess.run(capture_output=..., text=...)`, keywords that only exist since Python 3.7. On hosts with Python 3.6 (CentOS 7 / RHEL 7) every such call crashed. Added a `run_cmd()` compat wrapper (uses `stdout/stderr=PIPE` + `universal_newlines`) and converted all 9 call sites: directory downloads, snapshot sizes (`du -sh`), snapshot delete (`sudo rm -rf`), root-owned file size fallback (`sudo stat`), kernel version, disk mount detection (`df`), and orphaned-process detection (`ps`).
+- Archive creation errors are no longer silent: if `sudo zip`/`sudo tar` fails or produces no archive, the API now returns a clear 500 with the actual stderr instead of serving a missing/empty file (`tar` exit 1, "file changed as we read it", is still accepted). Archive timeout raised from 300s to 3600s — large directories legitimately need more than 5 minutes.
+- Temp archive cleanup could fail silently: the archive in `/tmp` is created by root (via sudo) and the sticky bit prevents the service user from unlinking it. Cleanup now falls back to `sudo rm -f`, so `/tmp` no longer accumulates orphaned `tm-download-*` archives.
+
 ## [3.7.13] - 2026-07-02
 
 ### Fixed
