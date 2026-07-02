@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.17] - 2026-07-02
+
+### Fixed
+- Release fix: v3.7.16 was tagged with the `VERSION` file still at 3.7.15 (and a stray `tests/VERSION`), so installations updated to that tag reported the wrong version. No functional changes — deploy this tag instead of v3.7.16.
+
 ## [3.7.16] - 2026-07-02
 
 ### Fixed
