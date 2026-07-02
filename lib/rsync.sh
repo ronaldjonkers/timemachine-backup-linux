@@ -261,7 +261,23 @@ tm_rsync_sql() {
     return 0
 }
 
+# Remove a snapshot directory and VERIFY it is actually gone.
+# Backup dirs are root-owned, so try sudo -n first (never prompts — a
+# password prompt would hang the service forever), then plain rm.
+# Returns 0 only when the directory no longer exists.
+_tm_remove_backup_dir() {
+    local dir="$1"
+    sudo -n rm -rf "${dir}" 2>/dev/null || rm -rf "${dir}" 2>/dev/null
+    if [[ -e "${dir}" ]]; then
+        tm_log "ERROR" "Rotation could not remove ${dir} — check the NOPASSWD sudoers rule for rm (install.sh --reconfigure)"
+        return 1
+    fi
+    return 0
+}
+
 # Rotate old backups beyond retention period
+# TM_RETENTION_DAYS=N keeps at most N calendar days of snapshots
+# (today plus N-1 days back); everything older is removed.
 # Handles:
 #   YYYY-MM-DD          (date-only)
 #   YYYY-MM-DD_HHMMSS   (timestamped)
@@ -272,10 +288,11 @@ tm_rotate_backups() {
 
     tm_log "INFO" "Rotating backups in ${backup_base} (keeping ${retention} days)"
 
-    # Find date-named directories older than retention
+    # Cutoff so that at most `retention` unique dates remain, today included.
+    # Example: retention=7 → cutoff=today-6 → keeps today..today-6 (7 days).
     local cutoff_date
-    cutoff_date=$(date -d "-${retention} days" +'%Y-%m-%d' 2>/dev/null || \
-                  date -v-${retention}d +'%Y-%m-%d' 2>/dev/null)
+    cutoff_date=$(date -d "-$((retention - 1)) days" +'%Y-%m-%d' 2>/dev/null || \
+                  date -v-$((retention - 1))d +'%Y-%m-%d' 2>/dev/null)
 
     if [[ -z "${cutoff_date}" ]]; then
         tm_log "ERROR" "Could not calculate cutoff date for rotation"
@@ -283,6 +300,7 @@ tm_rotate_backups() {
     fi
 
     local count=0
+    local failed=0
 
     # Current format: YYYY-MM-DD and YYYY-MM-DD_HHMMSS
     for dir in "${backup_base}"/????-??-??*; do
@@ -294,8 +312,11 @@ tm_rotate_backups() {
 
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing old backup: ${dir}"
-            sudo rm -rf "${dir}"
-            count=$((count + 1))
+            if _tm_remove_backup_dir "${dir}"; then
+                count=$((count + 1))
+            else
+                failed=$((failed + 1))
+            fi
         fi
     done
 
@@ -309,8 +330,11 @@ tm_rotate_backups() {
 
         if [[ "${dir_date}" < "${cutoff_date}" ]]; then
             tm_log "INFO" "Removing legacy backup: ${dir}"
-            sudo rm -rf "${dir}"
-            count=$((count + 1))
+            if _tm_remove_backup_dir "${dir}"; then
+                count=$((count + 1))
+            else
+                failed=$((failed + 1))
+            fi
         fi
     done
 
@@ -321,9 +345,25 @@ tm_rotate_backups() {
         link_target=$(readlink "${legacy_link}" 2>/dev/null)
         if [[ ! -d "${link_target}" ]]; then
             tm_log "INFO" "Removing stale legacy symlink: ${legacy_link}"
-            sudo rm -f "${legacy_link}"
+            sudo -n rm -f "${legacy_link}" 2>/dev/null || rm -f "${legacy_link}" 2>/dev/null
         fi
     fi
 
+    # Clean up a stale 'latest' symlink pointing at a rotated snapshot
+    local latest_link="${backup_base}/latest"
+    if [[ -L "${latest_link}" ]]; then
+        local latest_target
+        latest_target=$(readlink "${latest_link}" 2>/dev/null)
+        if [[ ! -d "${latest_target}" ]]; then
+            tm_log "INFO" "Removing stale latest symlink: ${latest_link}"
+            sudo -n rm -f "${latest_link}" 2>/dev/null || rm -f "${latest_link}" 2>/dev/null
+        fi
+    fi
+
+    if [[ ${failed} -gt 0 ]]; then
+        tm_log "ERROR" "Rotation for ${backup_base}: removed ${count}, FAILED to remove ${failed} old backup(s)"
+        return 1
+    fi
     tm_log "INFO" "Rotation complete: removed ${count} old backup(s)"
+    return 0
 }

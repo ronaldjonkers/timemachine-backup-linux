@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.16] - 2026-07-02
+
+### Fixed
+- **Retention was not enforced — backup disk slowly filled up.** Rotation only ran as Phase 3 of `timemachine.sh` after a file backup, which means it never ran at all for `--db-only` servers (their daily snapshot dirs with SQL dumps accumulated forever) and was skipped whenever the daily run was aborted or a backup failed early. Rotation is now a guaranteed daily sweep, independent of backup mode or outcome.
+- `tm_rotate_backups` counted every removal as successful without checking: when `sudo rm -rf` failed (e.g. missing sudoers rule), it logged "removed N old backup(s)" while nothing was deleted and the disk kept filling. Removals are now verified (dir must actually be gone), failures are logged as `[ERROR]` (visible in the dashboard failures panel), trigger an error notification, and set a non-zero exit code. `sudo -n` prevents an eternal password-prompt hang; plain `rm` is the fallback.
+- Off-by-one in retention: `TM_RETENTION_DAYS=7` kept 8 calendar days (cutoff was `today-7`). The cutoff is now `today-(N-1)`, so at most N days remain — matching what the setting says.
+- Rotation now also removes a stale `latest` symlink when its target snapshot has been rotated away (previously only the legacy `latest-daily` link was checked).
+
+### Added
+- `bin/rotate-backups.sh` — standalone rotation sweep over all servers in `servers.conf` (respects `--no-rotate`), triggered daily by the scheduler in `tmserviced.sh` (state: `last-rotation-run`, log: `rotation.log`). Can also be run manually (`--dry-run` supported) or from cron.
+- **Disk guard** (runs after the daily sweep): at `TM_DISK_ALERT_PCT` (default 90%) usage of `TM_BACKUP_ROOT` an error notification is sent — the disk can no longer fill up silently.
+- **Emergency purge** (opt-in, `TM_DISK_AUTOPURGE_PCT`, default 0 = off): at the configured usage percentage the oldest snapshot dates across all servers are removed until usage drops below the threshold. The most recent `TM_DISK_AUTOPURGE_MIN_KEEP` dates per server (default 3) are always kept, and `--no-rotate` servers are never touched — not even in an emergency. Every purge sends an error notification.
+
 ## [3.7.15] - 2026-07-02
 
 ### Fixed

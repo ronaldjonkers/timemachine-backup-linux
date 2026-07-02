@@ -712,6 +712,20 @@ _scheduler_loop() {
             tm_log "INFO" "Scheduler: daily run started in background (PID ${_daily_runner_pid})"
         fi
 
+        # ── Guaranteed daily rotation sweep ─────────────────────
+        # Runs independently of the daily backup run, so retention is
+        # enforced even when backups fail, are aborted, or a server is
+        # --db-only (timemachine.sh never rotates those). Without this
+        # sweep the backup disk slowly fills up forever.
+        local last_rotation_file="${STATE_DIR}/last-rotation-run"
+        local last_rotation=""
+        [[ -f "${last_rotation_file}" ]] && last_rotation=$(cat "${last_rotation_file}" 2>/dev/null)
+        if [[ "${last_rotation}" != "${today}" && ${current_time} -ge ${schedule_time} && ${_uptime} -ge 300 ]]; then
+            echo "${today}" > "${last_rotation_file}"
+            tm_log "INFO" "Scheduler: starting daily rotation sweep (retention=${TM_RETENTION_DAYS:-7} days)"
+            "${SCRIPT_DIR}/rotate-backups.sh" >> "${TM_LOG_DIR}/rotation.log" 2>&1 &
+        fi
+
         # ── Interval checks (run every minute, independent of daily run) ──
         if [[ ${_uptime} -ge 300 ]]; then
             # Check DB interval backups
