@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.13] - 2026-07-02
+
+### Fixed
+- **rsync "Permission denied" on files from a previous snapshot** — the *local receiving* rsync ran as the `timemachine` service user without sudo. The original sudo fix only applied to the remote sender (`--rsync-path='sudo rsync'`). When the previous snapshot (used as `--link-dest` basis) contains root-owned files with restrictive modes — `/etc/shadow` (0600/0000), `/etc/gshadow`, setuid binaries like `/usr/bin/sudo` (4111) and `staprun` (4110) — the receiver could not open them as delta basis: `rsync: failed to open "...", continuing: Permission denied`, exit code 23, backup marked FAILED after 5 retries. Surfaced after v3.7.12 restarted the daily file backups against a weeks-old (root-owned) snapshot. `lib/rsync.sh` now runs the local rsync via `sudo -n` (the installer already grants the service user a NOPASSWD rule for rsync); this also restores correct ownership preservation (`-o`/`-g`) on new snapshots. Falls back to plain rsync with a WARN if no sudo rule exists (fix: `install.sh --reconfigure`).
+- **Failure emails never arrived** — on backup failure the *entire* rsync transfer log was embedded in the notification email (`$(cat ...)` with no limit, unlike the backup log which was already capped at 500 lines). After weeks of accumulated changes that log is huge, the SMTP relay rejects the message, and precisely when a backup fails no email is delivered. The email now contains the error lines (max 200) plus the last 200 lines of the transfer log.
+- `lib/notify.sh`: total email body is now capped (default 500 KB, configurable via `TM_EMAIL_MAX_BODY`) with a truncation notice, so a notification can never again be undeliverable due to size.
+- `lib/notify.sh`: the fallback mail tools (`mail`/`mailx`/`msmtp`/`sendmail`) ignored their exit status and always logged "Email sent" — failures are now detected, logged as WARN, and propagated.
+- `bin/timemachine.sh`: when a failure notification cannot be delivered, an `[ERROR]` is logged (visible in the dashboard failures panel) instead of silently continuing; failed success notifications log a WARN.
+
 ## [3.7.12] - 2026-07-01
 
 ### Fixed

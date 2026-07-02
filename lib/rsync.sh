@@ -9,7 +9,23 @@
 # Build the base rsync command with common options
 _tm_rsync_base_cmd() {
     local rsync_flags="${TM_RSYNC_FLAGS[*]}"
-    local cmd="rsync ${rsync_flags} --delete"
+
+    # The local (receiving) rsync must run as root: previous snapshots contain
+    # root-owned files with restrictive modes (/etc/shadow 0600/0000, setuid
+    # binaries like /usr/bin/sudo 4111) that a non-root receiver cannot open
+    # as --link-dest basis ("failed to open ... Permission denied", exit 23).
+    # Root is also required to preserve ownership (-o/-g) on new snapshots.
+    # The installer grants the service user NOPASSWD sudo for rsync.
+    local rsync_bin="rsync"
+    if [[ ${EUID} -ne 0 ]]; then
+        if command -v sudo &>/dev/null && sudo -n rsync --version &>/dev/null; then
+            rsync_bin="sudo -n rsync"
+        else
+            tm_log "WARN" "No NOPASSWD sudo rule for rsync — running local rsync as $(whoami); root-owned files in previous snapshots may fail. Run 'install.sh --reconfigure' to fix sudoers."
+        fi
+    fi
+
+    local cmd="${rsync_bin} ${rsync_flags} --delete"
 
     if [[ "${TM_RSYNC_BW_LIMIT:-0}" -gt 0 ]]; then
         cmd+=" --bwlimit=${TM_RSYNC_BW_LIMIT}"

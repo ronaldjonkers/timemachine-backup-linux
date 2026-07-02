@@ -269,19 +269,38 @@ Disk free:  ${disk_free:-unknown}"
 
     if [[ ${exit_code} -eq 0 ]]; then
         # Success: concise email with status only — no logs
-        tm_notify "Backup OK: ${HOSTNAME}" "${email_summary}" "info" "backup_ok" "${HOSTNAME}" || true
+        tm_notify "Backup OK: ${HOSTNAME}" "${email_summary}" "info" "backup_ok" "${HOSTNAME}" || \
+            tm_log "WARN" "Failed to send success notification for ${HOSTNAME}"
     else
         # Failure: include full diagnostic logs for debugging
         local email_body="${email_summary}"
 
-        # Append rsync transfer log if available
+        # Append rsync transfer log if available — never the full log: it can
+        # be millions of lines and makes the email undeliverable (SMTP relays
+        # reject it), so exactly when a backup fails no email would arrive.
         if [[ -n "${_TM_RSYNC_LOGFILE:-}" && -f "${_TM_RSYNC_LOGFILE}" ]]; then
+            local rsync_log_lines rsync_errors rsync_tail
+            rsync_log_lines=$(wc -l < "${_TM_RSYNC_LOGFILE}" 2>/dev/null) || rsync_log_lines=0
+            rsync_errors=$(grep -aiE 'rsync:|rsync error:|permission denied|failed' "${_TM_RSYNC_LOGFILE}" 2>/dev/null | head -200) || rsync_errors=""
+            rsync_tail=$(tail -200 "${_TM_RSYNC_LOGFILE}" 2>/dev/null) || rsync_tail="(could not read log)"
+            local rsync_header="RSYNC TRANSFER LOG (${_TM_RSYNC_LOGFILE##*/})"
+            if [[ ${rsync_log_lines} -gt 200 ]]; then
+                rsync_header+=" — error lines + last 200 of ${rsync_log_lines} lines"
+            fi
             email_body+="
 
 ============================================================
-RSYNC TRANSFER LOG (${_TM_RSYNC_LOGFILE##*/})
-============================================================
-$(cat "${_TM_RSYNC_LOGFILE}" 2>/dev/null)"
+${rsync_header}
+============================================================"
+            if [[ -n "${rsync_errors}" ]]; then
+                email_body+="
+--- Error lines (max 200) ---
+${rsync_errors}
+
+--- Last 200 lines ---"
+            fi
+            email_body+="
+${rsync_tail}"
         fi
 
         # Append database output if any
@@ -313,7 +332,8 @@ ${log_header}
 ${log_content}"
         fi
 
-        tm_notify "Backup FAILED: ${HOSTNAME}" "${email_body}" "error" "backup_fail" "${HOSTNAME}" || true
+        tm_notify "Backup FAILED: ${HOSTNAME}" "${email_body}" "error" "backup_fail" "${HOSTNAME}" || \
+            tm_log "ERROR" "Failed to send failure notification for ${HOSTNAME} — check TM_SMTP_HOST/TM_ALERT_EMAIL and notification settings"
     fi
 
     return ${exit_code}

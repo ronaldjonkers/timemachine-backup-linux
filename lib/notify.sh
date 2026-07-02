@@ -168,6 +168,17 @@ _tm_send_email() {
     local body="$2"
     local recipients="$3"
 
+    # Safety cap: SMTP relays reject very large messages (typically 25-50 MB).
+    # An oversized body means the email silently never arrives — truncate
+    # instead so the notification always gets delivered.
+    local max_body="${TM_EMAIL_MAX_BODY:-500000}"
+    if [[ ${#body} -gt ${max_body} ]]; then
+        tm_log "WARN" "Email body truncated from ${#body} to ${max_body} bytes: ${subject}"
+        body="${body:0:${max_body}}
+
+[... email body truncated at ${max_body} bytes — see the logs on the backup server for full output ...]"
+    fi
+
     # 1. SMTP relay via Python (preferred — always works, no local MTA needed)
     if [[ -n "${TM_SMTP_HOST:-}" ]] && _tm_send_email_smtp "${subject}" "${body}" "${recipients}"; then
         tm_log "INFO" "Email sent to ${recipients}: ${subject}"
@@ -175,16 +186,22 @@ _tm_send_email() {
     fi
 
     # 2. Fallback to local mail tools (only works if local MTA is configured)
+    local rc=0
     if command -v mail &>/dev/null; then
-        echo "${body}" | mail -s "${subject}" "${recipients}" 2>/dev/null
+        echo "${body}" | mail -s "${subject}" "${recipients}" 2>/dev/null || rc=$?
     elif command -v mailx &>/dev/null; then
-        echo "${body}" | mailx -s "${subject}" "${recipients}" 2>/dev/null
+        echo "${body}" | mailx -s "${subject}" "${recipients}" 2>/dev/null || rc=$?
     elif command -v msmtp &>/dev/null; then
-        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | msmtp "${recipients}" 2>/dev/null
+        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | msmtp "${recipients}" 2>/dev/null || rc=$?
     elif command -v sendmail &>/dev/null; then
-        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | sendmail "${recipients}" 2>/dev/null
+        printf "To: %s\nSubject: %s\n\n%s\n" "${recipients}" "${subject}" "${body}" | sendmail "${recipients}" 2>/dev/null || rc=$?
     else
         tm_log "WARN" "No mail method available. Set TM_SMTP_HOST in .env for SMTP relay, or install a local MTA"
+        return 1
+    fi
+
+    if [[ ${rc} -ne 0 ]]; then
+        tm_log "WARN" "Local mail tool failed (exit ${rc}) sending to ${recipients}: ${subject}"
         return 1
     fi
 
