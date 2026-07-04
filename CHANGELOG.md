@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.19] - 2026-07-04
+
+### Added
+- `tmctl stop-all` — stops ALL running backups at once: the daily runner (so it can't spawn new jobs mid-stop) plus every backup marked running in the state dir. Kills the entire process tree (timemachine.sh → sudo → rsync → ssh), so no orphaned rsync transfers keep running. State files are updated to `killed` (visible in dashboard/reports), the kill is logged in each backup log, and stale per-host lock files are cleaned up.
+- `tmctl daily-now` (alias `run-daily`) — runs `stop-all`, then starts the daily backup process immediately, regardless of the configured schedule time. Marks today as done for the scheduler so the regular schedule won't trigger a duplicate run later in the day. Runs detached as the service user (survives closing your terminal); duplicates are prevented by the existing daily-runner lock.
+
 ## [3.7.18] - 2026-07-04
 
 ### Fixed

@@ -261,6 +261,143 @@ cmd_kill() {
     fi
 }
 
+# List all descendant PIDs of a process (children, grandchildren, ...)
+_descendants() {
+    local pid="$1" child
+    for child in $(pgrep -P "${pid}" 2>/dev/null); do
+        echo "${child}"
+        _descendants "${child}"
+    done
+}
+
+# Kill a process and its whole tree (rsync/ssh children included).
+# Parent first so retry loops can't spawn new attempts, then the tree.
+_kill_tree() {
+    local pid="$1"
+    local desc
+    desc=$(_descendants "${pid}")
+    kill -TERM "${pid}" 2>/dev/null
+    [[ -n "${desc}" ]] && kill -TERM ${desc} 2>/dev/null
+    sleep 2
+    kill -0 "${pid}" 2>/dev/null && kill -9 "${pid}" 2>/dev/null
+    local d
+    for d in ${desc}; do
+        kill -0 "${d}" 2>/dev/null && kill -9 "${d}" 2>/dev/null
+    done
+    return 0
+}
+
+# Run a command as the backup service user (state/log files must stay
+# owned by that user, otherwise the scheduler can no longer write them)
+_run_as_tm_user() {
+    local tm_user="${TM_USER:-timemachine}"
+    if [[ "$(whoami)" == "${tm_user}" ]]; then
+        bash -c "$1"
+    elif [[ ${EUID} -eq 0 ]]; then
+        sudo -n -u "${tm_user}" bash -c "$1"
+    else
+        echo -e "${RED}This command must run as root or as user '${tm_user}'${NC}" >&2
+        return 1
+    fi
+}
+
+cmd_stop_all() {
+    echo -e "${BOLD}Stopping all running backups...${NC}"
+
+    local stopped=0
+
+    # 1. Stop the daily runner first so it cannot spawn new jobs while
+    #    we are killing the current ones (its tree includes its backups)
+    local dr_pidfile="${TM_RUN_DIR}/daily-runner.pid"
+    if [[ -f "${dr_pidfile}" ]]; then
+        local dr_pid
+        dr_pid=$(cat "${dr_pidfile}" 2>/dev/null)
+        if [[ -n "${dr_pid}" ]] && kill -0 "${dr_pid}" 2>/dev/null; then
+            echo "  Stopping daily-runner (PID ${dr_pid})"
+            _kill_tree "${dr_pid}"
+            stopped=$((stopped + 1))
+        fi
+        rm -f "${dr_pidfile}"
+    fi
+
+    # 2. Kill every backup that is still marked running in the state dir
+    local state_file
+    for state_file in "${TM_STATE_DIR}"/proc-*.state; do
+        [[ -f "${state_file}" ]] || continue
+        local content pid hostname status logfile
+        content=$(cat "${state_file}" 2>/dev/null)
+        pid=$(echo "${content}" | cut -d'|' -f1)
+        hostname=$(echo "${content}" | cut -d'|' -f2)
+        status=$(echo "${content}" | cut -d'|' -f5)
+        logfile=$(echo "${content}" | cut -d'|' -f6)
+
+        [[ "${status}" == "running" ]] || continue
+
+        if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+            echo "  Stopping backup for ${hostname} (PID ${pid})"
+            _kill_tree "${pid}"
+            stopped=$((stopped + 1))
+            if [[ -n "${logfile}" && -f "${logfile}" ]]; then
+                echo "[$(date +'%Y-%m-%d %H:%M:%S')] [WARN ] Backup killed by 'tmctl stop-all' (PID ${pid})" >> "${logfile}" 2>/dev/null
+            fi
+        fi
+        # Mark as killed so dashboard/reports show the truth
+        sed -i 's/|running|/|killed|/' "${state_file}" 2>/dev/null || \
+            sed -i '' 's/|running|/|killed|/' "${state_file}" 2>/dev/null
+    done
+
+    # 3. Clean up per-host backup lock files of processes that are gone
+    local lockfile
+    for lockfile in "${TM_RUN_DIR}"/backup-*.pid; do
+        [[ -f "${lockfile}" ]] || continue
+        local lpid
+        lpid=$(cat "${lockfile}" 2>/dev/null)
+        if [[ -z "${lpid}" ]] || ! kill -0 "${lpid}" 2>/dev/null; then
+            rm -f "${lockfile}"
+        fi
+    done
+
+    if [[ ${stopped} -eq 0 ]]; then
+        echo -e "  ${CYAN}No running backups found${NC}"
+    else
+        echo -e "  ${GREEN}Stopped ${stopped} process(es)${NC}"
+    fi
+}
+
+cmd_daily_now() {
+    cmd_stop_all
+    echo ""
+    echo -e "${BOLD}Starting daily backup run now...${NC}"
+
+    local tm_user="${TM_USER:-timemachine}"
+
+    # Mark today as done for the scheduler so it will not trigger a second
+    # daily run at the regular schedule time
+    local today
+    today=$(tm_date_today)
+    _run_as_tm_user "echo '${today}' > '${TM_STATE_DIR}/last-daily-run'" || return 1
+
+    # Start daily-runner detached (setsid when available) so it survives
+    # this shell, exactly like the scheduler does. Its own lock prevents
+    # duplicate runs.
+    _run_as_tm_user "if command -v setsid >/dev/null 2>&1; then
+            setsid nohup '${SCRIPT_DIR}/daily-runner.sh' >> '${TM_LOG_DIR}/scheduler.log' 2>&1 &
+        else
+            nohup '${SCRIPT_DIR}/daily-runner.sh' >> '${TM_LOG_DIR}/scheduler.log' 2>&1 &
+        fi
+        echo \$!" | {
+        read -r dr_pid
+        if [[ -n "${dr_pid}" ]]; then
+            echo -e "  ${GREEN}Daily run started${NC} (PID ${dr_pid})"
+            echo "  Follow progress:  tail -f ${TM_LOG_DIR}/scheduler.log"
+            echo "  Process status:   tmctl ps"
+        else
+            echo -e "  ${RED}Failed to start daily-runner.sh${NC}"
+            return 1
+        fi
+    }
+}
+
 cmd_backup() {
     local hostname="$1"
     shift
@@ -1093,6 +1230,8 @@ usage() {
     echo "  status              Show service status and processes"
     echo "  ps                  List backup processes"
     echo "  kill <hostname>     Kill a running backup"
+    echo "  stop-all            Stop ALL running backups (incl. daily runner)"
+    echo "  daily-now           Stop all backups, then start the daily run immediately"
     echo "  backup <hostname>   Start a backup"
     echo "  restore <hostname>  Restore from backup"
     echo "  logs [hostname]     Show logs"
@@ -1118,6 +1257,8 @@ case "${COMMAND}" in
     status)     cmd_status ;;
     ps)         cmd_ps ;;
     kill)       cmd_kill "$@" ;;
+    stop-all|stopall)      cmd_stop_all ;;
+    daily-now|run-daily)   cmd_daily_now ;;
     backup)     cmd_backup "$@" ;;
     restore)    exec "${SCRIPT_DIR}/restore.sh" "$@" ;;
     logs|log)   cmd_logs "$@" ;;
