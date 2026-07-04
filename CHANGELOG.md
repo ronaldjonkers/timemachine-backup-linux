@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.0] - 2026-07-04
+
+### Security (phase 1 — defense in depth)
+- **API bound to localhost by default** (`TM_API_BIND=127.0.0.1`). The API has no transport security of its own; previously it listened on `0.0.0.0:7600`, so anyone who could reach the port could download every backup without any login. External access now goes exclusively through the nginx reverse proxy. Direct access without nginx: set `TM_API_BIND=0.0.0.0` in `.env` (and firewall the port). **Breaking** for setups that accessed `:7600` directly.
+- **Proxy key**: `tmctl setup-web` generates a shared secret (`TM_PROXY_KEY` in `.env`, injected by nginx as `X-TM-Proxy-Key`). When set, the API rejects every request without it — an accidentally exposed API port is useless. `tmctl` sends the key automatically for local CLI calls.
+- **Audit log** (`logs/audit.log`, JSON lines): downloads, restores, backup start/kill, server deletes, dismiss-all, logins/logouts and passkey registrations — with user and IP.
+
+### Added (phase 2+3 — sessions + passkeys)
+- **Passkey (WebAuthn) login** for the dashboard, replacing HTTP Basic Auth. New `bin/tm_portal_auth.py` module: SQLite-backed users/credentials/sessions/registration-tokens (`state/portal.db`), usernameless discoverable-credential login, multiple passkeys per user. Requires the `fido2` Python package (installer attempts `pip3 install fido2` best-effort; needs Python 3.8+) and `TM_PORTAL_DOMAIN` (written by `tmctl setup-web`). Without fido2 everything keeps working exactly as before (legacy mode: nginx Basic Auth via the existing htpasswd).
+- **Session layer**: HttpOnly/Secure/SameSite=Strict cookies, 24h sliding lifetime (`TM_SESSION_HOURS`), server-side stored as SHA-256. Once the first passkey is registered the API enforces sessions on every endpoint (exempt: auth endpoints, `/api/ssh-key/raw` for client installs, static files). Local `tmctl` keeps working via localhost + proxy key (nginx traffic is recognized by `X-Forwarded-For` and always requires a session).
+- **`tmctl auth`**: `setup <user>` (create admin + one-time registration link, 72h valid), `link <user>` (extra/lost passkey), `list`, `revoke <user>`, `status`, and `basic on|off` to toggle the nginx htpasswd login — `basic off` refuses to run while no passkey is registered, so you can never lock the door open.
+- Web: `login.html` (passkey sign-in) and `register.html` (one-time-token passkey registration); dashboard redirects to login on 401, shows the signed-in user and a Logout button. Existing htpasswd stays untouched as fallback until you disable it.
+
+### Changed
+- `tmctl setup-web` now also writes `TM_PORTAL_DOMAIN`, generates the proxy key, serves `login.html`/`register.html`, and prints the passkey enablement steps.
+
 ## [3.7.21] - 2026-07-04
 
 ### Added

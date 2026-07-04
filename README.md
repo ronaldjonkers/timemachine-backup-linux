@@ -57,7 +57,7 @@ curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-lin
 - **Backup intervals** — Configure `--backup-interval Xh` per server for multiple full backups per day, plus `--db-interval Xh` for extra database-only backups
 - **Overrun detection** — Automatic alert when daily backup run exceeds the time limit, with per-server status (completed/running/pending)
 - **Parallel execution** — Back up multiple servers simultaneously with priority ordering
-- **Dashboard security** — HTTPS via Let's Encrypt + HTTP Basic Auth via Nginx reverse proxy
+- **Dashboard security** — HTTPS via Let's Encrypt + **passkey (WebAuthn) login** with session management, audit log, and a proxy-key-guarded API bound to localhost. HTTP Basic Auth remains available as fallback (`tmctl auth setup <user>` to enable passkeys, `tmctl auth basic off` to drop the password login)
 - **Multi-channel notifications** — Email reports, HTTP POST webhooks, Slack alerts
 - **Encryption** — GPG-based symmetric or asymmetric backup encryption
 - **SSH key distribution** — Auto-download SSH keys from the backup server API (HTTPS/HTTP fallback)

@@ -885,6 +885,19 @@ server_ask_dashboard_security() {
         info "Using report email for Let's Encrypt: ${le_email}"
     fi
 
+    # --- Passkey support (optional, best effort) ---
+    # The fido2 package enables passkey (WebAuthn) login for the dashboard.
+    # Needs Python 3.8+; on older systems the dashboard keeps Basic Auth.
+    if ! python3 -c 'import fido2' 2>/dev/null; then
+        info "Installing Python 'fido2' package for passkey login (optional)..."
+        if command -v pip3 &>/dev/null; then
+            pip3 install -q fido2 2>/dev/null || \
+                warn "Could not install 'fido2' — passkey login stays unavailable until: pip3 install fido2"
+        else
+            warn "pip3 not found — for passkey login install python3-pip and run: pip3 install fido2"
+        fi
+    fi
+
     # --- Run setup-web.sh ---
     if [[ -f "${INSTALL_DIR}/bin/setup-web.sh" ]]; then
         echo ""

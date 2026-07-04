@@ -313,6 +313,7 @@ configure_nginx() {
     location = /api/ssh-key/raw {
         auth_basic off;
         proxy_pass http://127.0.0.1:${TM_API_PORT};
+        proxy_set_header X-TM-Proxy-Key \"${TM_PROXY_KEY}\";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -375,7 +376,7 @@ ${ssh_key_location}
         root ${TM_PROJECT_ROOT}/web;
         try_files /index.html =404;
     }
-    location ~* ^/(index\\.html|style\\.css|app\\.js|favicon\\.ico)\$ {
+    location ~* ^/(index\\.html|login\\.html|register\\.html|style\\.css|app\\.js|favicon\\.ico)\$ {
         root ${TM_PROJECT_ROOT}/web;
         add_header Cache-Control "no-cache";
     }
@@ -383,6 +384,7 @@ ${ssh_key_location}
     # Proxy all /api/ requests to TimeMachine service
     location /api/ {
         proxy_pass http://127.0.0.1:${TM_API_PORT};
+        proxy_set_header X-TM-Proxy-Key "${TM_PROXY_KEY}";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -566,6 +568,44 @@ configure_firewall() {
 # BIND API TO LOCALHOST ONLY
 # ============================================================
 
+# Upsert a KEY="value" line in .env
+_upsert_env() {
+    local key="$1" value="$2"
+    local env_file="${TM_PROJECT_ROOT}/.env"
+    touch "${env_file}"
+    if grep -q "^${key}=" "${env_file}"; then
+        sed -i.bak "s|^${key}=.*|${key}=\"${value}\"|" "${env_file}" 2>/dev/null || \
+        sed -i '' "s|^${key}=.*|${key}=\"${value}\"|" "${env_file}"
+        rm -f "${env_file}.bak"
+    else
+        echo "${key}=\"${value}\"" >> "${env_file}"
+    fi
+}
+
+configure_portal_env() {
+    local env_file="${TM_PROJECT_ROOT}/.env"
+    touch "${env_file}"
+
+    # Proxy key: the API refuses every request without this header, so an
+    # accidentally exposed API port is useless — only nginx (which injects
+    # the header) can reach the API.
+    TM_PROXY_KEY=$(sed -n 's/^TM_PROXY_KEY=//p' "${env_file}" | head -1 | tr -d '"' | tr -d "'")
+    if [[ -z "${TM_PROXY_KEY}" ]]; then
+        TM_PROXY_KEY=$(openssl rand -hex 32 2>/dev/null) || \
+            TM_PROXY_KEY=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+        _upsert_env "TM_PROXY_KEY" "${TM_PROXY_KEY}"
+        info "Generated API proxy key (API only reachable through nginx)"
+    fi
+
+    # Portal domain: required for passkey (WebAuthn) login
+    if [[ -n "${DOMAIN:-}" && "${DOMAIN}" != "_" ]]; then
+        _upsert_env "TM_PORTAL_DOMAIN" "${DOMAIN}"
+        info "Portal domain for passkeys: ${DOMAIN}"
+    fi
+
+    chmod 600 "${env_file}" 2>/dev/null || true
+}
+
 secure_api_bind() {
     # Ensure the TimeMachine API only listens on localhost
     # so it's only accessible through nginx
@@ -640,6 +680,11 @@ finalize() {
     echo ""
     echo -e "  To change the password:"
     echo -e "    ${CYAN}sudo htpasswd -B ${HTPASSWD_FILE} ${AUTH_USER}${NC}"
+    echo ""
+    echo -e "  ${BOLD}Passkeys (recommended):${NC} replace the password login with passkeys:"
+    echo -e "    ${CYAN}pip3 install fido2${NC}          (needs Python 3.8+)"
+    echo -e "    ${CYAN}sudo tmctl auth setup <username>${NC}   (prints a one-time registration link)"
+    echo -e "    ${CYAN}sudo tmctl auth basic off${NC}          (after your passkey works)"
     echo ""
     echo -e "  To add another user:"
     echo -e "    ${CYAN}sudo htpasswd -B ${HTPASSWD_FILE} <username>${NC}"
@@ -739,6 +784,7 @@ configure_nginx_self_signed() {
     location = /api/ssh-key/raw {
         auth_basic off;
         proxy_pass http://127.0.0.1:${TM_API_PORT};
+        proxy_set_header X-TM-Proxy-Key \"${TM_PROXY_KEY}\";
         proxy_set_header Host \\\$host;
         proxy_set_header X-Real-IP \\\$remote_addr;
     }"
@@ -771,7 +817,7 @@ server {
         root ${TM_PROJECT_ROOT}/web;
         try_files /index.html =404;
     }
-    location ~* ^/(index\\.html|style\\.css|app\\.js|favicon\\.ico)\$ {
+    location ~* ^/(index\\.html|login\\.html|register\\.html|style\\.css|app\\.js|favicon\\.ico)\$ {
         root ${TM_PROJECT_ROOT}/web;
         add_header Cache-Control "no-cache";
     }
@@ -779,6 +825,7 @@ server {
     # Proxy all /api/ requests to TimeMachine service
     location /api/ {
         proxy_pass http://127.0.0.1:${TM_API_PORT};
+        proxy_set_header X-TM-Proxy-Key "${TM_PROXY_KEY}";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -864,6 +911,7 @@ main() {
         fi
 
         generate_self_signed
+        configure_portal_env
         configure_nginx_self_signed
         configure_firewall
         secure_api_bind
@@ -901,6 +949,7 @@ main() {
     prompt_config
     install_deps
     create_htpasswd
+    configure_portal_env
     configure_nginx
     obtain_ssl
     configure_firewall

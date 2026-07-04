@@ -58,11 +58,15 @@ NC=$'\033[0m'
 
 _has_curl() { command -v curl &>/dev/null; }
 
-# Try API first, fall back to direct file access
+# Try API first, fall back to direct file access.
+# The proxy key (when configured) authenticates local CLI calls — the API
+# refuses requests without it once setup-web has run.
 _api_get() {
     local endpoint="$1"
     if _has_curl; then
-        curl -s --connect-timeout 3 "${TM_API_URL}${endpoint}" 2>/dev/null
+        curl -s --connect-timeout 3 \
+            ${TM_PROXY_KEY:+-H "X-TM-Proxy-Key: ${TM_PROXY_KEY}"} \
+            "${TM_API_URL}${endpoint}" 2>/dev/null
     fi
 }
 
@@ -72,10 +76,13 @@ _api_post() {
     if _has_curl; then
         if [[ -n "${body}" ]]; then
             curl -s --connect-timeout 3 -X POST \
+                ${TM_PROXY_KEY:+-H "X-TM-Proxy-Key: ${TM_PROXY_KEY}"} \
                 -H "Content-Type: application/json" \
                 -d "${body}" "${TM_API_URL}${endpoint}" 2>/dev/null
         else
-            curl -s --connect-timeout 3 -X POST "${TM_API_URL}${endpoint}" 2>/dev/null
+            curl -s --connect-timeout 3 -X POST \
+                ${TM_PROXY_KEY:+-H "X-TM-Proxy-Key: ${TM_PROXY_KEY}"} \
+                "${TM_API_URL}${endpoint}" 2>/dev/null
         fi
     fi
 }
@@ -83,7 +90,9 @@ _api_post() {
 _api_delete() {
     local endpoint="$1"
     if _has_curl; then
-        curl -s --connect-timeout 3 -X DELETE "${TM_API_URL}${endpoint}" 2>/dev/null
+        curl -s --connect-timeout 3 -X DELETE \
+            ${TM_PROXY_KEY:+-H "X-TM-Proxy-Key: ${TM_PROXY_KEY}"} \
+            "${TM_API_URL}${endpoint}" 2>/dev/null
     fi
 }
 
@@ -396,6 +405,101 @@ cmd_daily_now() {
             return 1
         fi
     }
+}
+
+# ============================================================
+# PORTAL AUTH (passkeys)
+# ============================================================
+
+_auth_python() {
+    local p
+    for p in python3 python; do
+        command -v "${p}" &>/dev/null && { echo "${p}"; return 0; }
+    done
+    echo -e "${RED}python3 is required for portal auth${NC}" >&2
+    return 1
+}
+
+cmd_auth() {
+    local sub="${1:-status}"
+    shift 2>/dev/null || true
+    local py
+    py=$(_auth_python) || exit 1
+    local helper="${SCRIPT_DIR}/tm_portal_auth.py"
+
+    case "${sub}" in
+        setup)
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl auth setup <username>"; exit 1; }
+            if ! "${py}" -c 'import fido2' 2>/dev/null; then
+                echo -e "${YELLOW}The 'fido2' Python package is missing (needed for passkeys).${NC}"
+                echo -e "Install it first:  ${CYAN}pip3 install fido2${NC}   (requires Python 3.8+)"
+                exit 1
+            fi
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" create-admin "$1"
+            echo ""
+            echo "Open the link in your browser and create your passkey."
+            echo "When it works, disable the password login with: tmctl auth basic off"
+            ;;
+        link)
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl auth link <username>"; exit 1; }
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" new-link "$1"
+            ;;
+        list)    TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" list ;;
+        revoke)
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl auth revoke <username>"; exit 1; }
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" revoke "$1"
+            ;;
+        status)  TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" status ;;
+        basic)   cmd_auth_basic "${1:-}" ;;
+        *)
+            echo "Usage: tmctl auth <setup|link|list|revoke|status|basic>"
+            echo ""
+            echo "  setup <user>    Create an admin user + one-time passkey registration link"
+            echo "  link <user>     New registration link (extra passkey or lost passkey)"
+            echo "  list            List portal users"
+            echo "  revoke <user>   Disable a user (removes passkeys and sessions)"
+            echo "  status          Show auth mode and configuration"
+            echo "  basic <on|off>  Enable/disable nginx Basic Auth (htpasswd)"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_auth_basic() {
+    local mode="$1"
+    [[ "${mode}" != "on" && "${mode}" != "off" ]] && { echo "Usage: tmctl auth basic <on|off>"; exit 1; }
+
+    local conf=""
+    local c
+    for c in /etc/nginx/sites-available/timemachine /etc/nginx/conf.d/timemachine.conf; do
+        [[ -f "${c}" ]] && { conf="${c}"; break; }
+    done
+    [[ -z "${conf}" ]] && { echo -e "${RED}No nginx config found — run 'tmctl setup-web' first${NC}"; exit 1; }
+
+    if [[ "${mode}" == "off" ]]; then
+        # Safety: never remove basic auth while no passkey is registered,
+        # that would leave the dashboard wide open
+        local pk_mode
+        pk_mode=$(cmd_auth status 2>/dev/null | grep 'passkey mode' || true)
+        if ! echo "${pk_mode}" | grep -q 'ENFORCED'; then
+            echo -e "${RED}Refusing: no active passkey registered yet.${NC}"
+            echo "First run 'tmctl auth setup <user>' and register a passkey, then retry."
+            exit 1
+        fi
+        sed -i.bak -E 's|^([[:space:]]*)(auth_basic[[:space:]]+"TimeMachine Dashboard";)|\1# \2|; s|^([[:space:]]*)(auth_basic_user_file[[:space:]].*;)|\1# \2|' "${conf}"
+    else
+        sed -i.bak -E 's|^([[:space:]]*)#[[:space:]]*(auth_basic[[:space:]]+"TimeMachine Dashboard";)|\1\2|; s|^([[:space:]]*)#[[:space:]]*(auth_basic_user_file[[:space:]].*;)|\1\2|' "${conf}"
+    fi
+    rm -f "${conf}.bak"
+
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null
+        echo -e "${GREEN}Basic auth ${mode}${NC} (nginx reloaded)"
+        [[ "${mode}" == "off" ]] && echo "The dashboard now uses passkey login only."
+    else
+        echo -e "${RED}nginx config test failed — reverting is recommended (tmctl auth basic on)${NC}"
+        exit 1
+    fi
 }
 
 cmd_backup() {
@@ -1242,6 +1346,7 @@ usage() {
     echo "  snapshots <host>    List snapshots"
     echo "  ssh-key             Show SSH public key"
     echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
+    echo "  auth <subcommand>   Passkey login: setup/link/list/revoke/status/basic on|off"
     echo "  update              Update to the latest version"
     echo "  auto-update <on|off|status>  Manage weekly auto-updates"
     echo "  fix-permissions      Fix all file/directory permissions (sudo)"
@@ -1276,6 +1381,7 @@ case "${COMMAND}" in
     snapshots)  cmd_snapshots "$@" ;;
     ssh-key)    cmd_ssh_key ;;
     setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
+    auth)       cmd_auth "$@" ;;
     update)     cmd_update ;;
     auto-update) cmd_auto_update "$@" ;;
     fix-permissions|fix-perms) cmd_fix_permissions ;;

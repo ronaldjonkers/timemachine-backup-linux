@@ -29,7 +29,11 @@ source "${SCRIPT_DIR}/../lib/report.sh"
 tm_load_config
 
 : "${TM_API_PORT:=7600}"
-: "${TM_API_BIND:=0.0.0.0}"
+# SECURITY: bind on localhost by default — the API has no own transport
+# security and must only be reachable through the nginx reverse proxy.
+# Direct access without nginx: set TM_API_BIND=0.0.0.0 in .env (and
+# firewall the port!).
+: "${TM_API_BIND:=127.0.0.1}"
 
 FOREGROUND=0
 if [[ "${1:-}" == "--foreground" ]]; then

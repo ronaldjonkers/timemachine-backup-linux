@@ -30,6 +30,15 @@ from urllib.parse import unquote, urlparse, parse_qs
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# Portal authentication (sessions + passkeys) — optional module.
+# Without it (or without the fido2 lib) the API runs in legacy mode:
+# nginx Basic Auth in front remains the only guard, exactly as before.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import tm_portal_auth as portal_auth
+except Exception:
+    portal_auth = None
+
 
 # ============================================================
 # COMPATIBILITY
@@ -609,7 +618,7 @@ class APIHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def _send_json(self, data, status=200):
+    def _send_json(self, data, status=200, extra_headers=None):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
@@ -618,8 +627,84 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Connection', 'close')
+        for h, v in (extra_headers or []):
+            self.send_header(h, v)
         self.end_headers()
         self.wfile.write(body)
+
+    # ----------------------------------------------------------
+    # AUTHENTICATION / AUTHORIZATION
+    # ----------------------------------------------------------
+
+    def _client_ip(self):
+        fwd = self.headers.get('X-Forwarded-For', '')
+        if fwd:
+            return fwd.split(',')[0].strip()
+        return self.client_address[0]
+
+    def _cookie(self, name):
+        header = self.headers.get('Cookie', '')
+        for part in header.split(';'):
+            k, _, v = part.strip().partition('=')
+            if k == name:
+                return v
+        return ''
+
+    def _session_user(self):
+        if portal_auth is None:
+            return None
+        return portal_auth.get_session(self._cookie('tm_session'))
+
+    def _gate(self):
+        """Request gate: proxy-key check + session enforcement.
+        Returns True when the request may proceed.
+
+        Modes:
+        - legacy: no passkeys registered (or fido2 missing) — nginx Basic
+          Auth in front is the guard, API allows the request through.
+        - passkey: at least one passkey registered — every /api/ request
+          needs a valid session cookie, except the auth endpoints, the
+          ssh-key installer endpoint, and static files (the login page)."""
+        env = CONFIG.get('_raw') or {}
+        proxy_key = (env.get('TM_PROXY_KEY') or '').strip()
+        if proxy_key and self.headers.get('X-TM-Proxy-Key') != proxy_key:
+            self._send_json({'error': 'Forbidden'}, 403)
+            return False
+
+        self.current_user = None
+        if portal_auth is None or not portal_auth.passkey_mode():
+            self.current_user = {'username': 'admin', 'role': 'admin', 'legacy': True}
+            return True
+
+        # Local CLI (tmctl): connects directly on localhost with the proxy
+        # key but WITHOUT X-Forwarded-For (nginx always adds that header for
+        # browser traffic). Knowing the proxy key requires read access to
+        # .env (mode 600), which already implies admin on this machine.
+        if (proxy_key
+                and self.headers.get('X-TM-Proxy-Key') == proxy_key
+                and not self.headers.get('X-Forwarded-For')
+                and self.client_address[0] in ('127.0.0.1', '::1')):
+            self.current_user = {'username': 'cli', 'role': 'admin', 'cli': True}
+            return True
+
+        path = unquote(urlparse(self.path).path)
+        if path.startswith('/api/auth/') or path == '/api/ssh-key/raw':
+            return True
+        if not path.startswith('/api/'):
+            return True  # static files; the frontend redirects to login
+
+        user = self._session_user()
+        if user is None:
+            self._send_json({'error': 'Authentication required', 'auth': 'required'}, 401)
+            return False
+        self.current_user = user
+        return True
+
+    def _audit(self, event, detail=''):
+        if portal_auth is None:
+            return
+        user = getattr(self, 'current_user', None) or {}
+        portal_auth.audit(event, user.get('username', '-'), detail, self._client_ip())
 
     def _send_text(self, text, content_type='text/plain', status=200):
         body = text.encode('utf-8')
@@ -746,6 +831,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if not self._gate():
+                return
             self._route_get()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
@@ -756,7 +843,9 @@ class APIHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         # --- API routes ---
-        if path == '/api/status':
+        if path.startswith('/api/auth/'):
+            self._api_auth_get(path)
+        elif path == '/api/status':
             self._api_status()
         elif path == '/api/processes':
             self._api_processes()
@@ -821,6 +910,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if not self._gate():
+                return
             self._route_post()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
@@ -829,7 +920,9 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         body = self._read_body()
 
-        if path == '/api/backup-all':
+        if path.startswith('/api/auth/'):
+            self._api_auth_post(path, body)
+        elif path == '/api/backup-all':
             self._api_backup_all()
         elif path.startswith('/api/backup/'):
             self._api_backup_start(path[len('/api/backup/'):], body)
@@ -847,6 +940,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         try:
+            if not self._gate():
+                return
             self._route_put()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
@@ -868,6 +963,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         try:
+            if not self._gate():
+                return
             self._route_delete()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
@@ -967,6 +1064,7 @@ class APIHandler(BaseHTTPRequestHandler):
         """Dismiss all failures by deleting log files that contain errors.
         Also resets the exit-code state of the affected hosts, matching the
         per-host dismiss, so the servers table goes back to OK."""
+        self._audit('dismiss_all', '')
         ld = log_dir()
         removed = 0
         hosts = set()
@@ -1238,6 +1336,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if len(parts) < 2:
             self._send_json({'error': 'Invalid download path'}, 400)
             return
+        self._audit('download', dl_path)
         hostname = parts[0]
         snap_date = parts[1]
         sub_path = parts[2] if len(parts) > 2 else 'files'
@@ -1297,7 +1396,79 @@ class APIHandler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
 
+    # ----------------------------------------------------------
+    # AUTH ENDPOINTS
+    # ----------------------------------------------------------
+
+    def _api_auth_get(self, path):
+        if path in ('/api/auth/status', '/api/auth/me'):
+            fido2_ok = portal_auth is not None and portal_auth.FIDO2_AVAILABLE
+            mode = 'legacy'
+            domain = ''
+            if portal_auth is not None:
+                domain = portal_auth.portal_domain()
+                if portal_auth.passkey_mode():
+                    mode = 'passkey'
+            user = self._session_user()
+            self._send_json({
+                'mode': mode,
+                'fido2_available': fido2_ok,
+                'domain': domain,
+                'authenticated': user is not None,
+                'user': user,
+            })
+        else:
+            self._send_json({'error': f'Not found: {path}'}, 404)
+
+    def _api_auth_post(self, path, body):
+        if portal_auth is None:
+            self._send_json({'error': 'Portal auth module not available'}, 503)
+            return
+        data = parse_json_body(body)
+        try:
+            if path == '/api/auth/register/begin':
+                options, nonce = portal_auth.register_begin(data.get('token', ''))
+                self._send_json({'options': options, 'nonce': nonce})
+            elif path == '/api/auth/register/complete':
+                user = portal_auth.register_complete(
+                    data.get('token', ''), data.get('nonce', ''),
+                    data.get('credential') or {}, data.get('name', ''),
+                    self._client_ip())
+                self._send_json({'ok': True, 'user': user})
+            elif path == '/api/auth/login/begin':
+                options, nonce = portal_auth.login_begin()
+                self._send_json({'options': options, 'nonce': nonce})
+            elif path == '/api/auth/login/complete':
+                token, user = portal_auth.login_complete(
+                    data.get('nonce', ''), data.get('credential') or {},
+                    self._client_ip(), self.headers.get('User-Agent', ''))
+                hours = int((CONFIG.get('_raw') or {}).get('TM_SESSION_HOURS') or 24)
+                cookie = ('tm_session={0}; Path=/; HttpOnly; SameSite=Strict; '
+                          'Max-Age={1}'.format(token, hours * 3600))
+                if portal_auth.portal_domain():
+                    cookie += '; Secure'
+                self._send_json({'ok': True, 'user': user},
+                                extra_headers=[('Set-Cookie', cookie)])
+            elif path == '/api/auth/logout':
+                user = self._session_user()
+                portal_auth.destroy_session(self._cookie('tm_session'))
+                if user:
+                    portal_auth.audit('logout', user.get('username'), '', self._client_ip())
+                self._send_json({'ok': True}, extra_headers=[(
+                    'Set-Cookie', 'tm_session=; Path=/; HttpOnly; Max-Age=0')])
+            else:
+                self._send_json({'error': f'Not found: POST {path}'}, 404)
+        except ValueError as e:
+            event = 'login_fail' if 'login' in path else 'register_fail'
+            portal_auth.audit(event, '-', str(e), self._client_ip())
+            self._send_json({'error': str(e)}, 400)
+        except Exception as e:
+            logging.error('Auth error on %s: %s', path, e, exc_info=True)
+            portal_auth.audit('auth_error', '-', str(e), self._client_ip())
+            self._send_json({'error': 'Verification failed'}, 400)
+
     def _api_backup_start(self, target_host, body_bytes):
+        self._audit('backup_start', target_host)
         # Parse query params from the original URL
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -1423,6 +1594,7 @@ class APIHandler(BaseHTTPRequestHandler):
         })
 
     def _api_backup_kill(self, target_host):
+        self._audit('backup_kill', target_host)
         sd = state_dir()
         for sf in glob.glob(os.path.join(sd, f'proc-{target_host}-*.state')):
             try:
@@ -1452,6 +1624,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _api_restore_start(self, target_host, body_bytes):
         data = parse_json_body(body_bytes)
+        self._audit('restore_start', '{0} {1}'.format(target_host, data.get('snapshot', '')))
         snap_date = data.get('snapshot', '')
         if not snap_date:
             self._send_json({'error': 'snapshot date is required'}, 400)
@@ -1798,6 +1971,7 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json({'status': 'archived', 'hostname': target_host})
 
     def _api_servers_full_delete(self, target_host):
+        self._audit('server_delete', target_host)
         # Remove from servers.conf
         conf = os.path.join(project_root(), 'config', 'servers.conf')
         if os.path.isfile(conf):
@@ -2420,7 +2594,8 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='TimeMachine API Server')
-    parser.add_argument('--bind', default='0.0.0.0', help='Bind address')
+    parser.add_argument('--bind', default='127.0.0.1',
+                        help='Bind address (default 127.0.0.1; set TM_API_BIND=0.0.0.0 in .env for direct access without nginx)')
     parser.add_argument('--port', type=int, default=7600, help='Port')
     parser.add_argument('--project-root', default='', help='Project root directory')
     args = parser.parse_args()
@@ -2443,6 +2618,22 @@ def main():
 
     # Load persisted directory-size cache so sizes survive restarts
     size_cache_load()
+
+    # Initialize portal authentication (sessions + passkeys)
+    if portal_auth is not None:
+        try:
+            portal_auth.init(state_dir(), log_dir(), CONFIG.get('_raw') or {})
+            if portal_auth.passkey_mode():
+                mode = 'passkey (enforced)'
+            elif portal_auth.passkey_configured():
+                mode = 'passkey available — no keys registered yet (run: tmctl auth setup <user>)'
+            else:
+                mode = 'legacy (nginx basic auth); for passkeys: pip3 install fido2 + TM_PORTAL_DOMAIN in .env'
+            print(f'Portal auth: {mode}', flush=True)
+        except Exception as e:
+            print(f'Portal auth init failed (running in legacy mode): {e}', flush=True)
+    if (CONFIG.get('_raw') or {}).get('TM_PROXY_KEY'):
+        print('Proxy key: required on all requests', flush=True)
 
     server = ThreadedHTTPServer((args.bind, args.port), APIHandler)
     print(f'TimeMachine API server listening on {args.bind}:{args.port}', flush=True)

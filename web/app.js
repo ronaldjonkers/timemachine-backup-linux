@@ -24,9 +24,19 @@ function showPage(page) {
 
 var _apiErrors = 0;
 
+// Passkey mode: a 401 means the session is missing/expired — go to login
+function _authRedirect(resp) {
+    if (resp.status === 401 && window.location.pathname.indexOf('login') === -1) {
+        window.location.href = '/login.html';
+        return true;
+    }
+    return false;
+}
+
 async function apiGet(endpoint) {
     try {
         const resp = await fetch(API_BASE + endpoint);
+        if (_authRedirect(resp)) return null;
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
         const text = await resp.text();
         if (!text) return null;
@@ -50,6 +60,7 @@ async function apiPost(endpoint, body) {
             opts.body = JSON.stringify(body);
         }
         var resp = await fetch(API_BASE + endpoint, opts);
+        if (_authRedirect(resp)) return null;
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return await resp.json();
     } catch (e) {
@@ -61,6 +72,7 @@ async function apiPost(endpoint, body) {
 async function apiDelete(endpoint) {
     try {
         var resp = await fetch(API_BASE + endpoint, { method: 'DELETE' });
+        if (_authRedirect(resp)) return null;
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return await resp.json();
     } catch (e) {
@@ -76,6 +88,7 @@ async function apiPut(endpoint, body) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
+        if (_authRedirect(resp)) return null;
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return await resp.json();
     } catch (e) {
@@ -1923,6 +1936,29 @@ async function refreshAll() {
     ]);
 }
 
+
+/* ============================================================
+   AUTH (passkey mode)
+   ============================================================ */
+
+async function doLogout() {
+    try { await fetch(API_BASE + '/api/auth/logout', { method: 'POST' }); } catch (e) {}
+    window.location.href = '/login.html';
+}
+
+async function initAuth() {
+    try {
+        var resp = await fetch(API_BASE + '/api/auth/status');
+        var s = await resp.json();
+        if (s && s.mode === 'passkey') {
+            if (!s.authenticated) { window.location.href = '/login.html'; return; }
+            document.getElementById('auth-area').style.display = 'flex';
+            document.getElementById('auth-user').textContent = s.user.username;
+        }
+    } catch (e) { /* legacy mode or API down — dashboard handles it */ }
+}
+
+initAuth();
 refreshAll();
 refreshSettings();
 refreshExcludes();
