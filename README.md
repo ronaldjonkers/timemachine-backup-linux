@@ -231,13 +231,27 @@ tmctl status
 
 ## Updating TimeMachine
 
-Update to the latest version on the backup server:
+Update to the latest version on the backup server — **one command does everything**:
 
 ```bash
-tmctl update
+sudo tmctl update
 ```
 
-This will pull the latest code, restart the service if running, and show what's new. You can also re-run the one-liner:
+Besides pulling the latest code this automatically runs the idempotent post-update step (`bin/post-update.sh`), which:
+
+1. Installs missing dependencies, including the Python `fido2` package for passkey login (distro package → pip, with PEP 668 fallback; skipped with a clear message on Python < 3.8)
+2. Re-applies sudoers rules, permissions and the systemd service
+3. Migrates an existing nginx dashboard config in place: generates the API **proxy key**, derives `TM_PORTAL_DOMAIN` from your `server_name`, binds the API to `127.0.0.1`, injects the proxy-key header, and serves the login/register pages
+4. Reloads nginx and restarts the TimeMachine service
+
+Your existing htpasswd login keeps working throughout. After the first update you can switch to passkeys (see [Passkey login](#passkey-login-webauthn--replace-the-password)):
+
+```bash
+sudo tmctl auth setup <your-username>   # one-time registration link
+sudo tmctl auth basic off               # after your passkey works
+```
+
+You can also re-run the one-liner (safe on existing installs):
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/ronaldjonkers/timemachine-backup-linux/main/get.sh | sudo bash
@@ -321,20 +335,30 @@ Details:
 
 ### Multi-user: offer backups to your customers
 
-As a hosting provider you can give each customer their own portal account that only sees **their** servers:
+As a hosting provider you can create **customers** (organizations), assign servers to each customer, and give every customer **any number of users**. All users of a customer see exactly the customer's servers — nothing else.
+
+**From the dashboard** (recommended): **Settings → Customers**
+- Create a customer with server assignments and a first user; the invite is emailed directly (or copy the one-time link).
+- Per customer: add extra users (**+ User**), change server assignments (**Servers**), or remove the whole organization (**Remove** — revokes all its users at once).
+- Per user: new invite link (extra passkey / lost passkey) or revoke.
+
+**From the CLI:**
 
 ```bash
-# create a customer, assign servers, and email the invite in one go:
-sudo tmctl customer add customer1 web1.example.com,db1.example.com customer@example.com
+# new customer + servers + first user, invite emailed in one go:
+sudo tmctl customer add acme web1.example.com,db1.example.com jan@acme.com
 
-tmctl customer list                          # who has access to what
-tmctl customer servers customer1 web1.example.com   # change assignments
-tmctl customer revoke customer1              # remove access, passkeys and sessions
+sudo tmctl customer user acme piet.acme piet@acme.com   # extra user for this customer
+sudo tmctl customer servers acme web1.example.com       # change server assignments
+sudo tmctl customer list                                # customers, servers, users, passkey status
+sudo tmctl customer invite piet.acme                    # new registration link for one user
+sudo tmctl customer revoke piet.acme                    # revoke a single user
+sudo tmctl customer remove acme                         # disable customer + revoke all its users
 ```
 
-Or manage users from the dashboard: **Settings → Portal Users** (create + invite + assign servers + revoke).
+Each invited user receives a one-time link (72h valid), creates a passkey, and gets a **read-only, filtered** dashboard: only their customer's snapshots, databases, downloads and backup status. Everything else — restores, starting backups, settings, other customers' data — is admin-only and enforced **server-side on every API route** (the trimmed customer UI is just polish on top). Every download and login is written to `logs/audit.log` with user and IP. Email invitations are sent through the SMTP relay configured at install time (`TM_SMTP_*` in `.env`; the installer asks for host/port/username/password/sender).
 
-The customer receives a one-time link (72h valid), creates a passkey, and gets a **read-only, filtered** dashboard: only their own servers' snapshots, databases, downloads and backup status. Everything else — restores, starting backups, settings, other customers' data — is admin-only and enforced server-side on every API route. Email invitations are sent through the SMTP relay configured at install time (`TM_SMTP_*` in `.env`).
+**Fresh install?** Everything above works out of the box: the installer asks for SMTP settings, installs `fido2` automatically, and `tmctl setup-web` configures the domain and proxy key. After that: `sudo tmctl auth setup <you>` for your own passkey, then create customers.
 
 ---
 

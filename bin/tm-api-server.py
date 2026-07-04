@@ -717,7 +717,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
     # Endpoints a customer may never read
     _CUSTOMER_DENIED = ('/api/system', '/api/settings', '/api/excludes',
-                        '/api/ssh-key', '/api/users')
+                        '/api/ssh-key', '/api/users', '/api/customers')
     # Hostname-scoped endpoints: first path segment is the hostname
     _HOST_SCOPED = ('/api/snapshots/', '/api/browse/', '/api/download/',
                     '/api/db-versions/', '/api/logs/', '/api/rsync-log/')
@@ -914,6 +914,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._api_auth_get(path)
         elif path == '/api/users':
             self._api_users_list()
+        elif path == '/api/customers':
+            self._api_customers_list()
         elif path == '/api/status':
             self._api_status()
         elif path == '/api/processes':
@@ -991,8 +993,10 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if path.startswith('/api/auth/'):
             self._api_auth_post(path, body)
-        elif path == '/api/users':
-            self._api_users_create(body)
+        elif path == '/api/customers':
+            self._api_customers_create(body)
+        elif path.startswith('/api/customers/') and path.endswith('/users'):
+            self._api_customers_add_user(path[len('/api/customers/'):-len('/users')], body)
         elif path.startswith('/api/users/') and path.endswith('/invite'):
             self._api_users_invite(path[len('/api/users/'):-len('/invite')], body)
         elif path == '/api/backup-all':
@@ -1023,8 +1027,8 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         body = self._read_body()
 
-        if path.startswith('/api/users/'):
-            self._api_users_update(path[len('/api/users/'):], body)
+        if path.startswith('/api/customers/'):
+            self._api_customers_update(path[len('/api/customers/'):], body)
         elif path == '/api/settings':
             self._api_settings_put(body)
         elif path == '/api/excludes':
@@ -1049,7 +1053,9 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
 
-        if path.startswith('/api/users/'):
+        if path.startswith('/api/customers/'):
+            self._api_customers_delete(path[len('/api/customers/'):])
+        elif path.startswith('/api/users/'):
             self._api_users_delete(path[len('/api/users/'):])
         elif path == '/api/failures':
             self._api_failures_clear()
@@ -1561,36 +1567,93 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         self._send_json(portal_auth.list_users())
 
-    def _api_users_create(self, body):
+    def _invite_result(self, username, email):
+        """Create a registration token; optionally email it. Returns dict."""
+        token = portal_auth.new_reg_token(username)
+        link = portal_auth.registration_link(token)
+        emailed = False
+        email_error = ''
+        if email:
+            try:
+                portal_auth.send_invite_email(username, email, link)
+                emailed = True
+            except ValueError as e:
+                email_error = str(e)
+        return {'invite_link': link, 'emailed': emailed, 'email_error': email_error}
+
+    _NAME_RE = r'^[A-Za-z0-9._@ -]{2,64}$'
+
+    def _api_customers_list(self):
+        if not self._users_guard():
+            return
+        self._send_json(portal_auth.list_customers())
+
+    def _api_customers_create(self, body):
+        if not self._users_guard():
+            return
+        data = parse_json_body(body)
+        name = (data.get('name') or '').strip()
+        servers = [s.strip() for s in (data.get('servers') or []) if isinstance(s, str) and s.strip()]
+        username = (data.get('username') or '').strip()
+        email = (data.get('email') or '').strip()
+        if not name or not re.match(self._NAME_RE, name):
+            self._send_json({'error': 'Invalid customer name (2-64 chars)'}, 400)
+            return
+        if username and not re.match(r'^[A-Za-z0-9._@-]{2,64}$', username):
+            self._send_json({'error': 'Invalid username'}, 400)
+            return
+        try:
+            if not portal_auth.customer_exists(name):
+                portal_auth.create_customer(name)
+            portal_auth.set_customer_servers(name, servers)
+            result = {'ok': True, 'name': name, 'servers': servers}
+            if username:
+                portal_auth.add_customer_user(name, username)
+                result.update(self._invite_result(username, email))
+                result['username'] = username
+            self._audit('customer_create', '{0} servers={1} user={2}'.format(
+                name, ','.join(servers), username or '-'))
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
+
+    def _api_customers_update(self, name, body):
+        if not self._users_guard():
+            return
+        data = parse_json_body(body)
+        servers = [s.strip() for s in (data.get('servers') or []) if isinstance(s, str) and s.strip()]
+        try:
+            portal_auth.set_customer_servers(name, servers)
+            self._audit('customer_update', '{0} servers={1}'.format(name, ','.join(servers)))
+            self._send_json({'ok': True, 'servers': servers})
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
+
+    def _api_customers_delete(self, name):
+        if not self._users_guard():
+            return
+        try:
+            revoked = portal_auth.revoke_customer(name)
+            self._audit('customer_revoke', '{0} users={1}'.format(name, ','.join(revoked)))
+            self._send_json({'ok': True, 'revoked_users': revoked})
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
+
+    def _api_customers_add_user(self, name, body):
         if not self._users_guard():
             return
         data = parse_json_body(body)
         username = (data.get('username') or '').strip()
-        role = 'customer' if data.get('role', 'customer') == 'customer' else 'admin'
-        servers = [s for s in (data.get('servers') or []) if isinstance(s, str) and s.strip()]
         email = (data.get('email') or '').strip()
         if not username or not re.match(r'^[A-Za-z0-9._@-]{2,64}$', username):
             self._send_json({'error': 'Invalid username (2-64 chars: letters, digits, . _ @ -)'}, 400)
             return
         try:
-            if not portal_auth.user_exists(username):
-                portal_auth.create_user(username, role)
-            if role == 'customer':
-                portal_auth.set_user_servers(username, servers)
-            token = portal_auth.new_reg_token(username)
-            link = portal_auth.registration_link(token)
-            emailed = False
-            email_error = ''
-            if email:
-                try:
-                    portal_auth.send_invite_email(username, email, link)
-                    emailed = True
-                except ValueError as e:
-                    email_error = str(e)
-            self._audit('user_create', '{0} role={1} servers={2}'.format(
-                username, role, ','.join(servers)))
-            self._send_json({'ok': True, 'username': username, 'invite_link': link,
-                             'emailed': emailed, 'email_error': email_error})
+            portal_auth.add_customer_user(name, username)
+            result = {'ok': True, 'username': username}
+            result.update(self._invite_result(username, email))
+            self._audit('customer_user_add', '{0} -> {1}'.format(username, name))
+            self._send_json(result)
         except ValueError as e:
             self._send_json({'error': str(e)}, 400)
 
@@ -1600,31 +1663,10 @@ class APIHandler(BaseHTTPRequestHandler):
         data = parse_json_body(body)
         email = (data.get('email') or '').strip()
         try:
-            token = portal_auth.new_reg_token(username)
-            link = portal_auth.registration_link(token)
-            emailed = False
-            email_error = ''
-            if email:
-                try:
-                    portal_auth.send_invite_email(username, email, link)
-                    emailed = True
-                except ValueError as e:
-                    email_error = str(e)
+            result = {'ok': True}
+            result.update(self._invite_result(username, email))
             self._audit('user_invite', username)
-            self._send_json({'ok': True, 'invite_link': link,
-                             'emailed': emailed, 'email_error': email_error})
-        except ValueError as e:
-            self._send_json({'error': str(e)}, 400)
-
-    def _api_users_update(self, username, body):
-        if not self._users_guard():
-            return
-        data = parse_json_body(body)
-        servers = [s for s in (data.get('servers') or []) if isinstance(s, str) and s.strip()]
-        try:
-            portal_auth.set_user_servers(username, servers)
-            self._audit('user_update', '{0} servers={1}'.format(username, ','.join(servers)))
-            self._send_json({'ok': True, 'servers': servers})
+            self._send_json(result)
         except ValueError as e:
             self._send_json({'error': str(e)}, 400)
 

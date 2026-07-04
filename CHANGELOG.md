@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.0] - 2026-07-04
+
+### Added — customers as organizations (complete multi-tenant product)
+- **Customer = organization with multiple users.** New `customers` and `customer_servers` tables; users belong to a customer via `users.customer_id`. Server assignments live on the customer, so every user of that customer sees exactly the same (and only their) servers. Existing v3.9.0 per-user assignments are **migrated automatically** (each customer-user becomes an identically named customer organization, passkeys stay valid).
+- **Dashboard: Settings → Customers** — full management UI: create a customer with servers and a first user (invite emailed directly or link copied), add extra users per customer, edit server assignments, revoke individual users, or remove a whole organization (revokes all its users). Passkey status per user at a glance (🔑 active / ⌛ not registered yet).
+- **API (admin)**: `GET/POST /api/customers`, `PUT/DELETE /api/customers/<name>`, `POST /api/customers/<name>/users`. Removing a customer revokes all its users' sessions and passkeys; users of a disabled customer lose all server access instantly.
+- **CLI**: `tmctl customer add <name> <hosts> [email]` (org + first user + invite), `user <customer> <username> [email]` (extra users), `servers`, `invite`, `revoke` (user), `remove` (organization), `list` (tree view with passkey status).
+
+### Documentation
+- README: complete rewrite of the multi-user section (dashboard + CLI), the one-command upgrade path (`sudo tmctl update` runs the full migration), and a fresh-install note confirming SMTP + fido2 + passkeys work out of the box.
+
 ## [3.9.0] - 2026-07-04
 
 ### Added (phase 4 — multi-tenant)

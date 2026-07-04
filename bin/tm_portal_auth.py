@@ -118,13 +118,52 @@ def _init_db():
                 expires_at INTEGER NOT NULL,
                 used_at INTEGER
             );
-            CREATE TABLE IF NOT EXISTS server_assignments (
+            CREATE TABLE IF NOT EXISTS customers (
                 id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id),
+                name TEXT UNIQUE NOT NULL,
+                created_at INTEGER NOT NULL,
+                disabled INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS customer_servers (
+                id INTEGER PRIMARY KEY,
+                customer_id INTEGER NOT NULL REFERENCES customers(id),
                 hostname TEXT NOT NULL,
-                UNIQUE(user_id, hostname)
+                UNIQUE(customer_id, hostname)
             );
         ''')
+        # users.customer_id: which customer (organization) a user belongs to
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(users)')]
+        if 'customer_id' not in cols:
+            conn.execute('ALTER TABLE users ADD COLUMN customer_id INTEGER')
+
+        # Migration from v3.9.0: per-user server assignments become a
+        # customer (named after the user) with that user as its member.
+        legacy = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='server_assignments'"
+        ).fetchone()
+        if legacy:
+            now = int(time.time())
+            rows = conn.execute(
+                'SELECT DISTINCT u.id AS uid, u.username FROM server_assignments sa '
+                'JOIN users u ON u.id = sa.user_id').fetchall()
+            for row in rows:
+                cust = conn.execute('SELECT id FROM customers WHERE name = ?',
+                                    (row['username'],)).fetchone()
+                if cust is None:
+                    conn.execute('INSERT INTO customers (name, created_at) VALUES (?, ?)',
+                                 (row['username'], now))
+                    cust_id = conn.execute('SELECT id FROM customers WHERE name = ?',
+                                           (row['username'],)).fetchone()['id']
+                else:
+                    cust_id = cust['id']
+                conn.execute('UPDATE users SET customer_id = ? WHERE id = ?',
+                             (cust_id, row['uid']))
+                for h in conn.execute('SELECT hostname FROM server_assignments WHERE user_id = ?',
+                                      (row['uid'],)).fetchall():
+                    conn.execute(
+                        'INSERT OR IGNORE INTO customer_servers (customer_id, hostname) VALUES (?, ?)',
+                        (cust_id, h['hostname']))
+            conn.execute('DROP TABLE server_assignments')
         conn.commit()
     finally:
         conn.close()
@@ -413,33 +452,134 @@ def new_reg_token(username):
         conn.close()
 
 
-def set_user_servers(username, hostnames):
-    """Replace the server assignments of a (customer) user."""
+# ============================================================
+# CUSTOMERS (organizations with users and server assignments)
+# ============================================================
+
+def create_customer(name, hostnames=None):
     conn = _db()
     try:
-        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        if user is None:
-            raise ValueError('No such user: {0}'.format(username))
-        conn.execute('DELETE FROM server_assignments WHERE user_id = ?', (user['id'],))
-        for h in hostnames:
+        if conn.execute('SELECT 1 FROM customers WHERE name = ?', (name,)).fetchone():
+            raise ValueError('Customer already exists: {0}'.format(name))
+        conn.execute('INSERT INTO customers (name, created_at) VALUES (?, ?)',
+                     (name, int(time.time())))
+        conn.commit()
+    finally:
+        conn.close()
+    if hostnames:
+        set_customer_servers(name, hostnames)
+
+
+def customer_exists(name):
+    conn = _db()
+    try:
+        return conn.execute('SELECT 1 FROM customers WHERE name = ?',
+                            (name,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def set_customer_servers(name, hostnames):
+    """Replace the server assignments of a customer."""
+    conn = _db()
+    try:
+        cust = conn.execute('SELECT * FROM customers WHERE name = ?', (name,)).fetchone()
+        if cust is None:
+            raise ValueError('No such customer: {0}'.format(name))
+        conn.execute('DELETE FROM customer_servers WHERE customer_id = ?', (cust['id'],))
+        for h in hostnames or []:
             h = (h or '').strip()
             if h:
                 conn.execute(
-                    'INSERT OR IGNORE INTO server_assignments (user_id, hostname) VALUES (?, ?)',
-                    (user['id'], h))
+                    'INSERT OR IGNORE INTO customer_servers (customer_id, hostname) VALUES (?, ?)',
+                    (cust['id'], h))
         conn.commit()
     finally:
         conn.close()
 
 
-def get_user_servers(username):
-    """Hostnames assigned to a user (empty list = none)."""
+def get_customer_servers(name):
     conn = _db()
     try:
         rows = conn.execute(
-            'SELECT sa.hostname FROM server_assignments sa '
-            'JOIN users u ON u.id = sa.user_id WHERE u.username = ? '
-            'ORDER BY sa.hostname', (username,)).fetchall()
+            'SELECT cs.hostname FROM customer_servers cs '
+            'JOIN customers c ON c.id = cs.customer_id WHERE c.name = ? '
+            'ORDER BY cs.hostname', (name,)).fetchall()
+        return [r['hostname'] for r in rows]
+    finally:
+        conn.close()
+
+
+def add_customer_user(customer_name, username):
+    """Create a user (role=customer) inside a customer organization."""
+    conn = _db()
+    try:
+        cust = conn.execute('SELECT * FROM customers WHERE name = ?',
+                            (customer_name,)).fetchone()
+        if cust is None:
+            raise ValueError('No such customer: {0}'.format(customer_name))
+        existing = conn.execute('SELECT * FROM users WHERE username = ?',
+                                (username,)).fetchone()
+        if existing is not None:
+            raise ValueError('User already exists: {0}'.format(username))
+        conn.execute(
+            'INSERT INTO users (username, role, created_at, customer_id) VALUES (?, ?, ?, ?)',
+            (username, 'customer', int(time.time()), cust['id']))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def revoke_customer(name):
+    """Disable a customer and revoke ALL its users (sessions + passkeys)."""
+    conn = _db()
+    try:
+        cust = conn.execute('SELECT * FROM customers WHERE name = ?', (name,)).fetchone()
+        if cust is None:
+            raise ValueError('No such customer: {0}'.format(name))
+        users = [r['username'] for r in conn.execute(
+            'SELECT username FROM users WHERE customer_id = ?', (cust['id'],)).fetchall()]
+        conn.execute('UPDATE customers SET disabled = 1 WHERE id = ?', (cust['id'],))
+        conn.commit()
+    finally:
+        conn.close()
+    for u in users:
+        revoke_user(u)
+    return users
+
+
+def list_customers():
+    """Customers with their servers and users (incl. passkey counts)."""
+    conn = _db()
+    try:
+        custs = [dict(r) for r in conn.execute(
+            'SELECT id, name, disabled, created_at FROM customers ORDER BY name').fetchall()]
+        for c in custs:
+            c['servers'] = [r['hostname'] for r in conn.execute(
+                'SELECT hostname FROM customer_servers WHERE customer_id = ? ORDER BY hostname',
+                (c['id'],)).fetchall()]
+            c['users'] = [dict(r) for r in conn.execute(
+                'SELECT u.username, u.disabled, COUNT(cr.id) AS passkeys '
+                'FROM users u LEFT JOIN credentials cr ON cr.user_id = u.id '
+                'WHERE u.customer_id = ? GROUP BY u.id ORDER BY u.username',
+                (c['id'],)).fetchall()]
+            del c['id']
+        return custs
+    finally:
+        conn.close()
+
+
+def get_user_servers(username):
+    """Hostnames a user may access, via their customer (empty = none).
+    Users of a disabled customer get no access."""
+    conn = _db()
+    try:
+        rows = conn.execute(
+            'SELECT cs.hostname FROM customer_servers cs '
+            'JOIN customers c ON c.id = cs.customer_id '
+            'JOIN users u ON u.customer_id = c.id '
+            'WHERE u.username = ? AND c.disabled = 0 '
+            'ORDER BY cs.hostname', (username,)).fetchall()
         return [r['hostname'] for r in rows]
     finally:
         conn.close()
@@ -522,8 +662,9 @@ def list_users():
     try:
         users = [dict(r) for r in conn.execute(
             'SELECT u.username, u.role, u.disabled, u.created_at, '
-            '       COUNT(c.id) AS passkeys '
+            '       cu.name AS customer, COUNT(c.id) AS passkeys '
             'FROM users u LEFT JOIN credentials c ON c.user_id = u.id '
+            'LEFT JOIN customers cu ON cu.id = u.customer_id '
             'GROUP BY u.id ORDER BY u.username').fetchall()]
     finally:
         conn.close()
@@ -589,20 +730,10 @@ def _cli_main():
         base = 'https://{0}'.format(d) if d else 'https://<your-dashboard-domain>'
         return '{0}/register.html?token={1}'.format(base, token)
 
-    if cmd == 'add-customer':
-        # add-customer <username> <host1,host2,...> [email]
-        if len(args) < 3:
-            print('Usage: tm_portal_auth.py add-customer <username> <host1,host2> [email]'); sys.exit(1)
-        username, hosts = args[1], [h for h in args[2].split(',') if h.strip()]
-        email = args[3] if len(args) > 3 else ''
-        if not user_exists(username):
-            create_user(username, 'customer')
-        set_user_servers(username, hosts)
+    def _invite_user(username, email):
         token = new_reg_token(username)
         link = reg_url(token)
-        print('Customer: {0}'.format(username))
-        print('Servers : {0}'.format(', '.join(hosts)))
-        print('One-time registration link (valid {0}h):'.format(REG_TOKEN_HOURS))
+        print('One-time registration link for {0} (valid {1}h):'.format(username, REG_TOKEN_HOURS))
         print('  {0}'.format(link))
         if email:
             try:
@@ -611,11 +742,54 @@ def _cli_main():
             except ValueError as e:
                 print('Email NOT sent: {0}'.format(e))
                 print('Send the link above manually.')
+
+    if cmd == 'add-customer':
+        # add-customer <name> <host1,host2,...> [email]
+        # Creates the customer org; with an email, also creates a first
+        # user with the same name and sends the invite.
+        if len(args) < 3:
+            print('Usage: tm_portal_auth.py add-customer <name> <host1,host2> [email]'); sys.exit(1)
+        name, hosts = args[1], [h for h in args[2].split(',') if h.strip()]
+        email = args[3] if len(args) > 3 else ''
+        if not customer_exists(name):
+            create_customer(name)
+        set_customer_servers(name, hosts)
+        print('Customer: {0}'.format(name))
+        print('Servers : {0}'.format(', '.join(hosts)))
+        if email or not user_exists(name):
+            if not user_exists(name):
+                add_customer_user(name, name)
+                print('User    : {0} (first user of this customer)'.format(name))
+            _invite_user(name, email)
+    elif cmd == 'user-add':
+        # user-add <customer> <username> [email]
+        if len(args) < 3:
+            print('Usage: tm_portal_auth.py user-add <customer> <username> [email]'); sys.exit(1)
+        add_customer_user(args[1], args[2])
+        print('User {0} added to customer {1}'.format(args[2], args[1]))
+        _invite_user(args[2], args[3] if len(args) > 3 else '')
     elif cmd == 'set-servers':
         if len(args) < 3:
-            print('Usage: tm_portal_auth.py set-servers <username> <host1,host2,...>'); sys.exit(1)
-        set_user_servers(args[1], [h for h in args[2].split(',') if h.strip()])
-        print('Servers for {0}: {1}'.format(args[1], ', '.join(get_user_servers(args[1])) or '(none)'))
+            print('Usage: tm_portal_auth.py set-servers <customer> <host1,host2,...>'); sys.exit(1)
+        set_customer_servers(args[1], [h for h in args[2].split(',') if h.strip()])
+        print('Servers for {0}: {1}'.format(args[1], ', '.join(get_customer_servers(args[1])) or '(none)'))
+    elif cmd == 'revoke-customer':
+        if len(args) < 2:
+            print('Usage: tm_portal_auth.py revoke-customer <name>'); sys.exit(1)
+        revoked = revoke_customer(args[1])
+        print('Customer {0} disabled; {1} user(s) revoked: {2}'.format(
+            args[1], len(revoked), ', '.join(revoked) or '-'))
+    elif cmd == 'customers':
+        custs = list_customers()
+        if not custs:
+            print('No customers yet. Create one with: tmctl customer add <name> <host1,host2> [email]')
+        for c in custs:
+            flag = ' (DISABLED)' if c['disabled'] else ''
+            print('{0}{1}'.format(c['name'], flag))
+            print('  servers: {0}'.format(', '.join(c['servers']) or '(none)'))
+            for u in c['users']:
+                uflag = ' (disabled)' if u['disabled'] else ''
+                print('  user   : {0} passkeys={1}{2}'.format(u['username'], u['passkeys'], uflag))
     elif cmd == 'create-admin':
         if len(args) < 2:
             print('Usage: tm_portal_auth.py create-admin <username>'); sys.exit(1)
@@ -652,8 +826,9 @@ def _cli_main():
         print('users         : {0}'.format(len(list_users())))
     else:
         print('Unknown command: {0}'.format(cmd))
-        print('Commands: create-admin <user> | add-customer <user> <hosts> [email] |')
-        print('          set-servers <user> <hosts> | new-link <user> | revoke <user> | list | status')
+        print('Commands: create-admin <user> | add-customer <name> <hosts> [email] |')
+        print('          user-add <customer> <user> [email] | set-servers <customer> <hosts> |')
+        print('          revoke-customer <name> | customers | new-link <user> | revoke <user> | list | status')
         sys.exit(1)
 
 

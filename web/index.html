@@ -360,40 +360,50 @@
              ============================================================ -->
         <div class="page" id="page-settings">
 
-            <!-- Portal Users (multi-tenant) -->
+            <!-- Customers & Portal Users (multi-tenant) -->
             <section class="panel admin-only">
                 <div class="panel-header">
-                    <h2>&#x1F465; Portal Users</h2>
+                    <h2>&#x1F3E2; Customers</h2>
                     <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
                 </div>
                 <table>
                     <thead>
-                        <tr><th>User</th><th>Role</th><th>Servers</th><th>Passkeys</th><th>Actions</th></tr>
+                        <tr><th>Customer</th><th>Servers</th><th>Users</th><th>Actions</th></tr>
                     </thead>
-                    <tbody id="users-body">
-                        <tr><td colspan="5" class="empty">Loading...</td></tr>
+                    <tbody id="customers-body">
+                        <tr><td colspan="4" class="empty">Loading...</td></tr>
                     </tbody>
                 </table>
                 <div class="settings-form" style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
-                    <h3 style="font-size:0.9rem;margin-bottom:0.6rem">Invite customer</h3>
+                    <h3 style="font-size:0.9rem;margin-bottom:0.6rem">New customer</h3>
                     <div class="settings-row">
                         <div class="settings-field">
-                            <label for="new-user-name">Username</label>
-                            <input type="text" id="new-user-name" placeholder="customer1">
+                            <label for="new-cust-name">Customer name</label>
+                            <input type="text" id="new-cust-name" placeholder="acme">
                         </div>
                         <div class="settings-field">
-                            <label for="new-user-servers">Servers (comma-separated)</label>
-                            <input type="text" id="new-user-servers" placeholder="web1.example.com,db1.example.com">
+                            <label for="new-cust-servers">Servers (comma-separated)</label>
+                            <input type="text" id="new-cust-servers" placeholder="web1.example.com,db1.example.com">
+                        </div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <label for="new-cust-user">First user (username)</label>
+                            <input type="text" id="new-cust-user" placeholder="jan.acme">
                         </div>
                         <div class="settings-field">
-                            <label for="new-user-email">Email invite to (optional)</label>
-                            <input type="email" id="new-user-email" placeholder="customer@example.com">
+                            <label for="new-cust-email">Email invite to (optional)</label>
+                            <input type="email" id="new-cust-email" placeholder="jan@acme.com">
                         </div>
                     </div>
                     <div class="form-actions">
-                        <button class="btn btn-success" onclick="addCustomer()">Create &amp; Invite</button>
-                        <span class="text-muted" style="font-size:0.8rem">The customer gets a one-time link to create a passkey and only sees their own servers.</span>
+                        <button class="btn btn-success" onclick="addCustomer()">Create customer &amp; invite</button>
+                        <span class="text-muted" style="font-size:0.8rem">Users of a customer only see the customer's servers. Add more users per customer any time.</span>
                     </div>
+                </div>
+                <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.75rem">
+                    <h3 style="font-size:0.9rem;margin-bottom:0.5rem">&#x1F6E1; Administrators</h3>
+                    <div id="admins-list" class="text-muted" style="font-size:0.85rem">Loading...</div>
                 </div>
             </section>
 

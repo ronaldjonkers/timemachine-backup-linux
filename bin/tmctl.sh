@@ -475,16 +475,25 @@ cmd_customer() {
     case "${sub}" in
         add)
             if [[ -z "${1:-}" || -z "${2:-}" ]]; then
-                echo "Usage: tmctl customer add <username> <host1,host2,...> [email]"
-                echo "  Creates a customer account, assigns servers, and prints a"
-                echo "  one-time passkey registration link (emailed when an address is given)."
+                echo "Usage: tmctl customer add <name> <host1,host2,...> [email]"
+                echo "  Creates a customer (organization) with server assignments."
+                echo "  With an email address a first user (same name) is created"
+                echo "  and the passkey registration link is emailed."
                 exit 1
             fi
             TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" add-customer "$1" "$2" "${3:-}"
             ;;
+        user)
+            if [[ -z "${1:-}" || -z "${2:-}" ]]; then
+                echo "Usage: tmctl customer user <customer> <username> [email]"
+                echo "  Adds an extra user to a customer and prints/emails the invite link."
+                exit 1
+            fi
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" user-add "$1" "$2" "${3:-}"
+            ;;
         servers)
             if [[ -z "${1:-}" || -z "${2:-}" ]]; then
-                echo "Usage: tmctl customer servers <username> <host1,host2,...>"
+                echo "Usage: tmctl customer servers <customer> <host1,host2,...>"
                 exit 1
             fi
             TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" set-servers "$1" "$2"
@@ -494,12 +503,24 @@ cmd_customer() {
             TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" new-link "$1"
             ;;
         revoke)
-            [[ -z "${1:-}" ]] && { echo "Usage: tmctl customer revoke <username>"; exit 1; }
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl customer revoke <username>  (single user)"; exit 1; }
             TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" revoke "$1"
             ;;
-        list)    TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" list ;;
+        remove)
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl customer remove <customer>  (whole organization)"; exit 1; }
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" revoke-customer "$1"
+            ;;
+        list)    TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" customers ;;
         *)
-            echo "Usage: tmctl customer <add|servers|invite|revoke|list>"
+            echo "Usage: tmctl customer <add|user|servers|invite|revoke|remove|list>"
+            echo ""
+            echo "  add <name> <hosts> [email]      New customer + servers (+ first user & invite)"
+            echo "  user <customer> <user> [email]  Add an extra user to a customer"
+            echo "  servers <customer> <hosts>      Replace a customer's server assignments"
+            echo "  invite <username>               New registration link for a user"
+            echo "  revoke <username>               Revoke a single user"
+            echo "  remove <customer>               Disable customer + revoke all its users"
+            echo "  list                            Customers with servers and users"
             exit 1
             ;;
     esac

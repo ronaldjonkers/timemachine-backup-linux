@@ -1939,39 +1939,57 @@ async function refreshAll() {
 
 
 /* ============================================================
-   PORTAL USERS (multi-tenant, admin only)
+   CUSTOMERS & PORTAL USERS (multi-tenant, admin only)
    ============================================================ */
 
 async function loadUsers() {
-    var tbody = document.getElementById('users-body');
+    var tbody = document.getElementById('customers-body');
     if (!tbody) return;
+    var custs = await apiGet('/api/customers');
     var users = await apiGet('/api/users');
-    if (users === null) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">Portal auth not available (see Settings docs)</td></tr>';
+
+    if (custs === null) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">Portal auth not available — run: pip3 install fido2 &amp;&amp; tmctl auth setup &lt;user&gt;</td></tr>';
         return;
     }
-    if (!users.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">No portal users yet — create your admin with: tmctl auth setup &lt;user&gt;</td></tr>';
-        return;
+    if (!custs.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">No customers yet — create one below</td></tr>';
+    } else {
+        tbody.innerHTML = custs.map(function(c) {
+            var status = c.disabled ? ' <span style="color:var(--red)">(disabled)</span>' : '';
+            var userRows = (c.users || []).map(function(u) {
+                var flag = u.disabled ? ' <span style="color:var(--red)">&#x2716;</span>' :
+                    (u.passkeys > 0 ? ' <span style="color:var(--green)" title="passkey active">&#x1F511;</span>' : ' <span class="text-muted" title="no passkey yet">&#x231B;</span>');
+                var acts = '';
+                if (!u.disabled) {
+                    acts = ' <a href="#" onclick="inviteUser(\'' + esc(u.username) + '\');return false" title="New registration link">invite</a>' +
+                           ' <a href="#" onclick="revokeUser(\'' + esc(u.username) + '\');return false" style="color:var(--red)" title="Revoke user">revoke</a>';
+                }
+                return '<div style="white-space:nowrap">' + esc(u.username) + flag + acts + '</div>';
+            }).join('');
+            var actions = '';
+            if (!c.disabled) {
+                actions = '<button class="btn btn-sm" onclick="addUserToCustomer(\'' + esc(c.name) + '\')">+ User</button> ' +
+                          '<button class="btn btn-sm" onclick="editCustomerServers(\'' + esc(c.name) + '\',\'' + esc((c.servers || []).join(',')) + '\')">Servers</button> ' +
+                          '<button class="btn btn-sm btn-danger" onclick="removeCustomer(\'' + esc(c.name) + '\')">Remove</button>';
+            }
+            return '<tr>' +
+                '<td><strong>' + esc(c.name) + '</strong>' + status + '</td>' +
+                '<td style="font-size:0.82rem">' + esc((c.servers || []).join(', ') || '(none)') + '</td>' +
+                '<td style="font-size:0.82rem">' + (userRows || '<span class="text-muted">no users</span>') + '</td>' +
+                '<td>' + actions + '</td>' +
+                '</tr>';
+        }).join('');
     }
-    tbody.innerHTML = users.map(function(u) {
-        var servers = u.role === 'customer' ? esc((u.servers || []).join(', ') || '(none)') : '<em>all (admin)</em>';
-        var status = u.disabled ? ' <span style="color:var(--red)">(disabled)</span>' : '';
-        var actions = '<button class="btn btn-sm" onclick="inviteUser(\'' + esc(u.username) + '\')">Invite link</button> ';
-        if (u.role === 'customer') {
-            actions += '<button class="btn btn-sm" onclick="editUserServers(\'' + esc(u.username) + '\',\'' + esc((u.servers || []).join(',')) + '\')">Servers</button> ';
-        }
-        if (!u.disabled) {
-            actions += '<button class="btn btn-sm btn-danger" onclick="revokeUser(\'' + esc(u.username) + '\')">Revoke</button>';
-        }
-        return '<tr>' +
-            '<td><strong>' + esc(u.username) + '</strong>' + status + '</td>' +
-            '<td>' + esc(u.role) + '</td>' +
-            '<td>' + servers + '</td>' +
-            '<td>' + (u.passkeys || 0) + '</td>' +
-            '<td>' + actions + '</td>' +
-            '</tr>';
-    }).join('');
+
+    var adminsEl = document.getElementById('admins-list');
+    if (adminsEl && users) {
+        var admins = users.filter(function(u) { return u.role === 'admin' && !u.disabled; });
+        adminsEl.innerHTML = admins.length ? admins.map(function(u) {
+            return esc(u.username) + ' (' + (u.passkeys || 0) + ' passkey' + (u.passkeys === 1 ? '' : 's') + ')';
+        }).join(' &middot; ') + ' — <span style="font-size:0.78rem">manage via: tmctl auth setup/link/revoke</span>'
+        : 'No admins with passkeys yet — run: tmctl auth setup &lt;user&gt;';
+    }
 }
 
 function _showInviteResult(result) {
@@ -1980,19 +1998,65 @@ function _showInviteResult(result) {
     } else if (result.email_error) {
         toast('Email failed: ' + result.email_error, 'error');
     }
+    if (!result.invite_link) return;
     openModal('Registration link', '<p style="font-size:0.85rem;margin-bottom:0.75rem">One-time passkey registration link (valid 72h) — send this to the user:</p>' +
         '<textarea readonly style="width:100%;height:70px;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-size:0.8rem" onclick="this.select()">' + esc(result.invite_link) + '</textarea>');
 }
 
 async function addCustomer() {
-    var username = document.getElementById('new-user-name').value.trim();
-    var servers = document.getElementById('new-user-servers').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-    var email = document.getElementById('new-user-email').value.trim();
-    if (!username) { toast('Enter a username', 'error'); return; }
+    var name = document.getElementById('new-cust-name').value.trim();
+    var servers = document.getElementById('new-cust-servers').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    var username = document.getElementById('new-cust-user').value.trim();
+    var email = document.getElementById('new-cust-email').value.trim();
+    if (!name) { toast('Enter a customer name', 'error'); return; }
     if (!servers.length) { toast('Assign at least one server', 'error'); return; }
-    var result = await apiPost('/api/users', {username: username, role: 'customer', servers: servers, email: email});
+    var result = await apiPost('/api/customers', {name: name, servers: servers, username: username, email: email});
+    if (result && result.ok) {
+        toast('Customer ' + name + ' created', 'success');
+        if (result.invite_link) _showInviteResult(result);
+        document.getElementById('new-cust-name').value = '';
+        document.getElementById('new-cust-servers').value = '';
+        document.getElementById('new-cust-user').value = '';
+        document.getElementById('new-cust-email').value = '';
+        loadUsers();
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+async function addUserToCustomer(customer) {
+    var username = prompt('Username for the new user of ' + customer + ':', '');
+    if (!username) return;
+    var email = prompt('Email the invitation to (leave empty to only show the link):', '');
+    if (email === null) return;
+    var result = await apiPost('/api/customers/' + encodeURIComponent(customer) + '/users',
+        {username: username.trim(), email: email.trim()});
     if (result && result.ok) {
         _showInviteResult(result);
+        loadUsers();
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+async function editCustomerServers(customer, current) {
+    var input = prompt('Servers for ' + customer + ' (comma-separated):', current);
+    if (input === null) return;
+    var servers = input.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    var result = await apiPut('/api/customers/' + encodeURIComponent(customer), {servers: servers});
+    if (result && result.ok) {
+        toast('Servers updated', 'success');
+        loadUsers();
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+async function removeCustomer(customer) {
+    if (!confirm('Remove customer ' + customer + '? ALL its users lose access (passkeys and sessions are revoked). Backups stay on disk.')) return;
+    var result = await apiDelete('/api/customers/' + encodeURIComponent(customer));
+    if (result && result.ok) {
+        toast('Customer removed (' + (result.revoked_users || []).length + ' user(s) revoked)', 'success');
         loadUsers();
     } else {
         toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
@@ -2005,19 +2069,6 @@ async function inviteUser(username) {
     var result = await apiPost('/api/users/' + encodeURIComponent(username) + '/invite', {email: email.trim()});
     if (result && result.ok) {
         _showInviteResult(result);
-    } else {
-        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
-    }
-}
-
-async function editUserServers(username, current) {
-    var input = prompt('Servers for ' + username + ' (comma-separated):', current);
-    if (input === null) return;
-    var servers = input.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-    var result = await apiPut('/api/users/' + encodeURIComponent(username), {servers: servers});
-    if (result && result.ok) {
-        toast('Servers updated', 'success');
-        loadUsers();
     } else {
         toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
     }
