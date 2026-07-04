@@ -290,22 +290,51 @@ tm_rsync_sql() {
 }
 
 # Remove a snapshot directory and VERIFY it is actually gone.
-# Backup dirs are root-owned, so try sudo -n first (never prompts — a
-# password prompt would hang the service forever), then plain rm.
+#
+# Speed: snapshot trees hold millions of hardlinked files; 'rm -rf' walks
+# them slowly. 'rsync -a --delete <empty>/ <dir>/' is much faster, so that
+# runs first and 'rm -rf' only cleans up the then-empty remainder.
+# IO: prefixed with 'ionice -c3 nice -n19' (when available) so deletes only
+# use idle IO and NEVER slow down running backups.
+# Privileges: backup dirs are root-owned — sudo -n first (never prompts;
+# a password prompt would hang the service forever), plain fallback after.
 # Returns 0 only when the directory no longer exists.
 _tm_remove_backup_dir() {
     local dir="$1"
-    sudo -n rm -rf "${dir}" 2>/dev/null || rm -rf "${dir}" 2>/dev/null
+
+    # Idle-priority prefix (outside sudo, so sudoers rules still match on
+    # the rsync/rm command itself; IO class is inherited by children)
+    local prio=""
+    command -v ionice &>/dev/null && prio="ionice -c3 "
+    command -v nice &>/dev/null && prio+="nice -n19 "
+
+    # Fast-empty via rsync from an empty dir
+    if command -v rsync &>/dev/null; then
+        local empty_dir
+        empty_dir=$(mktemp -d 2>/dev/null)
+        if [[ -n "${empty_dir}" ]]; then
+            ${prio} sudo -n rsync -a --delete "${empty_dir}/" "${dir}/" 2>/dev/null || \
+                ${prio} rsync -a --delete "${empty_dir}/" "${dir}/" 2>/dev/null
+            rmdir "${empty_dir}" 2>/dev/null
+        fi
+    fi
+
+    # Remove the (now empty or rsync-less) directory tree
+    ${prio} sudo -n rm -rf "${dir}" 2>/dev/null || ${prio} rm -rf "${dir}" 2>/dev/null
+
     if [[ -e "${dir}" ]]; then
-        tm_log "ERROR" "Rotation could not remove ${dir} — check the NOPASSWD sudoers rule for rm (install.sh --reconfigure)"
+        tm_log "ERROR" "Rotation could not remove ${dir} — check the NOPASSWD sudoers rules for rsync/rm (install.sh --reconfigure)"
         return 1
     fi
     return 0
 }
 
-# Rotate old backups beyond retention period
-# TM_RETENTION_DAYS=N keeps at most N calendar days of snapshots
-# (today plus N-1 days back); everything older is removed.
+# Rotate old backups beyond retention — COUNT-based, not age-based.
+# TM_RETENTION_DAYS=N keeps the N newest backup versions (unique dates)
+# that actually exist on disk. Only versions beyond the N newest are
+# removed; when N or fewer versions exist NOTHING is deleted. So after
+# a period of failed backups the last good versions are never thrown
+# away just because they are old.
 # Handles:
 #   YYYY-MM-DD          (date-only)
 #   YYYY-MM-DD_HHMMSS   (timestamped)
@@ -314,18 +343,33 @@ tm_rotate_backups() {
     local backup_base="$1"
     local retention="${TM_RETENTION_DAYS:-7}"
 
-    tm_log "INFO" "Rotating backups in ${backup_base} (keeping ${retention} days)"
+    # Unique dates present on disk, newest first.
+    # `|| true` everywhere: an empty glob makes ls/grep exit non-zero, which
+    # would kill the caller under set -e -o pipefail (inherited from common.sh).
+    local all_dates
+    all_dates=$( { ls -1d "${backup_base}"/????-??-??* 2>/dev/null || true
+                   ls -1d "${backup_base}"/daily.????-??-?? 2>/dev/null || true; } | \
+        sed 's|.*/||; s|^daily\.||; s|_.*||' | { grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true; } | sort -ur )
 
-    # Cutoff so that at most `retention` unique dates remain, today included.
-    # Example: retention=7 → cutoff=today-6 → keeps today..today-6 (7 days).
+    local total_dates=0
+    [[ -n "${all_dates}" ]] && total_dates=$(echo "${all_dates}" | wc -l | tr -d ' ')
+
+    if [[ ${total_dates} -le ${retention} ]]; then
+        tm_log "INFO" "Rotation ${backup_base}: ${total_dates} version(s) on disk <= retention (${retention}) — nothing to remove"
+        return 0
+    fi
+
+    # The retention-th newest date is the oldest we keep; everything with
+    # a strictly older date is removed.
     local cutoff_date
-    cutoff_date=$(date -d "-$((retention - 1)) days" +'%Y-%m-%d' 2>/dev/null || \
-                  date -v-$((retention - 1))d +'%Y-%m-%d' 2>/dev/null)
+    cutoff_date=$(echo "${all_dates}" | sed -n "${retention}p")
 
     if [[ -z "${cutoff_date}" ]]; then
-        tm_log "ERROR" "Could not calculate cutoff date for rotation"
+        tm_log "ERROR" "Could not determine rotation cutoff for ${backup_base}"
         return 1
     fi
+
+    tm_log "INFO" "Rotating backups in ${backup_base}: ${total_dates} versions on disk, keeping newest ${retention} (cutoff: ${cutoff_date})"
 
     local count=0
     local failed=0

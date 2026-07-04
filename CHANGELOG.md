@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.20] - 2026-07-04
+
+### Changed
+- **Retention is now count-based instead of age-based**: `TM_RETENTION_DAYS=N` keeps the N newest backup versions (unique dates) that actually exist on disk. Only versions beyond the N newest are removed; with N or fewer versions present **nothing is ever deleted**. After a period of failed backups the last good versions therefore always survive — set 14, and you always have (up to) 14 versions, never fewer because of rotation.
+- **Backups never wait for cleanup anymore**: `timemachine.sh` no longer rotates inline (old Phase 3). All rotation happens exclusively in the daily background sweep (`bin/rotate-backups.sh`), so a backlog of slow deletes can no longer hold up a running or finishing backup.
+- **Old snapshots are deleted much faster and without IO impact**: removal now uses the rsync-empty-dir method (`rsync -a --delete <empty>/ <dir>/`), which is significantly faster than `rm -rf` on snapshot trees with millions of hardlinked files, followed by a cleanup `rm` of the emptied remainder. The whole delete runs under `ionice -c3 nice -n19` (idle IO priority, when available), so running backups always get the disk first. The emergency autopurge uses the same fast path.
+
 ## [3.7.19] - 2026-07-04
 
 ### Added

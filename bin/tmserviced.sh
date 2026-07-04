@@ -722,7 +722,7 @@ _scheduler_loop() {
         [[ -f "${last_rotation_file}" ]] && last_rotation=$(cat "${last_rotation_file}" 2>/dev/null)
         if [[ "${last_rotation}" != "${today}" && ${current_time} -ge ${schedule_time} && ${_uptime} -ge 300 ]]; then
             echo "${today}" > "${last_rotation_file}"
-            tm_log "INFO" "Scheduler: starting daily rotation sweep (retention=${TM_RETENTION_DAYS:-7} days)"
+            tm_log "INFO" "Scheduler: starting daily rotation sweep (keeping newest ${TM_RETENTION_DAYS:-7} versions per server)"
             "${SCRIPT_DIR}/rotate-backups.sh" >> "${TM_LOG_DIR}/rotation.log" 2>&1 &
         fi
 

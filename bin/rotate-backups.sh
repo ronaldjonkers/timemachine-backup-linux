@@ -2,13 +2,16 @@
 # ============================================================
 # TimeMachine Backup - Standalone Rotation & Disk Guard
 # ============================================================
-# Rotates ALL configured servers' backups down to TM_RETENTION_DAYS,
-# independent of whether backups ran, failed, or are db-only.
-# This is the guarantee that the backup disk cannot silently fill up:
-#   - timemachine.sh only rotates after a file backup, so --db-only
-#     servers and aborted daily runs never rotated at all.
-#   - This script is triggered daily by tmserviced.sh, and can also be
-#     run manually or from cron.
+# Rotates ALL configured servers' backups down to the newest
+# TM_RETENTION_DAYS versions (unique dates), independent of whether
+# backups ran, failed, or are db-only. When a server has that many or
+# fewer versions on disk, nothing is removed — the minimum set of good
+# backups is always preserved.
+# This is the ONLY place rotation happens (since v3.7.20 timemachine.sh
+# no longer rotates inline), so slow deletes can never block a backup;
+# removal runs with idle IO priority (ionice -c3) via the fast
+# rsync-empty-dir method.
+# Triggered daily by tmserviced.sh; can also be run manually or from cron.
 #
 # After rotation it checks disk usage of TM_BACKUP_ROOT:
 #   - usage >= TM_DISK_ALERT_PCT (default 90): error notification.
@@ -72,7 +75,7 @@ if [[ -f "${SERVERS_CONF}" ]]; then
         [[ -d "${backup_base}" ]] || continue
 
         if [[ ${DRY_RUN} -eq 1 ]]; then
-            tm_log "INFO" "[DRY-RUN] Would rotate ${backup_base} (keep ${TM_RETENTION_DAYS:-7} days)"
+            tm_log "INFO" "[DRY-RUN] Would rotate ${backup_base} (keep newest ${TM_RETENTION_DAYS:-7} versions)"
             continue
         fi
 

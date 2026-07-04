@@ -208,13 +208,13 @@ main() {
         fi
     fi
 
-    # --- Rotation (only after full or files-only backups, not db-only) ---
-    if [[ ${NO_ROTATE} -eq 0 && ${DB_ONLY} -eq 0 ]]; then
-        tm_log "INFO" "Phase 3: Rotating old backups"
-        tm_rotate_backups "${BACKUP_BASE}" || tm_log "WARN" "Rotation encountered errors"
-    elif [[ ${DB_ONLY} -eq 1 ]]; then
-        tm_log "INFO" "Skipping rotation (db-only backup)"
-    fi
+    # --- Rotation ---
+    # Rotation is NOT done here anymore: deleting old snapshots (millions of
+    # hardlinked files) can take hours and used to block the backup from
+    # completing. The daily rotation sweep (bin/rotate-backups.sh, triggered
+    # by tmserviced.sh) handles all cleanup separately with idle IO priority,
+    # so backups always finish first.
+    tm_log "INFO" "Phase 3: rotation is handled by the daily rotation sweep (rotate-backups.sh)"
 
     # --- Summary & Notification ---
     # Temporarily disable set -e for the summary section so that

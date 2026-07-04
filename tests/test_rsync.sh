@@ -131,13 +131,24 @@ mkdir -p "${ROTATION_DIR}/${TODAY}"
 # Also create a "latest" symlink (should not be touched by rotation)
 ln -sf "${ROTATION_DIR}/${TODAY}" "${ROTATION_DIR}/latest"
 
+# Count-based retention: 4 versions on disk, keep newest 3 → only the
+# oldest (2020-01-01) goes, even though all 2020-* dates are "old"
 TM_RETENTION_DAYS=3
 tm_rotate_backups "${ROTATION_DIR}"
 
-assert_eq "Old backup 2020-01-01 removed" "false" "$([[ -d "${ROTATION_DIR}/2020-01-01" ]] && echo true || echo false)"
-assert_eq "Old backup 2020-01-02 removed" "false" "$([[ -d "${ROTATION_DIR}/2020-01-02" ]] && echo true || echo false)"
-assert_eq "Old backup 2020-06-15 removed" "false" "$([[ -d "${ROTATION_DIR}/2020-06-15" ]] && echo true || echo false)"
+assert_eq "Oldest backup 2020-01-01 removed" "false" "$([[ -d "${ROTATION_DIR}/2020-01-01" ]] && echo true || echo false)"
+assert_eq "2020-01-02 kept (within newest 3)" "true" "$([[ -d "${ROTATION_DIR}/2020-01-02" ]] && echo true || echo false)"
+assert_eq "2020-06-15 kept (within newest 3)" "true" "$([[ -d "${ROTATION_DIR}/2020-06-15" ]] && echo true || echo false)"
 assert_eq "Today's backup kept" "true" "$([[ -d "${ROTATION_DIR}/${TODAY}" ]] && echo true || echo false)"
+
+# Minimum guarantee: exactly retention versions on disk → nothing removed
+tm_rotate_backups "${ROTATION_DIR}"
+assert_eq "Min-keep: 2020-01-02 survives repeat rotation" "true" "$([[ -d "${ROTATION_DIR}/2020-01-02" ]] && echo true || echo false)"
+
+# Minimum guarantee: retention higher than versions on disk → nothing removed
+TM_RETENTION_DAYS=14
+tm_rotate_backups "${ROTATION_DIR}"
+assert_eq "Min-keep (14 set, 3 on disk): oldest survives" "true" "$([[ -d "${ROTATION_DIR}/2020-01-02" ]] && echo true || echo false)"
 
 echo ""
 echo "=== Testing: Rotation with timestamped snapshots ==="
@@ -154,12 +165,14 @@ mkdir -p "${ROTATION_DIR2}/2020-06-15_090000"
 mkdir -p "${ROTATION_DIR2}/${TODAY}_120000"
 mkdir -p "${ROTATION_DIR2}/${TODAY}_180000"
 
-TM_RETENTION_DAYS=3
+# 3 unique dates on disk (2020-01-01 has 2 snaps, today has 2 snaps).
+# Keep newest 2 dates → both 2020-01-01 snaps removed, rest kept.
+TM_RETENTION_DAYS=2
 tm_rotate_backups "${ROTATION_DIR2}"
 
 assert_eq "Old timestamped 2020-01-01_120000 removed" "false" "$([[ -d "${ROTATION_DIR2}/2020-01-01_120000" ]] && echo true || echo false)"
 assert_eq "Old timestamped 2020-01-01_180000 removed" "false" "$([[ -d "${ROTATION_DIR2}/2020-01-01_180000" ]] && echo true || echo false)"
-assert_eq "Old timestamped 2020-06-15_090000 removed" "false" "$([[ -d "${ROTATION_DIR2}/2020-06-15_090000" ]] && echo true || echo false)"
+assert_eq "2020-06-15_090000 kept (within newest 2 dates)" "true" "$([[ -d "${ROTATION_DIR2}/2020-06-15_090000" ]] && echo true || echo false)"
 assert_eq "Today's timestamped 120000 kept" "true" "$([[ -d "${ROTATION_DIR2}/${TODAY}_120000" ]] && echo true || echo false)"
 assert_eq "Today's timestamped 180000 kept" "true" "$([[ -d "${ROTATION_DIR2}/${TODAY}_180000" ]] && echo true || echo false)"
 
