@@ -366,6 +366,18 @@ async function refreshProcesses() {
     }).join('');
 }
 
+async function dismissAllFailures() {
+    if (!confirm('Dismiss ALL error notifications? This removes the error logs and resets the failure status of every server.')) return;
+    var result = await apiDelete('/api/failures');
+    if (result && !result.error) {
+        toast('Dismissed ' + (result.dismissed || 0) + ' failure(s)', 'success');
+        refreshFailures();
+        refreshServers();
+    } else {
+        toast('Could not dismiss: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
 async function dismissFailure(hostname) {
     var result = await apiDelete('/api/failures/' + hostname);
     if (result && !result.error) {

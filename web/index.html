@@ -113,7 +113,10 @@
             <section class="panel" id="failures-panel" style="display:none">
                 <div class="panel-header panel-header-danger">
                     <h2>&#x26A0; Failed Backups</h2>
-                    <button class="btn btn-sm" onclick="refreshFailures()">Refresh</button>
+                    <div>
+                        <button class="btn btn-sm btn-danger" onclick="dismissAllFailures()">Dismiss All</button>
+                        <button class="btn btn-sm" onclick="refreshFailures()">Refresh</button>
+                    </div>
                 </div>
                 <table>
                     <thead>

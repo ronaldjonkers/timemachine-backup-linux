@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.21] - 2026-07-04
+
+### Added
+- Dashboard: **"Dismiss All" button** on the Failed Backups panel (with confirmation) — clears every error notification in one click via the existing `DELETE /api/failures` endpoint.
+
+### Fixed
+- `DELETE /api/failures` (dismiss all) now also resets the `exit-<host>.code` state of the affected servers, matching the per-host dismiss — previously the servers table could stay red after dismissing everything. It also no longer caps the sweep at the 50 newest logs, so old error logs can't resurface in the failures panel after a dismiss-all.
+
 ## [3.7.20] - 2026-07-04
 
 ### Changed

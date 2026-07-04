@@ -964,19 +964,31 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json({'cleared': cleared})
 
     def _api_failures_clear(self):
-        """Dismiss all failures by deleting log files that contain errors."""
+        """Dismiss all failures by deleting log files that contain errors.
+        Also resets the exit-code state of the affected hosts, matching the
+        per-host dismiss, so the servers table goes back to OK."""
         ld = log_dir()
         removed = 0
-        logs = sorted(glob.glob(os.path.join(ld, 'backup-*.log')),
-                       key=os.path.getmtime, reverse=True)[:50]
-        for logfile in logs:
+        hosts = set()
+        for logfile in glob.glob(os.path.join(ld, 'backup-*.log')):
             try:
                 log_tail = tail_file(logfile, 50)
                 if re.search(r'\[ERROR\]|FAIL|fatal|Permission denied|cannot create', log_tail, re.IGNORECASE):
+                    m = re.match(r'backup-(.+)-\d{4}-\d{2}-\d{2}_\d{6}\.log$',
+                                 os.path.basename(logfile))
+                    if m:
+                        hosts.add(m.group(1))
                     os.remove(logfile)
                     removed += 1
             except Exception:
                 continue
+        for hostname in hosts:
+            exit_file = os.path.join(state_dir(), f'exit-{hostname}.code')
+            try:
+                if os.path.isfile(exit_file):
+                    os.remove(exit_file)
+            except Exception:
+                pass
         self._send_json({'dismissed': removed})
 
     def _api_failure_dismiss(self, hostname):
