@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.18] - 2026-07-04
+
+### Fixed
+- **SQL dumps arrived owned by a foreign UID (e.g. `1002`) since v3.7.13** — the local receiving rsync now runs as root for file backups, and as root rsync (`-a --numeric-ids`) preserves the *remote* numeric owner. For the filesystem snapshot that is exactly right (mirrors the remote server), but the SQL dump sync inherited the same behavior: dumps under `sql/` got the remote `timemachine` UID, which maps to a different (or no) local user. Follow-up symptom: the service user could no longer create version subdirs inside those dirs — `mkdir: cannot create directory '.../sql/113406': Permission denied`. The SQL sync now runs the local rsync as the service user again (`_tm_rsync_base_cmd 0`); as non-root, rsync skips chown and dumps stay owned by the local `timemachine` user, exactly like before v3.7.13.
+- `tm_rsync_sql` now detects `sql/` directories with wrong ownership left behind by v3.7.13–v3.7.17 and repairs them automatically (`sudo -n chown -R` to the service user, sudoers rule already present) before syncing — no manual cleanup needed on the backup server.
+
 ## [3.7.17] - 2026-07-02
 
 ### Fixed

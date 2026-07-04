@@ -7,17 +7,26 @@
 # ============================================================
 
 # Build the base rsync command with common options
+# Usage: _tm_rsync_base_cmd [local_sudo]
+#   local_sudo=1 (default): local receiving rsync runs as root (file backups)
+#   local_sudo=0: local rsync runs as the service user (SQL dump sync)
 _tm_rsync_base_cmd() {
+    local local_sudo="${1:-1}"
     local rsync_flags="${TM_RSYNC_FLAGS[*]}"
 
-    # The local (receiving) rsync must run as root: previous snapshots contain
-    # root-owned files with restrictive modes (/etc/shadow 0600/0000, setuid
-    # binaries like /usr/bin/sudo 4111) that a non-root receiver cannot open
-    # as --link-dest basis ("failed to open ... Permission denied", exit 23).
-    # Root is also required to preserve ownership (-o/-g) on new snapshots.
-    # The installer grants the service user NOPASSWD sudo for rsync.
+    # For FILE backups the local (receiving) rsync must run as root: previous
+    # snapshots contain root-owned files with restrictive modes (/etc/shadow
+    # 0600/0000, setuid binaries like /usr/bin/sudo 4111) that a non-root
+    # receiver cannot open as --link-dest basis ("failed to open ...
+    # Permission denied", exit 23). Root also preserves ownership (-o/-g),
+    # which is wanted there: the snapshot mirrors the remote filesystem.
+    #
+    # For SQL dump sync local_sudo must be 0: as root, rsync would preserve
+    # the REMOTE numeric owner (e.g. UID 1002 of the remote timemachine user),
+    # making dumps unwritable/misleading locally. As the service user, rsync
+    # skips chown entirely and the dumps stay owned by the local service user.
     local rsync_bin="rsync"
-    if [[ ${EUID} -ne 0 ]]; then
+    if [[ "${local_sudo}" -eq 1 && ${EUID} -ne 0 ]]; then
         if command -v sudo &>/dev/null && sudo -n rsync --version &>/dev/null; then
             rsync_bin="sudo -n rsync"
         else
@@ -207,10 +216,29 @@ tm_rsync_sql() {
         tm_log "INFO" "DB interval: storing version in ${snap_id}/sql/${ts}"
     fi
 
+    # Repair ownership left behind by v3.7.13–v3.7.17: the sudo'd local rsync
+    # preserved the REMOTE numeric UID on sql/ dirs (e.g. 1002), so the
+    # service user can no longer create version subdirs in them
+    # ("mkdir: cannot create directory ... Permission denied").
+    local cur_user cur_group
+    cur_user=$(id -un)
+    cur_group=$(id -gn)
+    if [[ -d "${base_sql_dir}" ]]; then
+        local sql_owner
+        sql_owner=$(stat -c '%U' "${base_sql_dir}" 2>/dev/null || stat -f '%Su' "${base_sql_dir}" 2>/dev/null)
+        if [[ -n "${sql_owner}" && "${sql_owner}" != "${cur_user}" ]]; then
+            tm_log "INFO" "Fixing ownership of ${base_sql_dir} (${sql_owner} -> ${cur_user})"
+            sudo -n chown -R "${cur_user}:${cur_group}" "${base_sql_dir}" 2>/dev/null || \
+                tm_log "ERROR" "Could not fix ownership of ${base_sql_dir} — check the NOPASSWD sudoers rule for chown (install.sh --reconfigure)"
+        fi
+    fi
+
     tm_ensure_dir "${target_dir}"
 
+    # local_sudo=0: SQL dumps must be owned by the local service user,
+    # not by the remote UID (see _tm_rsync_base_cmd).
     local rsync_cmd
-    rsync_cmd=$(_tm_rsync_base_cmd)
+    rsync_cmd=$(_tm_rsync_base_cmd 0)
 
     local remote_sql_path="/home/${TM_USER}/sql/"
     tm_log "INFO" "Rsync SQL: ${remote_user}@${hostname}:${remote_sql_path} -> ${target_dir}/"
