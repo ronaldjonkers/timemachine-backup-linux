@@ -465,6 +465,46 @@ cmd_auth() {
     esac
 }
 
+cmd_customer() {
+    local sub="${1:-list}"
+    shift 2>/dev/null || true
+    local py
+    py=$(_auth_python) || exit 1
+    local helper="${SCRIPT_DIR}/tm_portal_auth.py"
+
+    case "${sub}" in
+        add)
+            if [[ -z "${1:-}" || -z "${2:-}" ]]; then
+                echo "Usage: tmctl customer add <username> <host1,host2,...> [email]"
+                echo "  Creates a customer account, assigns servers, and prints a"
+                echo "  one-time passkey registration link (emailed when an address is given)."
+                exit 1
+            fi
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" add-customer "$1" "$2" "${3:-}"
+            ;;
+        servers)
+            if [[ -z "${1:-}" || -z "${2:-}" ]]; then
+                echo "Usage: tmctl customer servers <username> <host1,host2,...>"
+                exit 1
+            fi
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" set-servers "$1" "$2"
+            ;;
+        invite)
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl customer invite <username>"; exit 1; }
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" new-link "$1"
+            ;;
+        revoke)
+            [[ -z "${1:-}" ]] && { echo "Usage: tmctl customer revoke <username>"; exit 1; }
+            TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" revoke "$1"
+            ;;
+        list)    TM_PROJECT_ROOT="${TM_PROJECT_ROOT}" "${py}" "${helper}" list ;;
+        *)
+            echo "Usage: tmctl customer <add|servers|invite|revoke|list>"
+            exit 1
+            ;;
+    esac
+}
+
 cmd_auth_basic() {
     local mode="$1"
     [[ "${mode}" != "on" && "${mode}" != "off" ]] && { echo "Usage: tmctl auth basic <on|off>"; exit 1; }
@@ -1229,6 +1269,12 @@ cmd_update() {
         echo ""
         echo "  ${BOLD}Applying configuration changes...${NC}"
         bash "${project_root}/install.sh" --reconfigure
+
+        # Post-update: python deps (fido2), portal security migration
+        # (proxy key, portal domain, nginx header), service restart
+        if [[ -f "${project_root}/bin/post-update.sh" ]]; then
+            bash "${project_root}/bin/post-update.sh"
+        fi
     else
         echo ""
         echo "  ${YELLOW}Warning:${NC} Not running as root — skipping reconfiguration."
@@ -1347,6 +1393,7 @@ usage() {
     echo "  ssh-key             Show SSH public key"
     echo "  setup-web           Setup Nginx + SSL + Auth for web dashboard"
     echo "  auth <subcommand>   Passkey login: setup/link/list/revoke/status/basic on|off"
+    echo "  customer <subcmd>   Multi-tenant: add/servers/invite/revoke/list"
     echo "  update              Update to the latest version"
     echo "  auto-update <on|off|status>  Manage weekly auto-updates"
     echo "  fix-permissions      Fix all file/directory permissions (sudo)"
@@ -1382,6 +1429,7 @@ case "${COMMAND}" in
     ssh-key)    cmd_ssh_key ;;
     setup-web)  exec "${SCRIPT_DIR}/setup-web.sh" "$@" ;;
     auth)       cmd_auth "$@" ;;
+    customer)   cmd_customer "$@" ;;
     update)     cmd_update ;;
     auto-update) cmd_auto_update "$@" ;;
     fix-permissions|fix-perms) cmd_fix_permissions ;;

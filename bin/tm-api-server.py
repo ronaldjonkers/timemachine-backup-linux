@@ -619,6 +619,14 @@ class APIHandler(BaseHTTPRequestHandler):
         pass
 
     def _send_json(self, data, status=200, extra_headers=None):
+        # Multi-tenant: list endpoints only show a customer's own servers
+        user = getattr(self, 'current_user', None) or {}
+        if status == 200 and user.get('role') == 'customer' and isinstance(data, list):
+            req_path = unquote(urlparse(self.path).path)
+            if req_path in self._FILTERED_LISTS:
+                allowed = self._customer_hosts()
+                data = [d for d in data
+                        if isinstance(d, dict) and d.get('hostname') in allowed]
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
@@ -698,6 +706,63 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'Authentication required', 'auth': 'required'}, 401)
             return False
         self.current_user = user
+
+        # Customers are strictly read-only: every mutating request is
+        # admin-only (logout etc. under /api/auth/ stays allowed).
+        if user.get('role') == 'customer' and self.command != 'GET' and \
+                not path.startswith('/api/auth/'):
+            self._send_json({'error': 'Read-only access'}, 403)
+            return False
+        return True
+
+    # Endpoints a customer may never read
+    _CUSTOMER_DENIED = ('/api/system', '/api/settings', '/api/excludes',
+                        '/api/ssh-key', '/api/users')
+    # Hostname-scoped endpoints: first path segment is the hostname
+    _HOST_SCOPED = ('/api/snapshots/', '/api/browse/', '/api/download/',
+                    '/api/db-versions/', '/api/logs/', '/api/rsync-log/')
+    # List endpoints filtered to assigned hostnames for customers
+    _FILTERED_LISTS = ('/api/servers', '/api/history', '/api/failures',
+                       '/api/processes', '/api/restores', '/api/archived')
+
+    def _is_admin(self):
+        user = getattr(self, 'current_user', None) or {}
+        return user.get('role', 'admin') != 'customer'
+
+    def _customer_hosts(self):
+        user = getattr(self, 'current_user', None) or {}
+        if portal_auth is None:
+            return set()
+        return set(portal_auth.get_user_servers(user.get('username', '')))
+
+    def _require_admin(self):
+        if self._is_admin():
+            return True
+        self._send_json({'error': 'Admin only'}, 403)
+        return False
+
+    def _authorize_get(self, path):
+        """Per-route authorization for customer accounts. Admins pass."""
+        if self._is_admin():
+            return True
+        for p in self._CUSTOMER_DENIED:
+            if path == p or path.startswith(p + '/'):
+                self._send_json({'error': 'Admin only'}, 403)
+                return False
+        for prefix in self._HOST_SCOPED:
+            if path.startswith(prefix):
+                host = path[len(prefix):].split('/')[0]
+                if host not in self._customer_hosts():
+                    self._send_json({'error': 'Forbidden'}, 403)
+                    return False
+                return True
+        if path.startswith('/api/restore-log/'):
+            name = path[len('/api/restore-log/'):]
+            m = re.match(r'restore-(.+)-\d{4}-\d{2}-\d{2}_\d{6}', name)
+            host = m.group(1) if m else ''
+            if host not in self._customer_hosts():
+                self._send_json({'error': 'Forbidden'}, 403)
+                return False
         return True
 
     def _audit(self, event, detail=''):
@@ -843,8 +908,12 @@ class APIHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         # --- API routes ---
+        if path.startswith('/api/') and not self._authorize_get(path):
+            return
         if path.startswith('/api/auth/'):
             self._api_auth_get(path)
+        elif path == '/api/users':
+            self._api_users_list()
         elif path == '/api/status':
             self._api_status()
         elif path == '/api/processes':
@@ -922,6 +991,10 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if path.startswith('/api/auth/'):
             self._api_auth_post(path, body)
+        elif path == '/api/users':
+            self._api_users_create(body)
+        elif path.startswith('/api/users/') and path.endswith('/invite'):
+            self._api_users_invite(path[len('/api/users/'):-len('/invite')], body)
         elif path == '/api/backup-all':
             self._api_backup_all()
         elif path.startswith('/api/backup/'):
@@ -950,7 +1023,9 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         body = self._read_body()
 
-        if path == '/api/settings':
+        if path.startswith('/api/users/'):
+            self._api_users_update(path[len('/api/users/'):], body)
+        elif path == '/api/settings':
             self._api_settings_put(body)
         elif path == '/api/excludes':
             self._api_excludes_put(body)
@@ -974,7 +1049,9 @@ class APIHandler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
 
-        if path == '/api/failures':
+        if path.startswith('/api/users/'):
+            self._api_users_delete(path[len('/api/users/'):])
+        elif path == '/api/failures':
             self._api_failures_clear()
         elif path.startswith('/api/failures/'):
             self._api_failure_dismiss(path[len('/api/failures/'):])
@@ -1466,6 +1543,114 @@ class APIHandler(BaseHTTPRequestHandler):
             logging.error('Auth error on %s: %s', path, e, exc_info=True)
             portal_auth.audit('auth_error', '-', str(e), self._client_ip())
             self._send_json({'error': 'Verification failed'}, 400)
+
+    # ----------------------------------------------------------
+    # USER MANAGEMENT (admin only)
+    # ----------------------------------------------------------
+
+    def _users_guard(self):
+        if not self._require_admin():
+            return False
+        if portal_auth is None:
+            self._send_json({'error': 'Portal auth module not available'}, 503)
+            return False
+        return True
+
+    def _api_users_list(self):
+        if not self._users_guard():
+            return
+        self._send_json(portal_auth.list_users())
+
+    def _api_users_create(self, body):
+        if not self._users_guard():
+            return
+        data = parse_json_body(body)
+        username = (data.get('username') or '').strip()
+        role = 'customer' if data.get('role', 'customer') == 'customer' else 'admin'
+        servers = [s for s in (data.get('servers') or []) if isinstance(s, str) and s.strip()]
+        email = (data.get('email') or '').strip()
+        if not username or not re.match(r'^[A-Za-z0-9._@-]{2,64}$', username):
+            self._send_json({'error': 'Invalid username (2-64 chars: letters, digits, . _ @ -)'}, 400)
+            return
+        try:
+            if not portal_auth.user_exists(username):
+                portal_auth.create_user(username, role)
+            if role == 'customer':
+                portal_auth.set_user_servers(username, servers)
+            token = portal_auth.new_reg_token(username)
+            link = portal_auth.registration_link(token)
+            emailed = False
+            email_error = ''
+            if email:
+                try:
+                    portal_auth.send_invite_email(username, email, link)
+                    emailed = True
+                except ValueError as e:
+                    email_error = str(e)
+            self._audit('user_create', '{0} role={1} servers={2}'.format(
+                username, role, ','.join(servers)))
+            self._send_json({'ok': True, 'username': username, 'invite_link': link,
+                             'emailed': emailed, 'email_error': email_error})
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
+
+    def _api_users_invite(self, username, body):
+        if not self._users_guard():
+            return
+        data = parse_json_body(body)
+        email = (data.get('email') or '').strip()
+        try:
+            token = portal_auth.new_reg_token(username)
+            link = portal_auth.registration_link(token)
+            emailed = False
+            email_error = ''
+            if email:
+                try:
+                    portal_auth.send_invite_email(username, email, link)
+                    emailed = True
+                except ValueError as e:
+                    email_error = str(e)
+            self._audit('user_invite', username)
+            self._send_json({'ok': True, 'invite_link': link,
+                             'emailed': emailed, 'email_error': email_error})
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
+
+    def _api_users_update(self, username, body):
+        if not self._users_guard():
+            return
+        data = parse_json_body(body)
+        servers = [s for s in (data.get('servers') or []) if isinstance(s, str) and s.strip()]
+        try:
+            portal_auth.set_user_servers(username, servers)
+            self._audit('user_update', '{0} servers={1}'.format(username, ','.join(servers)))
+            self._send_json({'ok': True, 'servers': servers})
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
+
+    def _api_users_delete(self, username):
+        if not self._users_guard():
+            return
+        # Never revoke the last working admin — that locks the portal shut
+        # (recovery would require CLI access to the backup server).
+        users = portal_auth.list_users()
+        target = next((u for u in users if u['username'] == username), None)
+        if target is None:
+            self._send_json({'error': 'No such user'}, 404)
+            return
+        if target['role'] == 'admin':
+            other_admins = [u for u in users
+                            if u['role'] == 'admin' and not u['disabled']
+                            and u['passkeys'] > 0 and u['username'] != username]
+            if not other_admins:
+                self._send_json({'error': 'Cannot revoke the last admin with a passkey'}, 400)
+                return
+        try:
+            portal_auth.revoke_user(username)
+            self._audit('user_revoke', username)
+            self._send_json({'ok': True})
+        except ValueError as e:
+            self._send_json({'error': str(e)}, 400)
 
     def _api_backup_start(self, target_host, body_bytes):
         self._audit('backup_start', target_host)

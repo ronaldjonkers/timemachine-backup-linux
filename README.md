@@ -302,6 +302,40 @@ To remove external access:
 sudo tmctl setup-web --remove
 ```
 
+### Passkey login (WebAuthn) — replace the password
+
+After `setup-web`, upgrade from Basic Auth to passkeys (Touch ID, Windows Hello, security keys, phone):
+
+```bash
+sudo tmctl auth setup <your-username>   # prints a one-time registration link
+# open the link, create your passkey, test signing in at /login.html
+sudo tmctl auth basic off               # remove the password prompt (passkeys only)
+```
+
+Details:
+- Requires the `fido2` Python package (Python 3.8+) — installed automatically by the installer and `tmctl update`. On systems stuck on Python 3.6 the dashboard simply keeps Basic Auth.
+- Multiple passkeys per user: `tmctl auth link <user>` prints a new registration link (also the recovery path for a lost passkey).
+- `tmctl auth basic off` refuses to run until a working passkey exists — you cannot lock yourself out.
+- Sessions are HttpOnly/Secure/SameSite=Strict cookies (24h, `TM_SESSION_HOURS`); every download, restore, and login lands in `logs/audit.log`.
+- The API itself is protected twice: it binds to `127.0.0.1` and requires a proxy key (`TM_PROXY_KEY`) that only nginx injects — an exposed port is useless.
+
+### Multi-user: offer backups to your customers
+
+As a hosting provider you can give each customer their own portal account that only sees **their** servers:
+
+```bash
+# create a customer, assign servers, and email the invite in one go:
+sudo tmctl customer add customer1 web1.example.com,db1.example.com customer@example.com
+
+tmctl customer list                          # who has access to what
+tmctl customer servers customer1 web1.example.com   # change assignments
+tmctl customer revoke customer1              # remove access, passkeys and sessions
+```
+
+Or manage users from the dashboard: **Settings → Portal Users** (create + invite + assign servers + revoke).
+
+The customer receives a one-time link (72h valid), creates a passkey, and gets a **read-only, filtered** dashboard: only their own servers' snapshots, databases, downloads and backup status. Everything else — restores, starting backups, settings, other customers' data — is admin-only and enforced server-side on every API route. Email invitations are sent through the SMTP relay configured at install time (`TM_SMTP_*` in `.env`).
+
 ---
 
 ## Restoring from Backups

@@ -16,10 +16,10 @@
             </div>
             <nav class="nav-tabs">
                 <button class="nav-tab active" data-page="dashboard" onclick="showPage('dashboard')">&#x1F4CA; Dashboard</button>
-                <button class="nav-tab" data-page="servers" onclick="showPage('servers')">&#x1F4E1; Servers</button>
-                <button class="nav-tab" data-page="archive" onclick="showPage('archive')">&#x1F4E6; Archive</button>
+                <button class="nav-tab admin-only" data-page="servers" onclick="showPage('servers')">&#x1F4E1; Servers</button>
+                <button class="nav-tab admin-only" data-page="archive" onclick="showPage('archive')">&#x1F4E6; Archive</button>
                 <button class="nav-tab" data-page="restores" onclick="showPage('restores')">&#x1F501; Restores</button>
-                <button class="nav-tab" data-page="settings" onclick="showPage('settings')">&#x2699; Settings</button>
+                <button class="nav-tab admin-only" data-page="settings" onclick="showPage('settings')">&#x2699; Settings</button>
                 <button class="nav-tab" data-page="help" onclick="showPage('help')">&#x2753; Help</button>
             </nav>
             <div id="service-status" class="badge badge-unknown">
@@ -118,7 +118,7 @@
                 <div class="panel-header panel-header-danger">
                     <h2>&#x26A0; Failed Backups</h2>
                     <div>
-                        <button class="btn btn-sm btn-danger" onclick="dismissAllFailures()">Dismiss All</button>
+                        <button class="btn btn-sm btn-danger admin-only" onclick="dismissAllFailures()">Dismiss All</button>
                         <button class="btn btn-sm" onclick="refreshFailures()">Refresh</button>
                     </div>
                 </div>
@@ -359,6 +359,43 @@
              PAGE: SETTINGS
              ============================================================ -->
         <div class="page" id="page-settings">
+
+            <!-- Portal Users (multi-tenant) -->
+            <section class="panel admin-only">
+                <div class="panel-header">
+                    <h2>&#x1F465; Portal Users</h2>
+                    <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>User</th><th>Role</th><th>Servers</th><th>Passkeys</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="users-body">
+                        <tr><td colspan="5" class="empty">Loading...</td></tr>
+                    </tbody>
+                </table>
+                <div class="settings-form" style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+                    <h3 style="font-size:0.9rem;margin-bottom:0.6rem">Invite customer</h3>
+                    <div class="settings-row">
+                        <div class="settings-field">
+                            <label for="new-user-name">Username</label>
+                            <input type="text" id="new-user-name" placeholder="customer1">
+                        </div>
+                        <div class="settings-field">
+                            <label for="new-user-servers">Servers (comma-separated)</label>
+                            <input type="text" id="new-user-servers" placeholder="web1.example.com,db1.example.com">
+                        </div>
+                        <div class="settings-field">
+                            <label for="new-user-email">Email invite to (optional)</label>
+                            <input type="email" id="new-user-email" placeholder="customer@example.com">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-success" onclick="addCustomer()">Create &amp; Invite</button>
+                        <span class="text-muted" style="font-size:0.8rem">The customer gets a one-time link to create a passkey and only sees their own servers.</span>
+                    </div>
+                </div>
+            </section>
 
             <!-- Backup Settings -->
             <section class="panel">

@@ -1054,3 +1054,6 @@ footer {
     table { font-size: 0.8rem; }
     thead th, tbody td { padding: 0.5rem 0.75rem; }
 }
+
+/* Multi-tenant: hide admin-only UI for customer accounts */
+.role-customer .admin-only { display: none !important; }

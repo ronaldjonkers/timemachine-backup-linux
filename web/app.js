@@ -16,6 +16,7 @@ function showPage(page) {
     if (pageEl) pageEl.classList.add('active');
     var tabEl = document.querySelector('.nav-tab[data-page="' + page + '"]');
     if (tabEl) tabEl.classList.add('active');
+    if (page === 'settings' && typeof loadUsers === 'function') loadUsers();
 }
 
 /* ============================================================
@@ -292,8 +293,8 @@ async function refreshFailures() {
             '<td class="error-text">' + esc(msg) + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(f.hostname) + '\')">Logs</button> ' +
-                '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(f.hostname) + '\')">Retry</button> ' +
-                '<button class="btn btn-sm btn-danger" onclick="dismissFailure(\'' + esc(f.hostname) + '\')">Dismiss</button>' +
+                (isAdmin() ? '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(f.hostname) + '\')">Retry</button> ' : '') +
+                (isAdmin() ? '<button class="btn btn-sm btn-danger" onclick="dismissFailure(\'' + esc(f.hostname) + '\')">Dismiss</button>' : '') +
             '</td></tr>';
     }).join('');
 }
@@ -371,8 +372,8 @@ async function refreshProcesses() {
             '<td>' + duration + '</td>' +
             '<td><span class="status-cell ' + sc + '"><span class="status-dot"></span>' + esc(proc.status) + '</span></td>' +
             '<td>' +
-                (canKill ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +
-                (canDelete ? '<button class="btn btn-sm btn-danger" onclick="deleteProcess(\'' + esc(proc.hostname) + '\')">Delete</button> ' : '') +
+                (canKill && isAdmin() ? '<button class="btn btn-sm btn-danger" onclick="killBackup(\'' + esc(proc.hostname) + '\')">Kill</button> ' : '') +
+                (canDelete && isAdmin() ? '<button class="btn btn-sm btn-danger" onclick="deleteProcess(\'' + esc(proc.hostname) + '\')">Delete</button> ' : '') +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(proc.hostname) + '\')">Logs</button> ' +
                 '<button class="btn btn-sm" onclick="viewRsyncLog(\'' + esc(proc.hostname) + '\', \'' + esc(proc.logfile || '') + '\')">Rsync</button>' +
             '</td></tr>';
@@ -455,7 +456,7 @@ async function refreshRestores() {
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + esc(r.status) + '</span></td>' +
             '<td>' +
                 '<button class="btn btn-sm" onclick="viewRestoreLog(\'' + esc(r.logfile) + '\',\'' + esc(r.hostname) + '\')">Logs</button> ' +
-                (canDelete ? '<button class="btn btn-sm btn-danger" onclick="deleteRestore(\'' + esc(r.id) + '\')">Delete</button>' : '') +
+                (canDelete && isAdmin() ? '<button class="btn btn-sm btn-danger" onclick="deleteRestore(\'' + esc(r.id) + '\')">Delete</button>' : '') +
             '</td></tr>';
     }).join('');
 }
@@ -657,7 +658,7 @@ function _renderServersTable() {
             '<td><span class="status-cell ' + statusClass + '"><span class="status-dot"></span>' + statusLabel + '</span></td>' +
             '<td>' +
                 '<button class="btn btn-sm btn-primary" onclick="openServerDetail(\'' + esc(srv.hostname) + '\')">Snapshots</button> ' +
-                '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(srv.hostname) + '\')">Backup</button> ' +
+                (isAdmin() ? '<button class="btn btn-sm btn-success" onclick="startBackupFor(\'' + esc(srv.hostname) + '\')">Backup</button> ' : '') +
                 '<button class="btn btn-sm" onclick="editServer(\'' + esc(srv.hostname) + '\')">Edit</button> ' +
                 '<button class="btn btn-sm" onclick="viewLogs(\'' + esc(srv.hostname) + '\')">Logs</button> ' +
                 '<button class="btn btn-sm btn-danger" onclick="removeServer(\'' + esc(srv.hostname) + '\')">&#x2715;</button>' +
@@ -1473,7 +1474,7 @@ function _renderServerDetail() {
             '<td>' +
                 '<button class="btn btn-sm" onclick="browseSnapshot(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\')">Browse</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'files\')">Download</button> ' +
-                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'\')">Restore</button>' +
+                (isAdmin() ? '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(s.date) + '\',\'\')">Restore</button>' : '') +
             '</td>' +
             '</tr>';
     }).join('');
@@ -1584,7 +1585,7 @@ async function browseSnapshot(hostname, snapshot, subPath) {
             html += _buildItemTable(hostname, snapshot, filesData.items, '', 'files');
             html += '<div class="form-actions" style="margin-top:0.5rem">' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'files\')">Download All Files</button> ' +
-                '<button class="btn btn-sm btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'\')">Restore All Files</button>' +
+                (isAdmin() ? '<button class="btn btn-sm btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'\')">Restore All Files</button>' : '') +
             '</div>';
         } else {
             html += '<p class="text-muted" style="font-size:0.82rem">No file backups in this snapshot</p>';
@@ -1601,13 +1602,13 @@ async function browseSnapshot(hostname, snapshot, subPath) {
                 '<div class="form-actions" style="border-top:none;padding-top:0">' +
                     '<button class="btn btn-sm btn-primary" onclick="browseDbVersions(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\')">Browse Database Versions</button> ' +
                     '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All</button> ' +
-                    '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__\')">Restore All</button>' +
+                    (isAdmin() ? '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__\')">Restore All</button>' : '') +
                 '</div>';
         } else if (sqlData && sqlData.items && sqlData.items.length > 0) {
             html += _buildItemTable(hostname, snapshot, sqlData.items, '', 'sql');
             html += '<div class="form-actions" style="margin-top:0.5rem">' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'sql\')">Download All Databases</button> ' +
-                '<button class="btn btn-sm btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__\')">Restore All Databases</button>' +
+                (isAdmin() ? '<button class="btn btn-sm btn-primary" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__\')">Restore All Databases</button>' : '') +
             '</div>';
         } else {
             html += '<p class="text-muted" style="font-size:0.82rem">No database backups in this snapshot</p>';
@@ -1681,7 +1682,7 @@ function _buildItemTable(hostname, snapshot, items, currentPath, section) {
             '<td class="text-muted">' + esc(item.size) + '</td>' +
             '<td>' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(dlPath) + '\')">Download</button> ' +
-                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(restorePath) + '\')">Restore</button>' +
+                (isAdmin() ? '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(restorePath) + '\')">Restore</button>' : '') +
             '</td></tr>';
     }).join('');
 
@@ -1716,7 +1717,7 @@ async function browseDbVersions(hostname, snapshot) {
             '<td style="white-space:nowrap">' +
                 '<button class="btn btn-sm btn-primary" onclick="browseDbVersion(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',' + idx + ')">Open</button> ' +
                 '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(v.download_path) + '\')">Download</button> ' +
-                '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__/' + esc(v.version === 'base' ? '' : v.version) + '\')">Restore</button>' +
+                (isAdmin() ? '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'__sql__/' + esc(v.version === 'base' ? '' : v.version) + '\')">Restore</button>' : '') +
             '</td>' +
             '</tr>';
     }).join('');
@@ -1753,7 +1754,7 @@ function browseDbVersion(hostname, snapshot, versionIdx) {
                 '<td class="text-muted" style="white-space:nowrap">' + esc(f.size) + '</td>' +
                 '<td style="white-space:nowrap">' +
                     '<button class="btn btn-sm btn-success" onclick="downloadChoice(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileDlPath) + '\')">Download</button> ' +
-                    '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileRestorePath) + '\')">Restore</button>' +
+                    (isAdmin() ? '<button class="btn btn-sm" onclick="restoreItem(\'' + esc(hostname) + '\',\'' + esc(snapshot) + '\',\'' + esc(fileRestorePath) + '\')">Restore</button>' : '') +
                 '</td>' +
             '</tr>';
         }).join('');
@@ -1938,6 +1939,102 @@ async function refreshAll() {
 
 
 /* ============================================================
+   PORTAL USERS (multi-tenant, admin only)
+   ============================================================ */
+
+async function loadUsers() {
+    var tbody = document.getElementById('users-body');
+    if (!tbody) return;
+    var users = await apiGet('/api/users');
+    if (users === null) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Portal auth not available (see Settings docs)</td></tr>';
+        return;
+    }
+    if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No portal users yet — create your admin with: tmctl auth setup &lt;user&gt;</td></tr>';
+        return;
+    }
+    tbody.innerHTML = users.map(function(u) {
+        var servers = u.role === 'customer' ? esc((u.servers || []).join(', ') || '(none)') : '<em>all (admin)</em>';
+        var status = u.disabled ? ' <span style="color:var(--red)">(disabled)</span>' : '';
+        var actions = '<button class="btn btn-sm" onclick="inviteUser(\'' + esc(u.username) + '\')">Invite link</button> ';
+        if (u.role === 'customer') {
+            actions += '<button class="btn btn-sm" onclick="editUserServers(\'' + esc(u.username) + '\',\'' + esc((u.servers || []).join(',')) + '\')">Servers</button> ';
+        }
+        if (!u.disabled) {
+            actions += '<button class="btn btn-sm btn-danger" onclick="revokeUser(\'' + esc(u.username) + '\')">Revoke</button>';
+        }
+        return '<tr>' +
+            '<td><strong>' + esc(u.username) + '</strong>' + status + '</td>' +
+            '<td>' + esc(u.role) + '</td>' +
+            '<td>' + servers + '</td>' +
+            '<td>' + (u.passkeys || 0) + '</td>' +
+            '<td>' + actions + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+function _showInviteResult(result) {
+    if (result.emailed) {
+        toast('Invitation emailed', 'success');
+    } else if (result.email_error) {
+        toast('Email failed: ' + result.email_error, 'error');
+    }
+    openModal('Registration link', '<p style="font-size:0.85rem;margin-bottom:0.75rem">One-time passkey registration link (valid 72h) — send this to the user:</p>' +
+        '<textarea readonly style="width:100%;height:70px;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.5rem;font-size:0.8rem" onclick="this.select()">' + esc(result.invite_link) + '</textarea>');
+}
+
+async function addCustomer() {
+    var username = document.getElementById('new-user-name').value.trim();
+    var servers = document.getElementById('new-user-servers').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    var email = document.getElementById('new-user-email').value.trim();
+    if (!username) { toast('Enter a username', 'error'); return; }
+    if (!servers.length) { toast('Assign at least one server', 'error'); return; }
+    var result = await apiPost('/api/users', {username: username, role: 'customer', servers: servers, email: email});
+    if (result && result.ok) {
+        _showInviteResult(result);
+        loadUsers();
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+async function inviteUser(username) {
+    var email = prompt('Email the invitation to (leave empty to only show the link):', '');
+    if (email === null) return;
+    var result = await apiPost('/api/users/' + encodeURIComponent(username) + '/invite', {email: email.trim()});
+    if (result && result.ok) {
+        _showInviteResult(result);
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+async function editUserServers(username, current) {
+    var input = prompt('Servers for ' + username + ' (comma-separated):', current);
+    if (input === null) return;
+    var servers = input.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    var result = await apiPut('/api/users/' + encodeURIComponent(username), {servers: servers});
+    if (result && result.ok) {
+        toast('Servers updated', 'success');
+        loadUsers();
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+async function revokeUser(username) {
+    if (!confirm('Revoke ' + username + '? Their passkeys and sessions are removed and access is blocked.')) return;
+    var result = await apiDelete('/api/users/' + encodeURIComponent(username));
+    if (result && result.ok) {
+        toast('User revoked', 'success');
+        loadUsers();
+    } else {
+        toast('Failed: ' + (result ? result.error : 'unknown error'), 'error');
+    }
+}
+
+/* ============================================================
    AUTH (passkey mode)
    ============================================================ */
 
@@ -1946,14 +2043,22 @@ async function doLogout() {
     window.location.href = '/login.html';
 }
 
+function isAdmin() { return window._tmRole !== 'customer'; }
+
 async function initAuth() {
     try {
         var resp = await fetch(API_BASE + '/api/auth/status');
         var s = await resp.json();
         if (s && s.mode === 'passkey') {
             if (!s.authenticated) { window.location.href = '/login.html'; return; }
+            window._tmRole = (s.user && s.user.role) || 'admin';
             document.getElementById('auth-area').style.display = 'flex';
-            document.getElementById('auth-user').textContent = s.user.username;
+            document.getElementById('auth-user').textContent = s.user.username +
+                (isAdmin() ? '' : ' (customer)');
+            if (!isAdmin()) {
+                document.body.classList.add('role-customer');
+                refreshAll();
+            }
         }
     } catch (e) { /* legacy mode or API down — dashboard handles it */ }
 }

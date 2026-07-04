@@ -444,6 +444,30 @@ server_setup_config() {
         info ".env already exists; skipping"
     fi
 
+    # Write SMTP relay settings (works for both new and existing .env).
+    # Values are escaped and upserted so re-running the installer is safe.
+    if [[ -n "${TM_SMTP_HOST:-}" ]]; then
+        _env_upsert() {
+            local key="$1" value="$2"
+            # Escape sed replacement metacharacters (&, \, |)
+            local esc
+            esc=$(printf '%s' "${value}" | sed -e 's/[&\\|]/\\&/g')
+            if grep -q "^${key}=" "${INSTALL_DIR}/.env"; then
+                sed -i.bak "s|^${key}=.*|${key}=\"${esc}\"|" "${INSTALL_DIR}/.env" 2>/dev/null || \
+                sed -i '' "s|^${key}=.*|${key}=\"${esc}\"|" "${INSTALL_DIR}/.env"
+                rm -f "${INSTALL_DIR}/.env.bak"
+            else
+                echo "${key}=\"${value}\"" >> "${INSTALL_DIR}/.env"
+            fi
+        }
+        _env_upsert TM_SMTP_HOST "${TM_SMTP_HOST}"
+        _env_upsert TM_SMTP_PORT "${TM_SMTP_PORT:-587}"
+        _env_upsert TM_SMTP_USER "${TM_SMTP_USER:-}"
+        _env_upsert TM_SMTP_PASS "${TM_SMTP_PASS:-}"
+        _env_upsert TM_SMTP_FROM "${TM_SMTP_FROM:-${TM_SMTP_USER:-}}"
+        info "SMTP relay configured: ${TM_SMTP_HOST}:${TM_SMTP_PORT:-587}"
+    fi
+
     # Copy servers.conf.example if servers.conf doesn't exist
     if [[ ! -f "${INSTALL_DIR}/config/servers.conf" ]]; then
         cp "${INSTALL_DIR}/config/servers.conf.example" "${INSTALL_DIR}/config/servers.conf"
@@ -729,9 +753,58 @@ server_ask_email() {
 
     if [[ -n "${TM_REPORT_EMAIL}" ]]; then
         info "Reports will be sent to: ${TM_REPORT_EMAIL}"
+        server_ask_smtp
     else
         info "Email reports disabled (set TM_ALERT_EMAIL in .env to enable)"
     fi
+}
+
+# ============================================================
+# SERVER: ASK SMTP RELAY (reliable email delivery)
+# ============================================================
+# Without an SMTP relay, emails depend on a local MTA — which is often
+# missing or lands in spam. With TM_SMTP_* set, notify.sh delivers via
+# authenticated SMTP (Python smtplib, STARTTLS/SSL).
+
+server_ask_smtp() {
+    # Pre-seeded via environment (unattended installs) — skip prompts
+    if [[ -n "${TM_SMTP_HOST:-}" ]]; then
+        info "SMTP relay pre-configured: ${TM_SMTP_HOST}:${TM_SMTP_PORT:-587}"
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}Configure an SMTP relay for reliable email delivery?${NC}"
+    echo ""
+    echo "  Strongly recommended: without it, emails rely on a local mail"
+    echo "  daemon and often never arrive or land in spam."
+    echo ""
+
+    local use_smtp
+    use_smtp=$(read_input "  Configure SMTP relay? [Y/n]: " "y")
+    if [[ ! "${use_smtp}" =~ ^[Yy] ]]; then
+        info "SMTP relay skipped (set TM_SMTP_* in .env later)"
+        return
+    fi
+
+    TM_SMTP_HOST=$(read_input "  SMTP server (e.g. smtp.example.com): " "")
+    if [[ -z "${TM_SMTP_HOST}" ]]; then
+        warn "No SMTP server entered — skipping SMTP configuration"
+        return
+    fi
+    TM_SMTP_PORT=$(read_input "  SMTP port [587]: " "587")
+    TM_SMTP_USER=$(read_input "  SMTP username []: " "")
+    if [[ -n "${TM_SMTP_USER}" ]]; then
+        # Read password without echo
+        echo -n "  SMTP password: "
+        read -rs TM_SMTP_PASS
+        echo ""
+    else
+        TM_SMTP_PASS=""
+    fi
+    TM_SMTP_FROM=$(read_input "  Sender address [${TM_SMTP_USER:-backup@$(hostname -f 2>/dev/null || hostname)}]: " "${TM_SMTP_USER:-backup@$(hostname -f 2>/dev/null || hostname)}")
+
+    info "SMTP relay: ${TM_SMTP_HOST}:${TM_SMTP_PORT} (from: ${TM_SMTP_FROM})"
 }
 
 # ============================================================
@@ -885,17 +958,9 @@ server_ask_dashboard_security() {
         info "Using report email for Let's Encrypt: ${le_email}"
     fi
 
-    # --- Passkey support (optional, best effort) ---
-    # The fido2 package enables passkey (WebAuthn) login for the dashboard.
-    # Needs Python 3.8+; on older systems the dashboard keeps Basic Auth.
-    if ! python3 -c 'import fido2' 2>/dev/null; then
-        info "Installing Python 'fido2' package for passkey login (optional)..."
-        if command -v pip3 &>/dev/null; then
-            pip3 install -q fido2 2>/dev/null || \
-                warn "Could not install 'fido2' — passkey login stays unavailable until: pip3 install fido2"
-        else
-            warn "pip3 not found — for passkey login install python3-pip and run: pip3 install fido2"
-        fi
+    # --- Passkey support: python deps via post-update.sh (idempotent) ---
+    if [[ -f "${INSTALL_DIR}/bin/post-update.sh" ]]; then
+        bash "${INSTALL_DIR}/bin/post-update.sh" --deps-only
     fi
 
     # --- Run setup-web.sh ---

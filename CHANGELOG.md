@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.0] - 2026-07-04
+
+### Added (phase 4 — multi-tenant)
+- **Customer accounts**: users with role `customer` see a read-only, filtered portal — only the snapshots, databases, downloads, history, failures and processes of the servers assigned to them. Enforced **server-side** on every API route: hostname-scoped endpoints return 403 for other servers, list endpoints are filtered centrally, every mutating request (backup, restore, delete, settings) is admin-only, and `system`/`settings`/`excludes`/`ssh-key`/`users` are admin-only reads.
+- **Invites**: `tmctl customer add <user> <host1,host2> [email]` creates the account, assigns servers, and prints (and optionally emails, via the `TM_SMTP_*` relay) a one-time passkey registration link — exactly the flow: invite → link → passkey → own backups. Also: `tmctl customer servers|invite|revoke|list`.
+- **Dashboard admin UI**: Settings → Portal Users — list users with servers/passkeys, create + invite customers (with email), edit server assignments, revoke. Customers get a trimmed UI (no Settings/Servers/Archive tabs, no restore/backup/kill buttons) on top of the server-side enforcement.
+- Admin API: `GET/POST /api/users`, `POST /api/users/<u>/invite`, `PUT/DELETE /api/users/<u>`. Revoking the last admin with a working passkey is refused (no locking the portal shut).
+
+### Added (automation)
+- **`bin/post-update.sh`** — idempotent post-update step, run automatically by `sudo tmctl update` and the installer. It: installs the `fido2` package (distro package → pip, incl. PEP 668 fallback; skipped with a clear message on Python < 3.8), generates `TM_PROXY_KEY` and derives `TM_PORTAL_DOMAIN` from the existing nginx config, binds the API to localhost, injects the proxy-key header into an existing nginx config and adds the login/register pages to it, reloads nginx and restarts the service. **One `sudo tmctl update` therefore migrates an existing installation completely.**
+- **SMTP relay in the installer**: the server install now asks for SMTP host, port, username, password and sender address (pre-seedable via `TM_SMTP_*` env vars for unattended installs) and writes them to `.env` — emails no longer depend on a local MTA.
+
 ## [3.8.0] - 2026-07-04
 
 ### Security (phase 1 — defense in depth)

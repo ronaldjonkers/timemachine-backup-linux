@@ -118,6 +118,12 @@ def _init_db():
                 expires_at INTEGER NOT NULL,
                 used_at INTEGER
             );
+            CREATE TABLE IF NOT EXISTS server_assignments (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                hostname TEXT NOT NULL,
+                UNIQUE(user_id, hostname)
+            );
         ''')
         conn.commit()
     finally:
@@ -407,6 +413,95 @@ def new_reg_token(username):
         conn.close()
 
 
+def set_user_servers(username, hostnames):
+    """Replace the server assignments of a (customer) user."""
+    conn = _db()
+    try:
+        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        if user is None:
+            raise ValueError('No such user: {0}'.format(username))
+        conn.execute('DELETE FROM server_assignments WHERE user_id = ?', (user['id'],))
+        for h in hostnames:
+            h = (h or '').strip()
+            if h:
+                conn.execute(
+                    'INSERT OR IGNORE INTO server_assignments (user_id, hostname) VALUES (?, ?)',
+                    (user['id'], h))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_user_servers(username):
+    """Hostnames assigned to a user (empty list = none)."""
+    conn = _db()
+    try:
+        rows = conn.execute(
+            'SELECT sa.hostname FROM server_assignments sa '
+            'JOIN users u ON u.id = sa.user_id WHERE u.username = ? '
+            'ORDER BY sa.hostname', (username,)).fetchall()
+        return [r['hostname'] for r in rows]
+    finally:
+        conn.close()
+
+
+def user_exists(username):
+    conn = _db()
+    try:
+        return conn.execute('SELECT 1 FROM users WHERE username = ?',
+                            (username,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def send_invite_email(username, email, link):
+    """Send a registration link by email via the TM_SMTP_* relay.
+    Returns True on success; raises ValueError with a reason on failure."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    host = (_ENV.get('TM_SMTP_HOST') or '').strip()
+    if not host:
+        raise ValueError('No SMTP relay configured (TM_SMTP_HOST in .env)')
+    port = int(_ENV.get('TM_SMTP_PORT') or 587)
+    user = _ENV.get('TM_SMTP_USER') or ''
+    pw = _ENV.get('TM_SMTP_PASS') or ''
+    sender = _ENV.get('TM_SMTP_FROM') or user or 'backup@localhost'
+
+    body = ('Hello {0},\n\n'
+            'You have been invited to the TimeMachine Backup portal.\n'
+            'Open the link below to create your passkey (valid {1} hours):\n\n'
+            '  {2}\n\n'
+            'After creating the passkey you can sign in and access your backups.\n'
+            .format(username, REG_TOKEN_HOURS, link))
+    msg = MIMEText(body)
+    msg['Subject'] = '[TimeMachine] Backup portal invitation'
+    msg['From'] = sender
+    msg['To'] = email
+
+    try:
+        if port == 465:
+            s = smtplib.SMTP_SSL(host, port, timeout=30)
+        else:
+            s = smtplib.SMTP(host, port, timeout=30)
+            if (_ENV.get('TM_SMTP_TLS') or 'true') == 'true':
+                s.starttls()
+        if user and pw:
+            s.login(user, pw)
+        s.sendmail(sender, [email], msg.as_string())
+        s.quit()
+    except Exception as e:
+        raise ValueError('SMTP send failed: {0}'.format(e))
+    audit('invite_sent', username, 'to={0}'.format(email))
+    return True
+
+
+def registration_link(token):
+    d = portal_domain()
+    base = 'https://{0}'.format(d) if d else 'https://<your-dashboard-domain>'
+    return '{0}/register.html?token={1}'.format(base, token)
+
+
 def revoke_user(username):
     """Disables a user and destroys all their sessions/credentials."""
     conn = _db()
@@ -425,13 +520,16 @@ def revoke_user(username):
 def list_users():
     conn = _db()
     try:
-        return [dict(r) for r in conn.execute(
+        users = [dict(r) for r in conn.execute(
             'SELECT u.username, u.role, u.disabled, u.created_at, '
             '       COUNT(c.id) AS passkeys '
             'FROM users u LEFT JOIN credentials c ON c.user_id = u.id '
             'GROUP BY u.id ORDER BY u.username').fetchall()]
     finally:
         conn.close()
+    for u in users:
+        u['servers'] = get_user_servers(u['username'])
+    return users
 
 
 # ============================================================
@@ -491,7 +589,34 @@ def _cli_main():
         base = 'https://{0}'.format(d) if d else 'https://<your-dashboard-domain>'
         return '{0}/register.html?token={1}'.format(base, token)
 
-    if cmd == 'create-admin':
+    if cmd == 'add-customer':
+        # add-customer <username> <host1,host2,...> [email]
+        if len(args) < 3:
+            print('Usage: tm_portal_auth.py add-customer <username> <host1,host2> [email]'); sys.exit(1)
+        username, hosts = args[1], [h for h in args[2].split(',') if h.strip()]
+        email = args[3] if len(args) > 3 else ''
+        if not user_exists(username):
+            create_user(username, 'customer')
+        set_user_servers(username, hosts)
+        token = new_reg_token(username)
+        link = reg_url(token)
+        print('Customer: {0}'.format(username))
+        print('Servers : {0}'.format(', '.join(hosts)))
+        print('One-time registration link (valid {0}h):'.format(REG_TOKEN_HOURS))
+        print('  {0}'.format(link))
+        if email:
+            try:
+                send_invite_email(username, email, link)
+                print('Invitation emailed to {0}'.format(email))
+            except ValueError as e:
+                print('Email NOT sent: {0}'.format(e))
+                print('Send the link above manually.')
+    elif cmd == 'set-servers':
+        if len(args) < 3:
+            print('Usage: tm_portal_auth.py set-servers <username> <host1,host2,...>'); sys.exit(1)
+        set_user_servers(args[1], [h for h in args[2].split(',') if h.strip()])
+        print('Servers for {0}: {1}'.format(args[1], ', '.join(get_user_servers(args[1])) or '(none)'))
+    elif cmd == 'create-admin':
         if len(args) < 2:
             print('Usage: tm_portal_auth.py create-admin <username>'); sys.exit(1)
         create_user(args[1], 'admin')
@@ -516,8 +641,9 @@ def _cli_main():
             print('No portal users. Create one with: tmctl auth setup <username>')
         for u in users:
             flag = ' (DISABLED)' if u['disabled'] else ''
-            print('{0:<20} role={1:<8} passkeys={2}{3}'.format(
-                u['username'], u['role'], u['passkeys'], flag))
+            servers = ', '.join(u.get('servers') or []) if u['role'] == 'customer' else 'ALL (admin)'
+            print('{0:<20} role={1:<9} passkeys={2} servers={3}{4}'.format(
+                u['username'], u['role'], u['passkeys'], servers, flag))
     elif cmd == 'status':
         print('fido2 library : {0}'.format(
             'available' if FIDO2_AVAILABLE else 'MISSING ({0})'.format(FIDO2_ERROR or 'pip3 install fido2')))
@@ -526,7 +652,8 @@ def _cli_main():
         print('users         : {0}'.format(len(list_users())))
     else:
         print('Unknown command: {0}'.format(cmd))
-        print('Commands: create-admin <user> | new-link <user> | revoke <user> | list | status')
+        print('Commands: create-admin <user> | add-customer <user> <hosts> [email] |')
+        print('          set-servers <user> <hosts> | new-link <user> | revoke <user> | list | status')
         sys.exit(1)
 
 
