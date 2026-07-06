@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.0] - 2026-07-06
+
+### Fixed
+- **Client servers could no longer fetch the SSH key** — since v3.8.0 the API binds to `127.0.0.1` (correct for security), but that also hid `/api/ssh-key/raw` on port 7600, so `install.sh client` could not download the backup server's public key unless nginx (HTTPS) was set up. New client onboarding silently broke for direct-port setups.
+
+### Added
+- **Dedicated public SSH-key listener** (`TM_SSHKEY_PORT`, default `7601`, bound `0.0.0.0`): a minimal second listener in the API server that serves **only** `GET /api/ssh-key/raw` (the public key — not a secret) and returns 404 for everything else. The full API stays localhost-only, so the attack surface of the public port is a single read-only file. Disable with `TM_SSHKEY_PORT=0`.
+- `install.sh client` now tries, in order: HTTPS/443 (nginx) → dedicated SSH-key port (7601) → legacy port 7600 → manual paste.
+- The installer, `tmctl setup-web`, and `bin/post-update.sh` open the SSH-key port in the firewall (binadit-firewall/ufw/firewalld) automatically. `sudo tmctl update` on an existing backup server starts the listener, adds `TM_SSHKEY_PORT` to `.env`, and opens the port — restoring client onboarding in one command.
+
 ## [3.10.0] - 2026-07-04
 
 ### Added — customers as organizations (complete multi-tenant product)

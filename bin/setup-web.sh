@@ -545,22 +545,29 @@ configure_firewall() {
         bf_cmd="/usr/local/sbin/binadit-firewall"
     fi
 
+    # Port 80/443 for the dashboard; the SSH-key port so client servers can
+    # fetch the public key without nginx.
+    local key_port="${TM_SSHKEY_PORT:-7601}"
+
     if [[ -n "${bf_cmd}" ]]; then
         ${bf_cmd} config add TCP_PORTS 80 2>/dev/null || true
         ${bf_cmd} config add TCP_PORTS 443 2>/dev/null || true
+        ${bf_cmd} config add TCP_PORTS "${key_port}" 2>/dev/null || true
         ${bf_cmd} restart 2>/dev/null || true
-        info "binadit-firewall: ports 80 and 443 opened"
+        info "binadit-firewall: ports 80, 443 and ${key_port} opened"
     elif command -v ufw &>/dev/null; then
         ufw allow 80/tcp 2>/dev/null || true
         ufw allow 443/tcp 2>/dev/null || true
-        info "UFW: ports 80 and 443 opened"
+        ufw allow "${key_port}/tcp" 2>/dev/null || true
+        info "UFW: ports 80, 443 and ${key_port} opened"
     elif command -v firewall-cmd &>/dev/null; then
         firewall-cmd --permanent --add-service=http 2>/dev/null || true
         firewall-cmd --permanent --add-service=https 2>/dev/null || true
+        firewall-cmd --permanent --add-port="${key_port}/tcp" 2>/dev/null || true
         firewall-cmd --reload 2>/dev/null || true
-        info "Firewalld: HTTP and HTTPS services enabled"
+        info "Firewalld: HTTP, HTTPS and port ${key_port} enabled"
     else
-        warn "No firewall detected. Make sure ports 80 and 443 are open."
+        warn "No firewall detected. Make sure ports 80, 443 and ${key_port} are open."
     fi
 }
 

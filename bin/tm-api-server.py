@@ -611,6 +611,61 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
         super().handle_error(request, client_address)
 
 
+def _read_ssh_pubkey():
+    """Return the SSH public key text, or None if not found.
+    The public key is not a secret — it is installed into clients'
+    authorized_keys so the backup server may SSH in."""
+    key_file = CONFIG.get('ssh_key', '') + '.pub'
+    if key_file != '.pub' and os.path.isfile(key_file):
+        try:
+            with open(key_file) as f:
+                return f.read().strip()
+        except Exception:
+            return None
+    return None
+
+
+class SSHKeyHandler(BaseHTTPRequestHandler):
+    """Minimal PUBLIC listener that serves ONLY the SSH public key.
+
+    New client servers fetch the backup server's public key from here to
+    add it to their authorized_keys. The public key is not sensitive, so
+    this endpoint is intentionally open (no proxy key, no session). It
+    exposes exactly one read-only file and nothing else — the full API
+    stays bound to localhost. Disable with TM_SSHKEY_PORT=0."""
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def _send(self, text, status=200, ctype='text/plain'):
+        body = text.encode('utf-8')
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def do_GET(self):
+        try:
+            path = unquote(urlparse(self.path).path)
+            if path == '/api/ssh-key/raw':
+                key = _read_ssh_pubkey()
+                if key:
+                    self._send(key)
+                else:
+                    self._send('SSH public key not found', status=404)
+            elif path in ('/', '/health'):
+                self._send('TimeMachine SSH-key endpoint. GET /api/ssh-key/raw\n')
+            else:
+                self._send('Not found', status=404)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+
 class APIHandler(BaseHTTPRequestHandler):
     """HTTP request handler for all API and static file routes."""
 
@@ -2376,9 +2431,9 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'SSH public key not found'}, 404)
 
     def _api_ssh_key_raw(self):
-        key_file = CONFIG.get('ssh_key', '') + '.pub'
-        if os.path.isfile(key_file):
-            self._send_text(open(key_file).read().strip())
+        key = _read_ssh_pubkey()
+        if key:
+            self._send_text(key)
         else:
             self._send_text('SSH public key not found', status=404)
 
@@ -2864,6 +2919,25 @@ def main():
 
     server = ThreadedHTTPServer((args.bind, args.port), APIHandler)
     print(f'TimeMachine API server listening on {args.bind}:{args.port}', flush=True)
+
+    # Dedicated PUBLIC listener for the SSH public key so client servers can
+    # fetch it during install without nginx. The full API stays on localhost;
+    # this serves only /api/ssh-key/raw (a public key). Disable: TM_SSHKEY_PORT=0.
+    raw_env = CONFIG.get('_raw') or {}
+    try:
+        key_port = int(raw_env.get('TM_SSHKEY_PORT', '7601') or '0')
+    except ValueError:
+        key_port = 7601
+    key_bind = (raw_env.get('TM_SSHKEY_BIND') or '0.0.0.0').strip()
+    if key_port > 0:
+        try:
+            key_server = ThreadedHTTPServer((key_bind, key_port), SSHKeyHandler)
+            threading.Thread(target=key_server.serve_forever, daemon=True).start()
+            print(f'SSH key endpoint listening on {key_bind}:{key_port} '
+                  f'(public, GET /api/ssh-key/raw only)', flush=True)
+        except Exception as e:
+            print(f'WARNING: SSH key endpoint could not start on '
+                  f'{key_bind}:{key_port}: {e}', flush=True)
 
     # Hard shutdown — os._exit() kills the process immediately without
     # waiting for threads, socket close, or atexit handlers.

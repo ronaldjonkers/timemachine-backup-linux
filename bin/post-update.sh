@@ -196,13 +196,63 @@ PYEOF
 }
 
 # ============================================================
+# SSH-KEY PORT FIREWALL (client onboarding)
+# ============================================================
+# Since v3.11 the full API is localhost-only and the SSH public key is
+# served on a dedicated public port (TM_SSHKEY_PORT, default 7601). Make
+# sure that port is open so new client servers can fetch the key.
+
+open_sshkey_port() {
+    local key_port
+    key_port=$(_env_get TM_SSHKEY_PORT)
+    key_port="${key_port:-7601}"
+    [[ "${key_port}" == "0" ]] && return 0
+
+    local bf_cmd=""
+    if command -v binadit-firewall &>/dev/null; then
+        bf_cmd="binadit-firewall"
+    elif [[ -x /usr/local/sbin/binadit-firewall ]]; then
+        bf_cmd="/usr/local/sbin/binadit-firewall"
+    fi
+
+    if [[ -n "${bf_cmd}" ]]; then
+        if ! ${bf_cmd} config get TCP_PORTS 2>/dev/null | grep -qw "${key_port}"; then
+            ${bf_cmd} config add TCP_PORTS "${key_port}" 2>/dev/null || true
+            ${bf_cmd} restart 2>/dev/null || true
+            info "Opened SSH-key port ${key_port} in binadit-firewall"
+        fi
+    elif command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -qi active; then
+        if ! ufw status | grep -qw "${key_port}"; then
+            ufw allow "${key_port}/tcp" comment "TimeMachine SSH-key" 2>/dev/null || true
+            info "Opened SSH-key port ${key_port} in ufw"
+        fi
+    elif command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -qi running; then
+        if ! firewall-cmd --list-ports 2>/dev/null | grep -qw "${key_port}/tcp"; then
+            firewall-cmd --permanent --add-port="${key_port}/tcp" 2>/dev/null || true
+            firewall-cmd --reload 2>/dev/null || true
+            info "Opened SSH-key port ${key_port} in firewalld"
+        fi
+    else
+        info "SSH-key endpoint on port ${key_port} — ensure this TCP port is open for client installs"
+    fi
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 
 ensure_fido2
 
 if [[ ${DEPS_ONLY} -eq 0 ]]; then
+    # Make the SSH-key port discoverable in .env (the API defaults to 7601
+    # even without it, but writing it lets users find and change it).
+    if [[ -f "${ENV_FILE}" ]] && ! grep -q '^TM_SSHKEY_PORT=' "${ENV_FILE}"; then
+        _upsert_env TM_SSHKEY_PORT 7601
+        info "Added TM_SSHKEY_PORT=7601 to .env (public SSH-key endpoint)"
+    fi
+
     migrate_portal_config
+    open_sshkey_port
 
     if [[ ${NO_RESTART} -eq 0 ]] && command -v systemctl &>/dev/null && \
        systemctl is-enabled timemachine &>/dev/null; then

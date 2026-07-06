@@ -193,7 +193,7 @@ sudo tmctl setup-web --remove
 
 ## Client Setup Guide
 
-**Automatic** (downloads SSH key from the backup server API — tries HTTPS/443 first, then HTTP/7600, with manual-paste fallback):
+**Automatic** (downloads the backup server's SSH public key — tries HTTPS/443 via nginx first, then the dedicated SSH-key port 7601, then legacy port 7600, with manual-paste fallback):
 
 ```bash
 # Standard install — auto-detects databases and asks for credentials
@@ -308,7 +308,17 @@ You can also pass options non-interactively:
 sudo tmctl setup-web --domain tm.example.com --email admin@example.com --user admin --pass secret
 ```
 
-The `/api/ssh-key/raw` endpoint can optionally be left open (no auth) for automated client installs.
+The `/api/ssh-key/raw` endpoint is served without auth for automated client installs — both through nginx (HTTPS) and on a dedicated public port.
+
+#### How client servers reach the backup server
+
+The full API binds to `127.0.0.1` (localhost) and is only reachable through the nginx reverse proxy — an exposed API port cannot leak backups. New client servers still need the backup server's **SSH public key** during install, which is not a secret. That single key is therefore served by a separate, minimal public listener:
+
+- **Port `7601`** (`TM_SSHKEY_PORT`, bound to `0.0.0.0`) serves **only** `GET /api/ssh-key/raw` and nothing else. `install.sh client --server <host>` fetches from here automatically.
+- Set `TM_SSHKEY_PORT=0` in `.env` to disable it entirely (e.g. when every client fetches via HTTPS/nginx instead).
+- The installer and `tmctl setup-web` open port 7601 in the firewall automatically.
+
+> Upgrading from before v3.11? Just run `sudo tmctl update` on the backup server — it starts the SSH-key listener and opens the firewall port. This restores client onboarding that broke when the API moved to localhost-only in v3.8.
 
 To remove external access:
 

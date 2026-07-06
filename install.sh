@@ -813,6 +813,13 @@ server_ask_smtp() {
 
 server_configure_firewall() {
     local api_port="${TM_API_PORT:-7600}"
+    local key_port="${TM_SSHKEY_PORT:-7601}"
+
+    # Ports to open. The SSH-key port must be reachable so new clients can
+    # fetch the public key. The API port is only reachable externally when
+    # TM_API_BIND=0.0.0.0 (advanced, no-nginx dashboard); opening it while
+    # the API is localhost-bound is harmless.
+    local ports=("${key_port}" "${api_port}")
 
     # SELinux: allow nginx to proxy to backend ports (RHEL/CentOS/Rocky/Alma)
     if command -v setsebool &>/dev/null; then
@@ -834,55 +841,60 @@ server_configure_firewall() {
 
     if [[ -n "${bf_cmd}" ]]; then
         info "binadit-firewall detected (${bf_cmd})"
-        local current_ports
+        local current_ports port
         current_ports=$(${bf_cmd} config get TCP_PORTS 2>/dev/null || true)
-        if echo "${current_ports}" | grep -qw "${api_port}" 2>/dev/null; then
-            step_done "Port ${api_port} already open in binadit-firewall"
-        else
-            ${bf_cmd} config add TCP_PORTS "${api_port}" 2>/dev/null || true
-            ${bf_cmd} restart 2>/dev/null || true
-            step_done "Port ${api_port} opened in binadit-firewall automatically"
-        fi
+        for port in "${ports[@]}"; do
+            if echo "${current_ports}" | grep -qw "${port}" 2>/dev/null; then
+                step_done "Port ${port} already open in binadit-firewall"
+            else
+                ${bf_cmd} config add TCP_PORTS "${port}" 2>/dev/null || true
+                step_done "Port ${port} opened in binadit-firewall automatically"
+            fi
+        done
+        ${bf_cmd} restart 2>/dev/null || true
         return
     fi
 
     # 2) ufw
     if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -qi "active"; then
         info "ufw firewall detected (active)"
-        if ufw status | grep -qw "${api_port}" 2>/dev/null; then
-            step_done "Port ${api_port} already open in ufw"
-        else
-            ufw allow "${api_port}/tcp" comment "TimeMachine dashboard" 2>/dev/null || true
-            step_done "Port ${api_port} opened in ufw"
-        fi
+        local port
+        for port in "${ports[@]}"; do
+            if ufw status | grep -qw "${port}" 2>/dev/null; then
+                step_done "Port ${port} already open in ufw"
+            else
+                ufw allow "${port}/tcp" comment "TimeMachine" 2>/dev/null || true
+                step_done "Port ${port} opened in ufw"
+            fi
+        done
         return
     fi
 
     # 3) firewalld
     if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -qi "running"; then
         info "firewalld detected (running)"
-        if firewall-cmd --list-ports 2>/dev/null | grep -qw "${api_port}/tcp"; then
-            step_done "Port ${api_port} already open in firewalld"
-        else
-            firewall-cmd --permanent --add-port="${api_port}/tcp" 2>/dev/null || true
-            firewall-cmd --reload 2>/dev/null || true
-            step_done "Port ${api_port} opened in firewalld"
-        fi
+        local port changed=0
+        for port in "${ports[@]}"; do
+            if firewall-cmd --list-ports 2>/dev/null | grep -qw "${port}/tcp"; then
+                step_done "Port ${port} already open in firewalld"
+            else
+                firewall-cmd --permanent --add-port="${port}/tcp" 2>/dev/null || true
+                changed=1
+                step_done "Port ${port} opened in firewalld"
+            fi
+        done
+        [[ ${changed} -eq 1 ]] && firewall-cmd --reload 2>/dev/null || true
         return
     fi
 
     # 4) iptables (check only, don't modify)
     if command -v iptables &>/dev/null; then
-        if iptables -L INPUT -n 2>/dev/null | grep -qw "${api_port}"; then
-            step_done "Port ${api_port} appears open in iptables"
-        else
-            info "No managed firewall detected (ufw/firewalld/binadit-firewall)"
-            warn "Ensure TCP port ${api_port} is open in your firewall for the dashboard"
-        fi
+        info "No managed firewall detected (ufw/firewalld/binadit-firewall)"
+        warn "Ensure TCP ports ${ports[*]} are open in your firewall (SSH-key + dashboard)"
         return
     fi
 
-    info "No firewall detected; port ${api_port} should be accessible"
+    info "No firewall detected; ports ${ports[*]} should be accessible"
 }
 
 # ============================================================
@@ -1343,10 +1355,12 @@ install_server() {
     echo -e "  Password: ${BOLD}${DASHBOARD_PASS}${NC}"
     echo ""
     echo -e "  SSH key endpoint (no auth): ${CYAN}https://${DASHBOARD_DOMAIN}/api/ssh-key/raw${NC}"
+    echo -e "  SSH key endpoint (direct):  ${CYAN}http://${my_hostname}:${TM_SSHKEY_PORT:-7601}/api/ssh-key/raw${NC}"
     else
-    echo -e "  URL: ${CYAN}http://${my_hostname}:${TM_API_PORT:-7600}${NC}"
+    echo -e "  Dashboard URL: ${CYAN}http://${my_hostname}:${TM_API_PORT:-7600}${NC} (localhost only by default)"
+    echo -e "  SSH key endpoint: ${CYAN}http://${my_hostname}:${TM_SSHKEY_PORT:-7601}/api/ssh-key/raw${NC}"
     echo ""
-    echo "  Tip: Secure the dashboard with SSL + password:"
+    echo "  Tip: Secure the dashboard with SSL + password (also enables remote access):"
     echo "     sudo tmctl setup-web"
     fi
     echo ""
@@ -1457,6 +1471,8 @@ client_fetch_ssh_key() {
 
     local key=""
 
+    local key_port="${BACKUP_SERVER_KEY_PORT:-7601}"
+
     # Try 1: HTTPS via nginx gateway (port 443)
     info "Trying HTTPS (port 443) on ${BACKUP_SERVER}..."
     key=$(curl -sf --connect-timeout 5 -k \
@@ -1468,18 +1484,32 @@ client_fetch_ssh_key() {
         return 0
     fi
 
-    # Try 2: HTTP direct (port 7600 or custom)
-    info "Trying HTTP (port ${BACKUP_SERVER_PORT}) on ${BACKUP_SERVER}..."
+    # Try 2: dedicated public SSH-key endpoint (port 7601 by default).
+    # Since v3.11 the full API is localhost-only; only the public key is
+    # served on this separate port.
+    info "Trying SSH-key endpoint (port ${key_port}) on ${BACKUP_SERVER}..."
+    key=$(curl -sf --connect-timeout 5 \
+        "http://${BACKUP_SERVER}:${key_port}/api/ssh-key/raw" 2>/dev/null) || true
+
+    if [[ -n "${key}" ]]; then
+        SSH_PUBLIC_KEY="${key}"
+        info "SSH key downloaded from ${BACKUP_SERVER}:${key_port}"
+        return 0
+    fi
+
+    # Try 3: legacy direct API port (7600) — only works on old backup
+    # servers where the API was still bound to 0.0.0.0
+    info "Trying legacy API port (${BACKUP_SERVER_PORT}) on ${BACKUP_SERVER}..."
     key=$(curl -sf --connect-timeout 5 \
         "http://${BACKUP_SERVER}:${BACKUP_SERVER_PORT}/api/ssh-key/raw" 2>/dev/null) || true
 
     if [[ -n "${key}" ]]; then
         SSH_PUBLIC_KEY="${key}"
-        info "SSH key downloaded via HTTP from ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}"
+        info "SSH key downloaded via legacy port ${BACKUP_SERVER}:${BACKUP_SERVER_PORT}"
         return 0
     fi
 
-    # Both failed — show helpful diagnostics
+    # All failed — show helpful diagnostics
     echo ""
     warn "Could not download SSH key from ${BACKUP_SERVER}"
     echo ""
@@ -1487,8 +1517,9 @@ client_fetch_ssh_key() {
     echo "    1) TimeMachine service is not running on ${BACKUP_SERVER}"
     echo "       Fix: ssh ${BACKUP_SERVER} 'sudo systemctl start timemachine'"
     echo ""
-    echo "    2) Port ${BACKUP_SERVER_PORT} is blocked by a firewall"
-    echo "       Fix: open TCP port ${BACKUP_SERVER_PORT} on the backup server's firewall"
+    echo "    2) The SSH-key port (${key_port}) is blocked by a firewall"
+    echo "       Fix: open TCP port ${key_port} on the backup server's firewall,"
+    echo "            or run 'sudo tmctl setup-web' there for HTTPS access on 443"
     echo ""
     echo "    3) Nginx gateway is not set up for HTTPS access"
     echo "       Fix: run 'sudo tmctl setup-web' on the backup server"

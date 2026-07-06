@@ -666,8 +666,9 @@ cmd_ssh_key() {
         echo -e "Use this key with install.sh client:"
         echo -e "  ${CYAN}sudo ./install.sh client --ssh-key '$(cat "${pub_key}")'${NC}"
         echo ""
-        echo -e "Or download from the API:"
-        echo -e "  ${CYAN}curl -s http://<backup-server>:${TM_API_PORT}/api/ssh-key/raw${NC}"
+        echo -e "Or download it from this backup server:"
+        echo -e "  ${CYAN}curl -s http://<backup-server>:${TM_SSHKEY_PORT:-7601}/api/ssh-key/raw${NC}"
+        echo -e "  ${CYAN}curl -sk https://<backup-server>/api/ssh-key/raw${NC}  (via nginx)"
     else
         echo -e "${RED}SSH public key not found at ${pub_key}${NC}"
         echo "Run install.sh first to generate SSH keys."
