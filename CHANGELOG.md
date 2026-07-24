@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.1] - 2026-07-24
+
+### Fixed
+- **Data disks mounted inside the tree were silently skipped from backups.** rsync ran with `-x`/`--one-file-system`, so any disk mounted on a separate filesystem (e.g. a data disk mounted at `/sites`) was not descended into — the mountpoint directory was backed up but its contents were not. The flag is now removed (`-aHAX`/`-aH`), so backups cross filesystem boundaries and include all mounted data disks. What to skip is decided solely by `config/exclude.conf`, which already excludes the virtual/kernel and mount directories (`/proc`, `/sys`, `/dev`, `/run`, `/mnt`, `/media`, `/net`, `/misc`, `/backup`, docker/containerd). **Note:** existing snapshots do not contain the previously-skipped mounted data — the next backup after updating captures it in full.
+
 ## [3.11.0] - 2026-07-06
 
 ### Fixed

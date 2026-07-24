@@ -301,10 +301,16 @@ fi
 # Detect OS-appropriate rsync flags
 # macOS rsync doesn't support -A (ACLs) or -X (xattrs) the same way
 # Sets TM_RSYNC_FLAGS as a global array for correct word splitting
+#
+# NOTE: we deliberately do NOT pass -x/--one-file-system. The backup must
+# cross filesystem boundaries so that data disks mounted inside the tree
+# (e.g. a disk mounted at /sites) are included. What to skip is decided by
+# config/exclude.conf (which already lists /proc, /sys, /dev, /mnt, /media,
+# /net, network mounts, etc.), NOT by the filesystem boundary.
 if [[ "$(uname)" == "Darwin" ]]; then
-    TM_RSYNC_FLAGS=(-aHx --numeric-ids)
+    TM_RSYNC_FLAGS=(-aH --numeric-ids)
 else
-    TM_RSYNC_FLAGS=(-aHAXx --numeric-ids)
+    TM_RSYNC_FLAGS=(-aHAX --numeric-ids)
 fi
 
 tm_ensure_dir() {
