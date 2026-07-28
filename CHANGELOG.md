@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.12.0] - 2026-07-28
+
+### Added
+- **Automatic passkey support on hosts with an old system Python.** Passkeys (fido2) need Python 3.8+, but many servers ship Python 3.6 (e.g. CentOS/RHEL 7) where passkeys were simply skipped with a warning. `post-update.sh` now looks for the newest Python ≥ 3.8 on the host — including Software Collections paths (`/opt/rh/rh-python3*`) that are not on `PATH` — and, if none exists, best-effort installs one via the distro package manager (`apt`/`dnf`/`yum`+SCL/`zypper`) **without touching the system `python3`**. It then installs `fido2` into that interpreter and records it as `TM_PYTHON_BIN` in `.env`.
+
+### Changed
+- **The API service now runs under the passkey-capable interpreter.** `tmserviced.sh` picks the Python interpreter in order: `TM_PYTHON_BIN` (set by post-update) → newest `python3.x ≥ 3.8` on `PATH` → any `python3`/`python`. The dashboard still falls back to Basic Auth when no 3.8+ interpreter can be provided.
+- **Clearer post-update messaging.** When passkeys can't be enabled, the output now states plainly that this is expected (Basic Auth keeps working) and gives the exact command to enable them later, instead of emitting `WARNING` lines that read like a failure.
+
 ## [3.11.2] - 2026-07-28
 
 ### Fixed

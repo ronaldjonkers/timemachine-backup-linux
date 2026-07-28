@@ -2152,9 +2152,17 @@ _start_http_server() {
     local api_server="${SCRIPT_DIR}/tm-api-server.py"
     local python_bin=""
 
-    # Find Python 3 interpreter
-    for p in python3 python; do
-        if command -v "${p}" &>/dev/null && "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null; then
+    # Choose the Python interpreter for the API server. Preference order:
+    #   1. TM_PYTHON_BIN from .env — set by post-update.sh when a passkey-capable
+    #      Python 3.8+ with fido2 was found/installed (may be an SCL path off PATH).
+    #   2. The newest python3.x >= 3.8 on PATH (enables passkeys/fido2).
+    #   3. Any python3 / python (>= 3.6; dashboard still works via Basic Auth).
+    local candidates=()
+    [[ -n "${TM_PYTHON_BIN:-}" ]] && candidates+=("${TM_PYTHON_BIN}")
+    candidates+=(python3.13 python3.12 python3.11 python3.10 python3.9 python3.8 python3 python)
+    for p in "${candidates[@]}"; do
+        if { command -v "${p}" &>/dev/null || [[ -x "${p}" ]]; } && \
+           "${p}" -c 'import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)' 2>/dev/null; then
             python_bin="${p}"
             break
         fi

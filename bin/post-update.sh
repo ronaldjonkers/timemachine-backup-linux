@@ -40,53 +40,99 @@ warn() { echo "  [post-update] WARNING: $*" >&2; }
 # 1. PYTHON DEPENDENCIES (fido2 for passkeys)
 # ============================================================
 
-ensure_fido2() {
-    if ! command -v python3 &>/dev/null; then
-        warn "python3 not found — skipping fido2 install"
-        return 0
-    fi
+# Echo the path/name of the newest Python >= 3.8 available on the host, or
+# nothing. fido2 (passkeys) needs 3.8+; the system python3 is often 3.6 (e.g.
+# CentOS/RHEL 7), so we look for a separately-installed newer interpreter,
+# INCLUDING Software Collections paths that are not on PATH.
+_best_python() {
+    local best="" best_ver=0 cand ver
+    local names="python3.13 python3.12 python3.11 python3.10 python3.9 python3.8 python3 python"
+    local scl
+    for scl in /opt/rh/rh-python3*/root/usr/bin/python3.* /opt/rh/rh-python3*/root/usr/bin/python3; do
+        [[ -x "${scl}" ]] && names="${names} ${scl}"
+    done
+    for cand in ${names}; do
+        command -v "${cand}" &>/dev/null || [[ -x "${cand}" ]] || continue
+        ver=$("${cand}" -c 'import sys; print(sys.version_info[0]*100+sys.version_info[1])' 2>/dev/null) || continue
+        if [[ -n "${ver}" && "${ver}" -ge 308 && "${ver}" -gt "${best_ver}" ]]; then
+            best_ver="${ver}"; best="${cand}"
+        fi
+    done
+    [[ -n "${best}" ]] && echo "${best}"
+}
 
-    if python3 -c 'import fido2' 2>/dev/null; then
-        info "fido2: already installed"
-        return 0
-    fi
-
-    # fido2 needs Python 3.8+
-    if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' 2>/dev/null; then
-        warn "Python $(python3 -V 2>&1 | awk '{print $2}') is too old for passkeys (need 3.8+)."
-        warn "The dashboard keeps working with Basic Auth. Install Python 3.8+ to enable passkeys."
-        return 0
-    fi
-
-    info "Installing Python 'fido2' package (passkey login)..."
-
-    # 1. Distro package (cleanest)
+# Best-effort install of a modern Python (>=3.8) via the distro package
+# manager. Leaves the system python3 untouched. Never fails the update.
+_install_modern_python() {
+    info "No Python 3.8+ found — trying to install one for passkeys (system python3 stays untouched)..."
     if command -v apt-get &>/dev/null; then
-        apt-get install -y -qq python3-fido2 2>/dev/null || true
+        apt-get update -qq 2>/dev/null || true
+        for pkg in python3.11 python3.12 python3.10 python3.9 python3.8; do
+            apt-get install -y -qq "${pkg}" "${pkg}-venv" 2>/dev/null && break || true
+        done
     elif command -v dnf &>/dev/null; then
-        dnf install -y -q python3-fido2 2>/dev/null || true
+        for pkg in python3.11 python3.12 python3.9; do
+            dnf install -y -q "${pkg}" 2>/dev/null && break || true
+        done
+    elif command -v yum &>/dev/null; then
+        # RHEL/CentOS 7: modern Python comes from Software Collections
+        yum install -y -q centos-release-scl 2>/dev/null || true
+        yum install -y -q rh-python38 2>/dev/null || \
+            yum install -y -q python38 2>/dev/null || true
+    elif command -v zypper &>/dev/null; then
+        for pkg in python311 python310 python39 python38; do
+            zypper --non-interactive install "${pkg}" 2>/dev/null && break || true
+        done
     fi
-    python3 -c 'import fido2' 2>/dev/null && { info "fido2: installed via package manager"; return 0; }
+}
 
-    # 2. pip (with PEP 668 fallback for modern Debian/Ubuntu)
-    if ! command -v pip3 &>/dev/null; then
-        if command -v apt-get &>/dev/null; then
-            apt-get install -y -qq python3-pip 2>/dev/null || true
-        elif command -v dnf &>/dev/null; then
-            dnf install -y -q python3-pip 2>/dev/null || true
-        elif command -v yum &>/dev/null; then
-            yum install -y -q python3-pip 2>/dev/null || true
+ensure_fido2() {
+    local py
+    py=$(_best_python)
+
+    # Already have a passkey-capable Python with fido2 present? Record it and stop.
+    if [[ -n "${py}" ]] && "${py}" -c 'import fido2' 2>/dev/null; then
+        _upsert_env TM_PYTHON_BIN "${py}"
+        info "fido2: already installed — passkeys enabled (${py})"
+        return 0
+    fi
+
+    # No Python 3.8+ at all — try to install one, then look again.
+    if [[ -z "${py}" ]]; then
+        _install_modern_python
+        py=$(_best_python)
+    fi
+
+    if [[ -z "${py}" ]]; then
+        local cur
+        cur=$(python3 -V 2>&1 | awk '{print $2}')
+        info "Passkeys disabled: no Python 3.8+ available (system Python is ${cur:-unknown})."
+        info "This is expected — the dashboard keeps working via Basic Auth."
+        info "To enable passkeys later, install Python 3.8+ and re-run: sudo tmctl update"
+        return 0
+    fi
+
+    info "Installing Python 'fido2' package for passkeys (${py})..."
+
+    # Ensure pip for THIS interpreter (not necessarily the system python3).
+    "${py}" -m pip --version &>/dev/null || "${py}" -m ensurepip --upgrade 2>/dev/null || true
+    if ! "${py}" -m pip --version &>/dev/null; then
+        if command -v apt-get &>/dev/null; then apt-get install -y -qq python3-pip 2>/dev/null || true
+        elif command -v dnf &>/dev/null; then dnf install -y -q python3-pip 2>/dev/null || true
+        elif command -v yum &>/dev/null; then yum install -y -q python3-pip 2>/dev/null || true
         fi
     fi
-    if command -v pip3 &>/dev/null; then
-        pip3 install -q fido2 2>/dev/null || \
-            pip3 install -q --break-system-packages fido2 2>/dev/null || true
-    fi
 
-    if python3 -c 'import fido2' 2>/dev/null; then
-        info "fido2: installed via pip"
+    # Install fido2 into the chosen interpreter (PEP 668 fallback for modern Debian/Ubuntu).
+    "${py}" -m pip install -q fido2 2>/dev/null || \
+        "${py}" -m pip install -q --break-system-packages fido2 2>/dev/null || true
+
+    if "${py}" -c 'import fido2' 2>/dev/null; then
+        _upsert_env TM_PYTHON_BIN "${py}"
+        info "fido2: installed — passkeys enabled (API server will use ${py})"
     else
-        warn "Could not install fido2 automatically. Passkeys stay unavailable until: pip3 install fido2"
+        info "Could not install fido2 for ${py}. Passkeys stay unavailable (dashboard uses Basic Auth)."
+        info "Manual step: ${py} -m pip install fido2 && sudo tmctl update"
     fi
 }
 
