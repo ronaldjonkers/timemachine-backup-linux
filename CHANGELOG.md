@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.2] - 2026-07-28
+
+### Fixed
+- **Dashboard kicked you back to the snapshot list while browsing a backup.** When browsing a snapshot's files or database versions (or opening the download/restore views), the background snapshot-size poll re-rendered the snapshot list into the shared modal every 5 seconds, throwing you out of the browse view before you could select a file or database to download. The poll now only refreshes sizes while the snapshot list itself is on screen (tracked via `_modalView`); it pauses on any other view and resumes when you return. This surfaced more often after 3.11.1, since larger backups (now including mounted data disks) keep sizes in the "calculating" state longer.
+
 ## [3.11.1] - 2026-07-24
 
 ### Fixed

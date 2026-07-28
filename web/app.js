@@ -121,7 +121,15 @@ function toast(message, type) {
    MODAL
    ============================================================ */
 
-function openModal(title, html) {
+// Tracks which logical view is currently shown in the (single, reused) modal.
+// The background snapshot-size poll uses this to avoid clobbering a browse /
+// download / restore view with the snapshot list when a size finishes
+// calculating. Defaults to 'other' so ANY modal that isn't the snapshot list
+// suppresses the poll's re-render.
+var _modalView = 'other';
+
+function openModal(title, html, view) {
+    _modalView = view || 'other';
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = html;
     document.getElementById('modal-overlay').classList.remove('hidden');
@@ -1422,6 +1430,10 @@ function _pollSnapSizes(hostname, rerender) {
         _snapSizeTimer = null;
         if (document.getElementById('modal-overlay').classList.contains('hidden')) return;
         if (_snapHost !== hostname) return;
+        // User navigated to a different view in the modal (browse / db versions /
+        // download / restore) — do NOT refetch or re-render, or we'd throw them
+        // back to the snapshot list. The poll resumes when they return to it.
+        if (_modalView !== 'snapshots') return;
         var data = await apiGet('/api/snapshots/' + hostname);
         if (data && data.length > 0 && _snapHost === hostname) {
             _snapData = data;
@@ -1497,7 +1509,7 @@ function _renderServerDetail() {
         '<tbody>' + rows + '</tbody>' +
         '</table>' + pagination;
 
-    openModal('Snapshots: ' + hostname + ' (' + _snapData.length + ' total, newest first)', html);
+    openModal('Snapshots: ' + hostname + ' (' + _snapData.length + ' total, newest first)', html, 'snapshots');
 }
 
 async function viewSnapshots(hostname, page) {
@@ -1555,7 +1567,7 @@ async function viewSnapshots(hostname, page) {
         '<tbody>' + rows + '</tbody>' +
         '</table>' + pagination;
 
-    openModal('Snapshots: ' + hostname + ' (last 3 months)', html);
+    openModal('Snapshots: ' + hostname + ' (last 3 months)', html, 'snapshots');
     _pollSnapSizes(hostname, function() { viewSnapshots(hostname, _snapPage); });
 }
 
